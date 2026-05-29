@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+cdk.out/
+*.js.map
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# AWS
+.aws/
+cdk.context.json
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files from editor/tools
+*.tmp.*
+*.tmp
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+
+# Geospatial source data and conversion output (large binaries — keep out of git)
+Data/
+*.gdb/
+gis_output/
+*.geojson
+!apps/web/public/**/*.geojson
+
+# Python
+__pycache__/
+*.pyc

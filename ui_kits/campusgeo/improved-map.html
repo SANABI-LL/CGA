@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampusGeo — Improved Map UI</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{height:100%;width:100%;overflow:hidden;}
+body{background:#1A1714;font-family:'Plus Jakarta Sans',sans-serif;color:#F0EDE8;-webkit-font-smoothing:antialiased;}
+::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:#3D3530;border-radius:2px;}
+input,textarea,button{font-family:inherit;}
+button{cursor:pointer;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect,useCallback,useMemo}=React;
+
+/* ─── Tokens ──────────────────────────────── */
+const C={
+  maroon:'#800000',maroonHover:'#960000',maroonActive:'#680000',
+  maroonDim:'rgba(128,0,0,0.15)',maroonRing:'rgba(128,0,0,0.25)',
+  amber:'#C4903A',amberLight:'#E4BC78',amberDim:'rgba(196,144,58,0.15)',
+  canvas:'#1A1714',surface:'#242020',raised:'#2E2A27',overlay:'#3D3530',
+  border:'#3D3530',borderMid:'#4A4540',
+  fg1:'#F0EDE8',fg2:'#C8C2BA',fg3:'#8C8580',fg4:'#5C5248',
+  green:'#4DB88A',greenDim:'rgba(46,125,94,0.15)',greenBorder:'rgba(46,125,94,0.3)',
+  blue:'#5BA3D9',blueDim:'rgba(37,99,168,0.15)',blueBorder:'rgba(58,123,200,0.3)',
+  purple:'#9B8EC4',purpleDim:'rgba(100,70,180,0.15)',purpleBorder:'rgba(100,70,180,0.3)',
+  red:'#E06060',redDim:'rgba(180,50,40,0.15)',
+  yellow:'#D4B84A',
+  white:'#ffffff',
+};
+
+/* ─── Layer data ──────────────────────────── */
+const LAYER_GROUPS = [
+  {
+    id:'campus',label:'Campus Buildings',icon:'building',defaultOpen:true,
+    layers:[
+      {id:'buildings_all',label:'All Buildings',color:'#5C5248',on:true,count:220,opacity:80},
+      {id:'buildings_academic',label:'Academic Buildings',color:C.blue,on:true,count:48,opacity:100},
+      {id:'buildings_residential',label:'Residential Halls',color:C.amber,on:false,count:26,opacity:100},
+      {id:'buildings_athletic',label:'Athletics Facilities',color:C.green,on:false,count:12,opacity:100},
+    ]
+  },
+  {
+    id:'dining',label:'Dining & Retail',icon:'coffee',defaultOpen:true,
+    layers:[
+      {id:'dining_halls',label:'Dining Halls',color:C.maroon,on:true,count:8,opacity:100},
+      {id:'cafes',label:'Cafes & Coffee',color:C.amber,on:true,count:14,opacity:100},
+      {id:'retail',label:'Campus Retail',color:'#9B8EC4',on:false,count:22,opacity:100},
+      {id:'vending',label:'Vending Machines',color:C.fg4,on:false,count:65,opacity:60},
+    ]
+  },
+  {
+    id:'academic',label:'Academic Resources',icon:'book',defaultOpen:false,
+    layers:[
+      {id:'libraries',label:'Libraries',color:C.blue,on:true,count:11,opacity:100},
+      {id:'study_rooms',label:'Study Rooms',color:'#5BA3D9',on:false,count:34,opacity:100},
+      {id:'classrooms',label:'Classrooms',color:'#7EB8A0',on:false,count:180,opacity:80},
+      {id:'labs',label:'Research Labs',color:C.purple,on:false,count:42,opacity:100},
+      {id:'computer_labs',label:'Computer Labs',color:'#7EB8A0',on:false,count:16,opacity:100},
+    ]
+  },
+  {
+    id:'transport',label:'Transportation',icon:'route',defaultOpen:false,
+    layers:[
+      {id:'parking_lots',label:'Parking Lots',color:C.yellow,on:false,count:18,opacity:80},
+      {id:'parking_garages',label:'Parking Garages',color:'#B8A832',on:false,count:4,opacity:100},
+      {id:'bike_racks',label:'Bike Racks',color:C.green,on:false,count:88,opacity:100},
+      {id:'shuttle_stops',label:'Shuttle Stops',color:'#E08060',on:false,count:22,opacity:100},
+      {id:'cta_stops',label:'CTA Bus/Train',color:C.blue,on:false,count:15,opacity:100},
+      {id:'accessible_paths',label:'Accessible Pathways',color:C.purple,on:false,count:1,opacity:80},
+    ]
+  },
+  {
+    id:'health',label:'Health & Wellness',icon:'heart',defaultOpen:false,
+    layers:[
+      {id:'health_services',label:'Health Services',color:C.red,on:false,count:6,opacity:100},
+      {id:'aed',label:'AED Locations',color:C.red,on:false,count:42,opacity:100},
+      {id:'wellness',label:'Wellness Centers',color:C.green,on:false,count:8,opacity:100},
+    ]
+  },
+  {
+    id:'utilities',label:'Campus Infrastructure',icon:'zap',defaultOpen:false,
+    layers:[
+      {id:'entrances',label:'Building Entrances',color:C.fg3,on:false,count:340,opacity:70},
+      {id:'accessible_entrances',label:'Accessible Entrances',color:C.purple,on:false,count:88,opacity:100},
+      {id:'ev_charging',label:'EV Charging',color:C.green,on:false,count:20,opacity:100},
+      {id:'atm',label:'ATM Locations',color:C.amber,on:false,count:12,opacity:100},
+      {id:'emergency_phones',label:'Emergency Phones',color:C.red,on:false,count:28,opacity:100},
+    ]
+  },
+];
+
+/* ─── Feature data (popup samples) ───────── */
+const FEATURES = {
+  reg: {
+    id:'reg',type:'library',name:'Joseph Regenstein Library',
+    address:'1100 E 57th St, Chicago, IL 60637',
+    hours:'Mon–Thu 8:30am–10pm · Fri 8:30am–6pm · Sat 9am–6pm · Sun 10am–10pm',
+    status:'open',statusText:'Open · Closes 10 PM',
+    phone:'(773) 702-8740',
+    floors:8,seats:2000,
+    amenities:['Printing','Scanning','Group study rooms','Research consultations','Café (Ex Libris)'],
+    accessibility:'Fully accessible · Elevator in main lobby · Accessible restrooms on all floors',
+    coords:'41.7922° N, 87.5999° W',
+    tags:['Library','Study','Research','Print'],
+    color:C.blue,
+  },
+  hutch:{
+    id:'hutch',type:'dining',name:'Hutchinson Commons',
+    address:'5706 S University Ave, Chicago, IL 60637',
+    hours:'Mon–Fri 11am–8pm · Sat–Sun 11am–4pm',
+    status:'open',statusText:'Open · Closes 8 PM',
+    menu:'Ratskeller (Burgers, Sandwiches) · Faculty Club',
+    capacity:450,
+    amenities:['Hot food','Salad bar','Outdoor seating'],
+    accessibility:'Step-free entrance via Reynolds Club corridor',
+    coords:'41.7893° N, 87.5997° W',
+    tags:['Dining','Hot food','Social'],
+    color:C.maroon,
+  },
+  crerar:{
+    id:'crerar',type:'library',name:'John Crerar Library',
+    address:'5730 S Ellis Ave, Chicago, IL 60637',
+    hours:'Mon–Fri 8:30am–9pm · Sat 10am–6pm · Sun 12pm–9pm',
+    status:'open',statusText:'Open · Closes 9 PM',
+    phone:'(773) 702-7715',
+    floors:5,seats:600,
+    amenities:['Science & medicine collections','Printing','Group study rooms','Computer stations'],
+    accessibility:'Fully accessible · East entrance recommended',
+    coords:'41.7908° N, 87.6020° W',
+    tags:['Library','Science','Medicine','Study'],
+    color:C.blue,
+  },
+};
+
+const MAP_MARKERS = [
+  {id:'reg',x:55,y:34,color:C.blue,icon:'book',label:'Regenstein Library'},
+  {id:'hutch',x:42,y:52,color:C.maroon,icon:'coffee',label:'Hutchinson Commons'},
+  {id:'crerar',x:36,y:46,color:C.blue,icon:'book',label:'Crerar Library'},
+  {id:'m4',x:60,y:50,color:C.amber,icon:'coffee',label:'Bartlett Dining'},
+  {id:'m5',x:48,y:60,color:C.amber,icon:'coffee',label:'Cathey Dining'},
+  {id:'m6',x:38,y:38,color:C.green,icon:'building',label:'Crerar (Accessible)'},
+  {id:'m7',x:65,y:42,color:C.maroon,icon:'building',label:'Harper Memorial'},
+  {id:'m8',x:30,y:56,color:C.purple,icon:'route',label:'Shuttle Stop'},
+];
+
+const QUERY_HISTORY = [
+  {id:1,q:'Dining near the main quad',time:'Just now',count:5},
+  {id:2,q:'Libraries open after 9pm',time:'12 min ago',count:3},
+  {id:3,q:'Accessible entrances on 57th',time:'1 hr ago',count:8},
+  {id:4,q:'Parking near Booth School',time:'Yesterday',count:4},
+];
+
+const BASEMAPS=[
+  {id:'dark',label:'Dark Canvas',preview:'#1A1714'},
+  {id:'satellite',label:'Satellite',preview:'#2A3A2A'},
+  {id:'streets',label:'Streets',preview:'#2A2E3A'},
+  {id:'topo',label:'Topographic',preview:'#1E2A1A'},
+];
+
+/* ─── Icons ───────────────────────────────── */
+const ICON_PATHS={
+  zap:<><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></>,
+  search:<><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></>,
+  mapPin:<><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></>,
+  layers:<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
+  x:<><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
+  chevronDown:<><path d="m6 9 6 6 6-6"/></>,
+  chevronRight:<><path d="m9 18 6-6-6-6"/></>,
+  chevronLeft:<><path d="m15 18-6-6 6-6"/></>,
+  menu:<><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/></>,
+  building:<><rect x="3" y="9" width="18" height="12" rx="1"/><path d="M8 9V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v4"/><line x1="12" y1="9" x2="12" y2="21"/></>,
+  coffee:<><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></>,
+  book:<><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></>,
+  route:<><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></>,
+  heart:<><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></>,
+  zap2:<><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></>,
+  compass:<><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></>,
+  plus:<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+  minus:<><line x1="5" y1="12" x2="19" y2="12"/></>,
+  locate:<><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></>,
+  map:<><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></>,
+  share:<><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></>,
+  printer:<><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></>,
+  bookmark:<><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></>,
+  filter:<><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></>,
+  info:<><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></>,
+  maximize:<><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></>,
+  clock:<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
+  phone:<><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.55 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></>,
+  wheelchair:<><circle cx="12" cy="4" r="2"/><path d="m9 9 1 9 4-4 3 6"/><path d="M7 12a5 5 0 0 0 9.33 2.5"/></>,
+  star:<><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></>,
+  sliders:<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>,
+  eye:<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+  eyeOff:<><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>,
+};
+
+const Ic=({name,size=16,color='currentColor',sw=1.5,style={}})=>(
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={style}>
+    {ICON_PATHS[name]||null}
+  </svg>
+);
+
+/* ─── Phoenix mark ────────────────────────── */
+const Phoenix=({size=26,color='white'})=>(
+  <svg width={size} height={Math.round(size*0.83)} viewBox="0 0 120 100" fill="none">
+    <g fill={color}>
+      <ellipse cx="60" cy="62" rx="14" ry="18"/>
+      <path d="M46 58 C30 45 18 50 20 65 C28 58 38 60 46 68 Z"/>
+      <path d="M74 58 C90 45 102 50 100 65 C92 58 82 60 74 68 Z"/>
+      <path d="M52 78 C48 88 44 94 40 98 C50 92 55 85 60 80 C65 85 70 92 80 98 C76 94 72 88 68 78 Z"/>
+      <ellipse cx="60" cy="48" rx="8" ry="10"/>
+      <circle cx="60" cy="36" r="9"/>
+      <path d="M56 28 C54 20 50 14 52 8 C56 16 58 22 60 26 C62 22 64 16 68 8 C70 14 66 20 64 28 Z"/>
+    </g>
+  </svg>
+);
+
+/* ─── Shared UI atoms ─────────────────────── */
+const Badge=({status,text,size='sm'})=>{
+  const cfg={
+    open:{bg:C.greenDim,c:C.green,b:C.greenBorder},
+    warning:{bg:C.amberDim,c:C.amberLight,b:'rgba(196,144,58,0.3)'},
+    closed:{bg:'rgba(60,54,50,0.6)',c:C.fg3,b:C.border},
+    info:{bg:C.blueDim,c:C.blue,b:C.blueBorder},
+    accessible:{bg:C.purpleDim,c:C.purple,b:C.purpleBorder},
+  }[status]||{bg:C.blueDim,c:C.blue,b:C.blueBorder};
+  return(
+    <span style={{display:'inline-flex',alignItems:'center',gap:5,background:cfg.bg,color:cfg.c,border:`1px solid ${cfg.b}`,borderRadius:20,fontSize:size==='sm'?10:12,fontWeight:500,padding:size==='sm'?'2px 9px':'4px 12px',whiteSpace:'nowrap'}}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:cfg.c,flexShrink:0}}/>
+      {text}
+    </span>
+  );
+};
+
+const Tag=({label,color})=>(
+  <span style={{background:`${color}22`,color,border:`1px solid ${color}44`,borderRadius:4,fontSize:10,padding:'2px 7px',fontWeight:500,fontFamily:'Plus Jakarta Sans,sans-serif',whiteSpace:'nowrap'}}>
+    {label}
+  </span>
+);
+
+const Divider=({my=8})=><div style={{borderTop:`1px solid ${C.border}`,margin:`${my}px 0`}}/>;
+
+/* ─── Map (simulated campus) ──────────────── */
+const CampusMap=({markers,selectedId,onMarkerClick,activeBasemap})=>{
+  const bgColors={'dark':C.canvas,'satellite':'#1E2A1A','streets':'#1E2030','topo':'#1A2018'};
+  const bg=bgColors[activeBasemap]||C.canvas;
+  return(
+    <div style={{position:'relative',flex:1,height:'100%',background:bg,overflow:'hidden'}}>
+      {/* Grid */}
+      <svg width="100%" height="100%" style={{position:'absolute',inset:0,opacity:0.05,pointerEvents:'none'}}>
+        <defs>
+          <pattern id="mg" width="50" height="50" patternUnits="userSpaceOnUse">
+            <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#B9B0A2" strokeWidth="0.5"/>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#mg)"/>
+      </svg>
+
+      {/* Campus SVG base */}
+      <svg width="100%" height="100%" style={{position:'absolute',inset:0,pointerEvents:'none'}} viewBox="0 0 900 650" preserveAspectRatio="xMidYMid slice">
+        {/* Streets */}
+        {[[0,160,900,160,20],[0,330,900,330,18],[0,490,900,490,15],[130,0,130,650,15],[320,0,320,650,15],[510,0,510,650,15],[700,0,700,650,15]].map(([x1,y1,x2,y2,sw],i)=>(
+          <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#453D37" strokeWidth={sw}/>
+        ))}
+        {/* Street centerlines */}
+        {[[0,160,900,160],[0,330,900,330],[0,490,900,490]].map(([x1,y1,x2,y2],i)=>(
+          <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#6B5E54" strokeWidth="1" strokeDasharray="12 8"/>
+        ))}
+
+        {/* Main Quad outline */}
+        <rect x="178" y="182" width="298" height="122" fill="#1D1A17" stroke="#3D3530" strokeWidth="1.5" strokeDasharray="5 3" rx="4"/>
+        <text x="327" y="248" textAnchor="middle" fill="#8C7E74" fontSize="11" fontFamily="'Plus Jakarta Sans',sans-serif" fontWeight="600" letterSpacing="2">MAIN QUAD</text>
+
+        {/* Building blocks */}
+        {[
+          [148,170,62,66],[220,170,66,66],[296,170,66,66],[372,170,66,66],[448,170,54,66],
+          [148,348,88,74],[248,348,74,74],[334,348,56,74],[402,348,88,74],[500,348,80,74],
+          [532,174,110,88],[660,174,86,88],[660,348,86,88],[532,348,110,74],
+          [148,510,76,64],[236,510,84,64],[334,510,64,64],[412,510,96,64],[528,510,96,72],[660,510,86,72],
+        ].map(([x,y,w,h],i)=>(
+          <rect key={i} x={x} y={y} width={w} height={h} fill="#48403A" stroke="#6B5E54" strokeWidth="1" rx="2"/>
+        ))}
+
+        {/* Street labels */}
+        <text x="450" y="153" textAnchor="middle" fill="#7A6E65" fontSize="10" fontFamily="'Plus Jakarta Sans',sans-serif">E 57th Street</text>
+        <text x="450" y="323" textAnchor="middle" fill="#7A6E65" fontSize="10" fontFamily="'Plus Jakarta Sans',sans-serif">E 59th Street</text>
+        <text x="450" y="483" textAnchor="middle" fill="#7A6E65" fontSize="10" fontFamily="'Plus Jakarta Sans',sans-serif">E 61st Street</text>
+        <text x="122" y="390" textAnchor="middle" fill="#7A6E65" fontSize="9" fontFamily="'Plus Jakarta Sans',sans-serif" transform="rotate(-90,122,390)">S University Ave</text>
+        <text x="312" y="390" textAnchor="middle" fill="#7A6E65" fontSize="9" fontFamily="'Plus Jakarta Sans',sans-serif" transform="rotate(-90,312,390)">S Ellis Ave</text>
+        <text x="502" y="390" textAnchor="middle" fill="#7A6E65" fontSize="9" fontFamily="'Plus Jakarta Sans',sans-serif" transform="rotate(-90,502,390)">S Woodlawn Ave</text>
+      </svg>
+
+      {/* Markers */}
+      {markers.map((m,i)=>{
+        const isSel=m.id===selectedId;
+        return(
+          <div key={m.id} onClick={()=>onMarkerClick(m)} style={{
+            position:'absolute',left:`${m.x}%`,top:`${m.y}%`,
+            transform:'translate(-50%,-50%)',cursor:'pointer',
+            zIndex:isSel?20:10,transition:'transform 0.2s',
+          }}>
+            {isSel&&(
+              <div style={{
+                position:'absolute',bottom:'calc(100% + 10px)',left:'50%',transform:'translateX(-50%)',
+                background:C.raised,border:`1px solid ${C.borderMid}`,borderRadius:6,
+                padding:'5px 11px',whiteSpace:'nowrap',fontSize:12,fontWeight:600,color:C.fg1,
+                boxShadow:'0 4px 20px rgba(0,0,0,0.55)',zIndex:30,
+              }}>
+                {m.label}
+                <div style={{position:'absolute',bottom:-5,left:'50%',transform:'translateX(-50%)',width:8,height:8,background:C.raised,borderRight:`1px solid ${C.borderMid}`,borderBottom:`1px solid ${C.borderMid}`,transform:'translateX(-50%) rotate(45deg)'}}/>
+              </div>
+            )}
+            <div style={{
+              width:isSel?40:32,height:isSel?40:32,borderRadius:'50%',
+              background:isSel?m.color:C.surface,
+              border:`2px solid ${m.color}`,
+              display:'flex',alignItems:'center',justifyContent:'center',
+              boxShadow:isSel?`0 0 0 5px ${m.color}25,0 4px 16px rgba(0,0,0,0.6)`:`0 2px 8px rgba(0,0,0,0.45)`,
+              transition:'all 0.2s',
+            }}>
+              <Ic name={m.icon} size={isSel?16:13} color={isSel?'white':m.color}/>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Map controls (floating) */}
+      <div style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',display:'flex',flexDirection:'column',gap:4}}>
+        {[['plus','Zoom in'],['minus','Zoom out'],['locate','My location'],['maximize','Fullscreen']].map(([icon,tip])=>(
+          <button key={icon} title={tip} style={{
+            width:36,height:36,background:C.surface,border:`1px solid ${C.border}`,
+            borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',
+            color:C.fg2,boxShadow:'0 2px 8px rgba(0,0,0,0.3)',transition:'background 0.15s',
+          }}
+          onMouseEnter={e=>e.currentTarget.style.background=C.raised}
+          onMouseLeave={e=>e.currentTarget.style.background=C.surface}
+          ><Ic name={icon} size={16} color={C.fg2}/></button>
+        ))}
+        <div style={{width:36,height:1,background:C.border,margin:'2px 0'}}/>
+        <button title="Compass" style={{width:36,height:36,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(0,0,0,0.3)'}}>
+          <Ic name="compass" size={18} color={C.fg3}/>
+        </button>
+      </div>
+
+      {/* Scale bar */}
+      <div style={{position:'absolute',bottom:32,left:16,display:'flex',alignItems:'center',gap:6}}>
+        <div style={{position:'relative',width:80,height:8}}>
+          <div style={{position:'absolute',top:'50%',left:0,right:0,height:2,background:C.fg3}}/>
+          <div style={{position:'absolute',top:0,left:0,width:2,height:8,background:C.fg3}}/>
+          <div style={{position:'absolute',top:0,right:0,width:2,height:8,background:C.fg3}}/>
+        </div>
+        <span style={{fontSize:10,color:C.fg3,fontFamily:'JetBrains Mono,monospace'}}>500 ft</span>
+      </div>
+
+      {/* Coordinates */}
+      <div style={{position:'absolute',bottom:12,left:16,fontSize:10,color:C.fg4,fontFamily:'JetBrains Mono,monospace'}}>
+        41.7886° N, 87.5987° W
+      </div>
+
+      {/* Attribution */}
+      <div style={{position:'absolute',bottom:12,right:50,fontSize:9,color:C.fg4}}>
+        © UChicago Campus Operations · © OpenStreetMap contributors
+      </div>
+    </div>
+  );
+};
+
+/* ─── Layer panel ─────────────────────────── */
+const LayerPanel=({groups,setGroups,layerSearch,setLayerSearch})=>{
+  const [openGroups,setOpenGroups]=useState(
+    Object.fromEntries(LAYER_GROUPS.map(g=>[g.id,g.defaultOpen]))
+  );
+  const [hoveredLayer,setHoveredLayer]=useState(null);
+
+  const toggleGroup=id=>setOpenGroups(s=>({...s,[id]:!s[id]}));
+  const toggleLayer=(gid,lid)=>{
+    setGroups(gs=>gs.map(g=>g.id===gid
+      ?{...g,layers:g.layers.map(l=>l.id===lid?{...l,on:!l.on}:l)}
+      :g
+    ));
+  };
+  const setOpacity=(gid,lid,val)=>{
+    setGroups(gs=>gs.map(g=>g.id===gid
+      ?{...g,layers:g.layers.map(l=>l.id===lid?{...l,opacity:val}:l)}
+      :g
+    ));
+  };
+
+  const filtered=useMemo(()=>{
+    if(!layerSearch.trim()) return groups;
+    const q=layerSearch.toLowerCase();
+    return groups.map(g=>({
+      ...g,
+      layers:g.layers.filter(l=>l.label.toLowerCase().includes(q))
+    })).filter(g=>g.layers.length>0||g.label.toLowerCase().includes(q));
+  },[groups,layerSearch]);
+
+  const activeCount=groups.reduce((acc,g)=>acc+g.layers.filter(l=>l.on).length,0);
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+      {/* Header */}
+      <div style={{padding:'12px 14px 8px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <Ic name="layers" size={15} color={C.maroon}/>
+            <span style={{fontSize:13,fontWeight:600,color:C.fg1}}>Map Layers</span>
+          </div>
+          <span style={{fontSize:11,color:C.fg3,fontWeight:500,background:C.overlay,borderRadius:20,padding:'1px 8px'}}>
+            {activeCount} active
+          </span>
+        </div>
+        {/* Search */}
+        <div style={{display:'flex',alignItems:'center',gap:8,background:C.canvas,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 10px'}}>
+          <Ic name="search" size={13} color={C.fg4}/>
+          <input value={layerSearch} onChange={e=>setLayerSearch(e.target.value)}
+            placeholder="Filter layers…"
+            style={{background:'none',border:'none',outline:'none',flex:1,fontSize:12,color:layerSearch?C.fg1:C.fg4}}
+          />
+          {layerSearch&&<button onClick={()=>setLayerSearch('')} style={{background:'none',border:'none',padding:0,display:'flex',color:C.fg4}}><Ic name="x" size={12} color={C.fg4}/></button>}
+        </div>
+      </div>
+
+      {/* Layer groups list */}
+      <div style={{flex:1,overflowY:'auto',padding:'6px 0'}}>
+        {filtered.map(group=>{
+          const isOpen=openGroups[group.id];
+          const activeInGroup=group.layers.filter(l=>l.on).length;
+          return(
+            <div key={group.id}>
+              {/* Group header */}
+              <button onClick={()=>toggleGroup(group.id)} style={{
+                width:'100%',display:'flex',alignItems:'center',gap:8,
+                padding:'8px 14px',background:'none',border:'none',
+                cursor:'pointer',textAlign:'left',
+                borderBottom:isOpen?'none':`1px solid ${C.border}`,
+              }}
+              onMouseEnter={e=>e.currentTarget.style.background=C.raised}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+              >
+                <Ic name={group.icon} size={14} color={C.fg3}/>
+                <span style={{flex:1,fontSize:12,fontWeight:600,color:C.fg2,letterSpacing:'0.01em'}}>{group.label}</span>
+                {activeInGroup>0&&(
+                  <span style={{fontSize:10,background:C.maroonDim,color:C.maroon,border:`1px solid rgba(128,0,0,0.25)`,borderRadius:20,padding:'0 6px',fontWeight:600}}>{activeInGroup}</span>
+                )}
+                <Ic name={isOpen?'chevronDown':'chevronRight'} size={13} color={C.fg4}/>
+              </button>
+
+              {/* Layers in group */}
+              {isOpen&&group.layers.map(layer=>{
+                const isHov=hoveredLayer===layer.id;
+                return(
+                  <div key={layer.id}
+                    onMouseEnter={()=>setHoveredLayer(layer.id)}
+                    onMouseLeave={()=>setHoveredLayer(null)}
+                    style={{padding:'0 14px 0 36px',background:isHov?C.canvas:'transparent',transition:'background 0.12s'}}
+                  >
+                    <div style={{display:'flex',alignItems:'center',gap:8,paddingTop:6,paddingBottom:layer.on&&isHov?2:6}}>
+                      {/* Color swatch */}
+                      <div style={{width:10,height:10,borderRadius:2,background:layer.color,flexShrink:0,opacity:layer.on?1:0.35}}/>
+                      {/* Label */}
+                      <span style={{flex:1,fontSize:12,color:layer.on?C.fg1:C.fg3,transition:'color 0.15s'}}>{layer.label}</span>
+                      {/* Count */}
+                      <span style={{fontSize:10,color:C.fg4,fontFamily:'JetBrains Mono,monospace',marginRight:4}}>{layer.count}</span>
+                      {/* Toggle */}
+                      <div onClick={()=>toggleLayer(group.id,layer.id)} style={{
+                        width:28,height:16,borderRadius:8,
+                        background:layer.on?C.maroon:C.overlay,
+                        position:'relative',cursor:'pointer',transition:'background 0.2s',flexShrink:0,
+                      }}>
+                        <div style={{
+                          position:'absolute',top:2,left:layer.on?'calc(100% - 14px)':2,
+                          width:12,height:12,borderRadius:'50%',background:'white',
+                          transition:'left 0.2s',boxShadow:'0 1px 3px rgba(0,0,0,0.3)',
+                        }}/>
+                      </div>
+                    </div>
+                    {/* Opacity slider — shown on hover when layer is on */}
+                    {layer.on&&isHov&&(
+                      <div style={{display:'flex',alignItems:'center',gap:8,paddingBottom:6}}>
+                        <Ic name="eye" size={11} color={C.fg4}/>
+                        <input type="range" min="10" max="100" value={layer.opacity}
+                          onChange={e=>setOpacity(group.id,layer.id,+e.target.value)}
+                          style={{flex:1,height:2,accentColor:C.maroon,cursor:'pointer'}}
+                        />
+                        <span style={{fontSize:10,color:C.fg4,fontFamily:'JetBrains Mono,monospace',width:28,textAlign:'right'}}>{layer.opacity}%</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {isOpen&&<div style={{borderBottom:`1px solid ${C.border}`,margin:'4px 0'}}/>}
+            </div>
+          );
+        })}
+        {filtered.length===0&&(
+          <div style={{padding:'24px 14px',textAlign:'center',color:C.fg4,fontSize:12}}>No layers match "{layerSearch}"</div>
+        )}
+      </div>
+
+      {/* Legend hint */}
+      <div style={{padding:'8px 14px',borderTop:`1px solid ${C.border}`,fontSize:10,color:C.fg4,flexShrink:0}}>
+        <span style={{fontWeight:600,color:C.fg3}}>Data: </span>UChicago Campus Ops · Facilities Services · Dining Services
+      </div>
+    </div>
+  );
+};
+
+/* ─── Feature Info Panel ──────────────────── */
+const FeaturePanel=({feature,onClose})=>{
+  if(!feature)return null;
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+      {/* Color banner */}
+      <div style={{background:`linear-gradient(135deg, ${feature.color}22 0%, transparent 100%)`,borderBottom:`1px solid ${feature.color}33`,padding:'14px 14px 12px',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:8}}>
+          <div style={{width:36,height:36,borderRadius:8,background:`${feature.color}22`,border:`1px solid ${feature.color}44`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <Ic name={feature.type==='library'?'book':'coffee'} size={18} color={feature.color}/>
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.fg1,lineHeight:1.3,marginBottom:4}}>{feature.name}</div>
+            <Badge status={feature.status} text={feature.statusText}/>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:C.fg3,display:'flex',padding:2,flexShrink:0}}>
+            <Ic name="x" size={16} color={C.fg3}/>
+          </button>
+        </div>
+        {/* Quick actions */}
+        <div style={{display:'flex',gap:6}}>
+          {[['route','Directions',C.maroon],[`share`,'Share',null],['printer','Print',null],['bookmark','Save',null]].map(([icon,label,accent])=>(
+            <button key={label} style={{
+              flex:1,background:accent?C.maroon:C.raised,
+              color:accent?'white':C.fg2,
+              border:`1px solid ${accent?C.maroon:C.border}`,
+              borderRadius:6,padding:'6px 0',fontSize:11,fontWeight:500,
+              display:'flex',flexDirection:'column',alignItems:'center',gap:3,
+              boxShadow:accent?'0 2px 8px rgba(128,0,0,0.35)':'none',
+            }}>
+              <Ic name={icon} size={13} color={accent?'white':C.fg3}/>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{flex:1,overflowY:'auto',padding:'12px 14px'}}>
+        {/* Address & hours */}
+        <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:12}}>
+          {[
+            ['mapPin',feature.address],
+            ['clock',feature.hours],
+            ...(feature.phone?[['phone',feature.phone]]:[]),
+          ].map(([icon,text])=>(
+            <div key={icon} style={{display:'flex',gap:8,alignItems:'flex-start'}}>
+              <Ic name={icon} size={13} color={C.fg4} style={{flexShrink:0,marginTop:1}}/>
+              <span style={{fontSize:12,color:C.fg2,lineHeight:1.5}}>{text}</span>
+            </div>
+          ))}
+        </div>
+
+        <Divider/>
+
+        {/* Amenities */}
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:10,color:C.fg4,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:600,marginBottom:6}}>Amenities</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+            {feature.amenities.map(a=>(
+              <Tag key={a} label={a} color={feature.color}/>
+            ))}
+          </div>
+        </div>
+
+        <Divider/>
+
+        {/* Accessibility */}
+        <div style={{marginBottom:12}}>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+            <Ic name="wheelchair" size={13} color={C.purple}/>
+            <span style={{fontSize:10,color:C.fg4,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:600}}>Accessibility</span>
+          </div>
+          <span style={{fontSize:12,color:C.fg2,lineHeight:1.5}}>{feature.accessibility}</span>
+        </div>
+
+        <Divider/>
+
+        {/* Stats grid */}
+        {(feature.floors||feature.seats||feature.capacity)&&(
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:12}}>
+            {feature.floors&&(
+              <div style={{background:C.canvas,border:`1px solid ${C.border}`,borderRadius:6,padding:'8px 10px'}}>
+                <div style={{fontSize:18,fontWeight:700,color:C.fg1,fontFamily:'EB Garamond,serif'}}>{feature.floors}</div>
+                <div style={{fontSize:10,color:C.fg4}}>Floors</div>
+              </div>
+            )}
+            {feature.seats&&(
+              <div style={{background:C.canvas,border:`1px solid ${C.border}`,borderRadius:6,padding:'8px 10px'}}>
+                <div style={{fontSize:18,fontWeight:700,color:C.fg1,fontFamily:'EB Garamond,serif'}}>{feature.seats.toLocaleString()}</div>
+                <div style={{fontSize:10,color:C.fg4}}>Seats</div>
+              </div>
+            )}
+            {feature.capacity&&(
+              <div style={{background:C.canvas,border:`1px solid ${C.border}`,borderRadius:6,padding:'8px 10px',gridColumn:'1/-1'}}>
+                <div style={{fontSize:18,fontWeight:700,color:C.fg1,fontFamily:'EB Garamond,serif'}}>{feature.capacity}</div>
+                <div style={{fontSize:10,color:C.fg4}}>Seating capacity</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tags */}
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:10,color:C.fg4,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:600,marginBottom:6}}>Categories</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+            {feature.tags.map(t=>(
+              <span key={t} style={{background:C.raised,border:`1px solid ${C.border}`,borderRadius:20,fontSize:10,color:C.fg2,padding:'2px 9px'}}>{t}</span>
+            ))}
+          </div>
+        </div>
+
+        <Divider/>
+
+        {/* Coordinates */}
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <Ic name="mapPin" size={12} color={C.fg4}/>
+          <span style={{fontSize:11,color:C.fg4,fontFamily:'JetBrains Mono,monospace'}}>{feature.coords}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─── AI Query panel ──────────────────────── */
+const QueryPanel=({queries,activeId,onSelect,onClose})=>(
+  <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+    <div style={{padding:'12px 14px 10px',borderBottom:`1px solid ${C.border}`,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+      <div style={{display:'flex',alignItems:'center',gap:6}}>
+        <Ic name="zap" size={14} color={C.amber}/>
+        <span style={{fontSize:13,fontWeight:600,color:C.fg1}}>Query History</span>
+      </div>
+      <button onClick={onClose} style={{background:'none',border:'none',color:C.fg3,display:'flex'}}><Ic name="x" size={15} color={C.fg3}/></button>
+    </div>
+    <div style={{flex:1,overflowY:'auto',padding:'8px 0'}}>
+      {queries.map(q=>(
+        <div key={q.id} onClick={()=>onSelect(q.id)} style={{
+          padding:'9px 14px',cursor:'pointer',
+          background:q.id===activeId?C.maroonDim:'transparent',
+          borderLeft:q.id===activeId?`2px solid ${C.maroon}`:'2px solid transparent',
+          transition:'background 0.12s',
+        }}
+        onMouseEnter={e=>{if(q.id!==activeId)e.currentTarget.style.background=C.raised;}}
+        onMouseLeave={e=>{if(q.id!==activeId)e.currentTarget.style.background='transparent';}}
+        >
+          <div style={{fontSize:12,color:C.fg1,lineHeight:1.4,marginBottom:3}}>{q.q}</div>
+          <div style={{fontSize:10,color:C.fg4,fontFamily:'JetBrains Mono,monospace'}}>{q.time} · {q.count} result{q.count!==1?'s':''}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+/* ─── Basemap Switcher ────────────────────── */
+const BasemapPanel=({active,onSelect,onClose})=>(
+  <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+    <div style={{padding:'12px 14px 10px',borderBottom:`1px solid ${C.border}`,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+      <div style={{display:'flex',alignItems:'center',gap:6}}>
+        <Ic name="map" size={14} color={C.fg2}/>
+        <span style={{fontSize:13,fontWeight:600,color:C.fg1}}>Basemap</span>
+      </div>
+      <button onClick={onClose} style={{background:'none',border:'none',color:C.fg3,display:'flex'}}><Ic name="x" size={15} color={C.fg3}/></button>
+    </div>
+    <div style={{padding:12,display:'flex',flexDirection:'column',gap:6}}>
+      {BASEMAPS.map(bm=>(
+        <div key={bm.id} onClick={()=>onSelect(bm.id)} style={{
+          display:'flex',alignItems:'center',gap:10,padding:'9px 12px',
+          background:active===bm.id?C.maroonDim:C.raised,
+          border:`1px solid ${active===bm.id?'rgba(128,0,0,0.35)':C.border}`,
+          borderRadius:6,cursor:'pointer',
+        }}>
+          <div style={{width:28,height:28,borderRadius:4,background:bm.preview,border:`1px solid ${C.borderMid}`,flexShrink:0}}/>
+          <span style={{fontSize:13,color:active===bm.id?C.fg1:C.fg2,fontWeight:active===bm.id?600:400}}>{bm.label}</span>
+          {active===bm.id&&<div style={{marginLeft:'auto',width:6,height:6,borderRadius:'50%',background:C.maroon}}/>}
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+/* ─── Top AI Search Bar ───────────────────── */
+const AISearchBar=({value,onChange,onSubmit,loading,onHistoryClick})=>{
+  const [focused,setFocused]=useState(false);
+  const [showDrop,setShowDrop]=useState(false);
+  const SUG=['Dining near the main quad','Libraries open after 9pm','Accessible entrances nearby','Parking near Booth School','EV charging stations'];
+  return(
+    <div style={{position:'relative',flex:1,maxWidth:580}}>
+      <div style={{
+        display:'flex',alignItems:'center',gap:10,
+        background:focused?C.raised:C.surface,
+        border:`1px solid ${focused?C.maroon:C.border}`,
+        borderRadius:8,padding:'7px 12px',height:38,
+        boxShadow:focused?`0 0 0 2px ${C.maroonRing}`:'none',
+        transition:'all 0.15s',
+      }}>
+        <Ic name="zap" size={15} color={loading?C.amber:C.fg3}/>
+        <input value={value} onChange={e=>onChange(e.target.value)}
+          onFocus={()=>{setFocused(true);setShowDrop(true);}}
+          onBlur={()=>{setFocused(false);setTimeout(()=>setShowDrop(false),150);}}
+          onKeyDown={e=>e.key==='Enter'&&onSubmit()}
+          placeholder="Ask anything about campus…"
+          style={{flex:1,background:'none',border:'none',outline:'none',fontFamily:'EB Garamond,Georgia,serif',fontStyle:'italic',fontSize:15,color:value?C.fg1:C.fg4}}
+        />
+        {value&&<button onClick={()=>onChange('')} style={{background:'none',border:'none',display:'flex',padding:0}}><Ic name="x" size={13} color={C.fg4}/></button>}
+        <button onClick={()=>onHistoryClick()} title="History" style={{background:'none',border:'none',display:'flex',padding:0}}><Ic name="clock" size={14} color={C.fg4}/></button>
+        <button onClick={onSubmit} disabled={!value.trim()} style={{
+          background:value.trim()?C.maroon:C.overlay,color:'white',border:'none',
+          borderRadius:5,padding:'4px 12px',fontSize:12,fontWeight:500,
+          transition:'background 0.15s',flexShrink:0,
+          boxShadow:value.trim()?'0 2px 8px rgba(128,0,0,0.4)':'none',
+        }}>
+          {loading?'…':'Ask →'}
+        </button>
+      </div>
+      {showDrop&&!value&&(
+        <div style={{
+          position:'absolute',top:'calc(100% + 6px)',left:0,right:0,
+          background:C.raised,border:`1px solid ${C.border}`,borderRadius:8,
+          padding:'6px 0',zIndex:100,boxShadow:'0 8px 28px rgba(0,0,0,0.5)',
+        }}>
+          <div style={{fontSize:9,color:C.fg4,padding:'4px 12px 6px',letterSpacing:'0.08em',textTransform:'uppercase',fontWeight:600}}>Suggested</div>
+          {SUG.map(s=>(
+            <div key={s} onMouseDown={()=>{onChange(s);setShowDrop(false);}}
+              style={{display:'flex',alignItems:'center',gap:8,padding:'7px 12px',cursor:'pointer',fontSize:13,color:C.fg2}}
+              onMouseEnter={e=>e.currentTarget.style.background=C.overlay}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+            >
+              <Ic name="search" size={12} color={C.fg4}/>{s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ─── UX Annotations overlay ─────────────── */
+const ANNOTATIONS=[
+  {x:22,y:14,label:'ArcGIS: icon-only toolbar — hard to discover features',fix:'Labeled, grouped controls with clear hierarchy'},
+  {x:12,y:42,label:'ArcGIS: flat layer list, no groups or search',fix:'Grouped layers with opacity, count, and filter'},
+  {x:48,y:8,label:'ArcGIS: no AI/NL search — address lookup only',fix:'Natural language query bar with history & suggestions'},
+  {x:78,y:62,label:'ArcGIS: attribute table popup — raw key/value dump',fix:'Rich info cards with quick actions, amenities, stats'},
+  {x:50,y:88,label:'ArcGIS: light basemap washes out map features',fix:'Dark map-first layout with warm UChicago surfaces'},
+];
+
+const AnnotationsOverlay=({visible})=>{
+  if(!visible)return null;
+  return(
+    <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:50}}>
+      {ANNOTATIONS.map((a,i)=>(
+        <div key={i} style={{position:'absolute',left:`${a.x}%`,top:`${a.y}%`,transform:'translate(-50%,-50%)'}}>
+          <div style={{
+            background:'rgba(196,144,58,0.95)',color:'#1A1714',
+            borderRadius:6,padding:'5px 10px',fontSize:10,fontWeight:600,
+            maxWidth:200,lineHeight:1.4,boxShadow:'0 3px 12px rgba(0,0,0,0.5)',
+            border:'1px solid rgba(196,144,58,0.5)',
+          }}>
+            <div style={{color:'#6B4A10',fontSize:9,marginBottom:2}}>⚠ ARCGIS PAIN POINT</div>
+            <div style={{marginBottom:4}}>{a.label}</div>
+            <div style={{color:'#2E7D5E',fontSize:9,background:'rgba(0,0,0,0.12)',borderRadius:3,padding:'2px 5px'}}>✓ {a.fix}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ─── App ─────────────────────────────────── */
+const App=()=>{
+  const [query,setQuery]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [layers,setLayers]=useState(LAYER_GROUPS);
+  const [layerSearch,setLayerSearch]=useState('');
+  const [leftPanel,setLeftPanel]=useState('layers'); // layers | query | null
+  const [rightPanel,setRightPanel]=useState(null); // feature id | basemap | null
+  const [selectedMarker,setSelectedMarker]=useState(null);
+  const [activeQuery,setActiveQuery]=useState(1);
+  const [basemap,setBasemap]=useState('dark');
+  const [showAnnotations,setShowAnnotations]=useState(false);
+
+  const handleMarkerClick=(m)=>{
+    if(selectedMarker?.id===m.id){setSelectedMarker(null);setRightPanel(null);}
+    else{
+      setSelectedMarker(m);
+      const f=FEATURES[m.id];
+      setRightPanel(f?`feature:${m.id}`:'feature:reg');
+    }
+  };
+  const handleSubmit=()=>{
+    if(!query.trim())return;
+    setLoading(true);
+    setTimeout(()=>{setLoading(false);setActiveQuery(1);setLeftPanel('query');},1100);
+  };
+
+  const rightPanelContent=()=>{
+    if(!rightPanel)return null;
+    if(rightPanel==='basemap')return(
+      <BasemapPanel active={basemap} onSelect={b=>{setBasemap(b);}} onClose={()=>setRightPanel(null)}/>
+    );
+    if(rightPanel.startsWith('feature:')){
+      const fid=rightPanel.split(':')[1];
+      const f=FEATURES[fid]||FEATURES.reg;
+      return<FeaturePanel feature={f} onClose={()=>{setRightPanel(null);setSelectedMarker(null);}}/>;
+    }
+    return null;
+  };
+
+  const leftIcon=(panel,icon,label,badge)=>{
+    const active=leftPanel===panel;
+    return(
+      <button onClick={()=>setLeftPanel(leftPanel===panel?null:panel)} title={label} style={{
+        display:'flex',flexDirection:'column',alignItems:'center',gap:3,
+        padding:'8px 10px',background:active?C.maroonDim:'none',border:'none',
+        borderRight:active?`2px solid ${C.maroon}`:'2px solid transparent',
+        color:active?C.fg1:C.fg3,cursor:'pointer',position:'relative',
+        transition:'background 0.15s',
+      }}>
+        <Ic name={icon} size={18} color={active?C.maroon:C.fg3}/>
+        <span style={{fontSize:9,fontWeight:600,letterSpacing:'0.04em',textTransform:'uppercase'}}>{label}</span>
+        {badge&&<span style={{position:'absolute',top:6,right:6,width:6,height:6,borderRadius:'50%',background:C.maroon}}/>}
+      </button>
+    );
+  };
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden'}}>
+
+      {/* ── Top bar ── */}
+      <div style={{background:C.maroon,height:52,display:'flex',alignItems:'center',padding:'0 14px',gap:12,flexShrink:0,zIndex:20,boxShadow:'0 2px 16px rgba(0,0,0,0.45)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+          <Phoenix size={22} color="white"/>
+          <div>
+            <div style={{fontFamily:'EB Garamond,Georgia,serif',fontSize:17,color:'white',lineHeight:1.1,letterSpacing:'0.01em'}}>CampusGeo</div>
+            <div style={{fontSize:8,color:'rgba(255,255,255,0.55)',letterSpacing:'0.12em',textTransform:'uppercase'}}>University of Chicago</div>
+          </div>
+        </div>
+
+        <div style={{width:1,height:24,background:'rgba(255,255,255,0.2)',flexShrink:0}}/>
+
+        <AISearchBar value={query} onChange={setQuery} onSubmit={handleSubmit} loading={loading} onHistoryClick={()=>setLeftPanel(p=>p==='query'?null:'query')}/>
+
+        <div style={{display:'flex',gap:6,alignItems:'center',marginLeft:'auto',flexShrink:0}}>
+          {/* Annotation toggle */}
+          <button onClick={()=>setShowAnnotations(a=>!a)} title="Show UX improvements vs ArcGIS" style={{
+            background:showAnnotations?'rgba(196,144,58,0.25)':'rgba(255,255,255,0.1)',
+            border:`1px solid ${showAnnotations?C.amber:'rgba(255,255,255,0.15)'}`,
+            borderRadius:6,padding:'5px 10px',color:showAnnotations?C.amberLight:'rgba(255,255,255,0.7)',
+            fontSize:11,fontWeight:500,display:'flex',alignItems:'center',gap:5,
+          }}>
+            <Ic name="info" size={13} color={showAnnotations?C.amberLight:'rgba(255,255,255,0.7)'}/>
+            UX Notes
+          </button>
+          <button onClick={()=>setRightPanel(rp=>rp==='basemap'?null:'basemap')} title="Switch basemap" style={{
+            background:rightPanel==='basemap'?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.1)',
+            border:'none',borderRadius:6,padding:'7px 8px',color:'white',display:'flex',
+          }}>
+            <Ic name="map" size={16} color="white"/>
+          </button>
+          <button style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:6,padding:'7px 8px',color:'white',display:'flex'}}>
+            <Ic name="share" size={16} color="white"/>
+          </button>
+          <button style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:6,padding:'7px 8px',color:'white',display:'flex'}}>
+            <Ic name="printer" size={16} color="white"/>
+          </button>
+          <div style={{width:30,height:30,borderRadius:'50%',background:'rgba(255,255,255,0.18)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,color:'white',letterSpacing:'0.02em'}}>JS</div>
+        </div>
+      </div>
+
+      {/* ── Main layout ── */}
+      <div style={{display:'flex',flex:1,overflow:'hidden',position:'relative'}}>
+
+        {/* Left icon rail */}
+        <div style={{width:58,background:C.surface,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',alignItems:'center',paddingTop:6,flexShrink:0,zIndex:10}}>
+          {leftIcon('layers','layers','Layers')}
+          {leftIcon('query','zap','AI',true)}
+          {leftIcon('bookmarks','bookmark','Saved')}
+          <div style={{flex:1}}/>
+          <button title="Filter" style={{padding:'8px 10px',background:'none',border:'none',color:C.fg4,display:'flex',flexDirection:'column',alignItems:'center',gap:3,marginBottom:8,cursor:'pointer'}}>
+            <Ic name="filter" size={18} color={C.fg4}/>
+            <span style={{fontSize:9,color:C.fg4,fontWeight:600,letterSpacing:'0.04em',textTransform:'uppercase'}}>Filter</span>
+          </button>
+        </div>
+
+        {/* Left expandable panel */}
+        {leftPanel&&leftPanel!=='bookmarks'&&(
+          <div style={{width:280,background:C.surface,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0,
+            animation:'slideIn 0.2s ease-out both',
+          }}>
+            {leftPanel==='layers'&&<LayerPanel groups={layers} setGroups={setLayers} layerSearch={layerSearch} setLayerSearch={setLayerSearch}/>}
+            {leftPanel==='query'&&<QueryPanel queries={QUERY_HISTORY} activeId={activeQuery} onSelect={id=>{setActiveQuery(id);}} onClose={()=>setLeftPanel(null)}/>}
+          </div>
+        )}
+
+        {/* Map */}
+        <div style={{position:'relative',flex:1,overflow:'hidden'}}>
+          <CampusMap markers={MAP_MARKERS} selectedId={selectedMarker?.id} onMarkerClick={handleMarkerClick} activeBasemap={basemap}/>
+          <AnnotationsOverlay visible={showAnnotations}/>
+        </div>
+
+        {/* Right panel */}
+        {rightPanel&&(
+          <div style={{width:320,background:C.surface,borderLeft:`1px solid ${C.border}`,display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0}}>
+            {rightPanelContent()}
+          </div>
+        )}
+      </div>
+
+      {/* ── Status bar ── */}
+      <div style={{height:24,background:C.surface,borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',padding:'0 14px',gap:16,flexShrink:0}}>
+        <span style={{fontSize:10,color:C.fg4,fontFamily:'JetBrains Mono,monospace'}}>41.7886° N, 87.5987° W</span>
+        <div style={{width:1,height:12,background:C.border}}/>
+        <span style={{fontSize:10,color:C.fg4}}>Zoom 16 · Scale 1:2,000</span>
+        <div style={{width:1,height:12,background:C.border}}/>
+        <span style={{fontSize:10,color:C.fg4}}>WGS 84</span>
+        <div style={{flex:1}}/>
+        {layers.reduce((a,g)=>a+g.layers.filter(l=>l.on).length,0)>0&&(
+          <span style={{fontSize:10,color:C.fg3}}>
+            {layers.reduce((a,g)=>a+g.layers.filter(l=>l.on).length,0)} layer{layers.reduce((a,g)=>a+g.layers.filter(l=>l.on).length,0)!==1?'s':''} visible
+          </span>
+        )}
+        <div style={{width:1,height:12,background:C.border}}/>
+        <span style={{fontSize:10,color:C.fg4}}>© UChicago Campus Operations</span>
+      </div>
+
+      <style>{`
+        @keyframes slideIn { from { transform: translateX(-8px); } to { transform: translateX(0); } }
+      `}</style>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

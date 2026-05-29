@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Radii & Shadows</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  body { background: #1A1714; padding: 16px; margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; display: flex; gap: 20px; }
+  .col { flex: 1; }
+  .section { font-size: 9px; color: #5C5248; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin-bottom: 10px; }
+  .radii-row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
+  .box { background: #2E2A27; border: 1px solid #3D3530; width: 44px; height: 44px; }
+  .rlabel { font-size: 9px; color: #8C8580; margin-top: 5px; font-family: 'JetBrains Mono', monospace; text-align: center; }
+  .shadow-row { display: flex; flex-direction: column; gap: 10px; }
+  .shadow-box { background: #2E2A27; border-radius: 8px; padding: 12px 14px; }
+  .shadow-name { font-size: 9px; color: #8C8580; font-family: 'JetBrains Mono', monospace; }
+  .shadow-desc { font-size: 9px; color: #5C5248; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="col">
+  <div class="section">Border Radii</div>
+  <div class="radii-row">
+    <div><div class="box" style="border-radius:4px"></div><div class="rlabel">sm 4px</div></div>
+    <div><div class="box" style="border-radius:6px"></div><div class="rlabel">md 6px</div></div>
+    <div><div class="box" style="border-radius:8px"></div><div class="rlabel">lg 8px</div></div>
+    <div><div class="box" style="border-radius:12px"></div><div class="rlabel">xl 12px</div></div>
+    <div><div class="box" style="border-radius:9999px"></div><div class="rlabel">pill</div></div>
+  </div>
+</div>
+<div class="col">
+  <div class="section">Shadow Elevation</div>
+  <div class="shadow-row">
+    <div class="shadow-box" style="box-shadow:0 1px 4px rgba(0,0,0,0.3)">
+      <div class="shadow-name">--shadow-sm</div>
+      <div class="shadow-desc">0 1px 4px rgba(0,0,0,.3) — inline chips</div>
+    </div>
+    <div class="shadow-box" style="box-shadow:0 2px 8px rgba(0,0,0,0.35)">
+      <div class="shadow-name">--shadow-md</div>
+      <div class="shadow-desc">0 2px 8px rgba(0,0,0,.35) — result cards</div>
+    </div>
+    <div class="shadow-box" style="box-shadow:0 4px 24px rgba(0,0,0,0.45)">
+      <div class="shadow-name">--shadow-lg</div>
+      <div class="shadow-desc">0 4px 24px rgba(0,0,0,.45) — panels</div>
+    </div>
+    <div class="shadow-box" style="box-shadow:0 2px 12px rgba(128,0,0,0.4)">
+      <div class="shadow-name">--shadow-brand</div>
+      <div class="shadow-desc">0 2px 12px rgba(128,0,0,.4) — CTA buttons</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

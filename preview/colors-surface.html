@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Surface Colors</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { background: #0A0908; padding: 16px; margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .row { display: flex; gap: 5px; margin-bottom: 10px; align-items: flex-end; }
+  .swatch { flex: 1; }
+  .chip { height: 56px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); }
+  .chip.tall { height: 84px; }
+  .name { font-size: 10px; color: #756B62; margin-top: 4px; font-weight: 500; }
+  .hex  { font-size: 9px; color: #5C5248; font-family: monospace; }
+  .section-label { font-size: 10px; color: #5C5248; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; margin-bottom: 6px; }
+  .text-preview { height: 56px; border-radius: 6px; background: #2E2A27; display: flex; align-items: center; padding: 0 12px; gap: 8px; border: 1px solid #3D3530; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div class="section-label">Greystone Dark Surface System</div>
+<div class="row">
+  <div class="swatch"><div class="chip tall" style="background:#1A1714"></div><div class="name">Canvas</div><div class="hex">#1A1714</div></div>
+  <div class="swatch"><div class="chip tall" style="background:#242020"></div><div class="name">Surface</div><div class="hex">#242020</div></div>
+  <div class="swatch"><div class="chip tall" style="background:#2E2A27"></div><div class="name">Raised</div><div class="hex">#2E2A27</div></div>
+  <div class="swatch"><div class="chip tall" style="background:#3D3530"></div><div class="name">Overlay</div><div class="hex">#3D3530</div></div>
+  <div class="swatch"><div class="chip tall" style="background:#5C5248"></div><div class="name">Greystone 600</div><div class="hex">#5C5248</div></div>
+  <div class="swatch"><div class="chip tall" style="background:#8C8580"></div><div class="name">Greystone 400</div><div class="hex">#8C8580</div></div>
+  <div class="swatch"><div class="chip tall" style="background:#B9B0A2"></div><div class="name">Lt Greystone</div><div class="hex">#B9B0A2</div></div>
+</div>
+<div class="section-label" style="margin-top: 4px">Foreground Text Scale</div>
+<div class="row" style="flex-direction: column; gap: 4px;">
+  <div class="text-preview"><div class="dot" style="background:#F0EDE8"></div><span style="color:#F0EDE8;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">Primary — fg-primary #F0EDE8</span></div>
+  <div class="text-preview"><div class="dot" style="background:#B9B0A2"></div><span style="color:#B9B0A2;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">Secondary — fg-secondary #B9B0A2</span></div>
+  <div class="text-preview"><div class="dot" style="background:#8C8580"></div><span style="color:#8C8580;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">Muted — fg-muted #8C8580</span></div>
+  <div class="text-preview"><div class="dot" style="background:#D4A44E"></div><span style="color:#D4A44E;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">Link — amber-400 #D4A44E</span></div>
+</div>
+</body>
+</html>

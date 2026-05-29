@@ -1,0 +1,21 @@
+{
+  "name": "@campusgeo/infra",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "tsc",
+    "cdk": "cdk",
+    "deploy:dev": "cdk deploy --all --require-approval never --context env=dev",
+    "deploy:prod": "cdk deploy --all --context env=prod",
+    "diff": "cdk diff --all",
+    "synth": "cdk synth"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.177.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.177.0",
+    "typescript": "^5.7.2"
+  }
+}

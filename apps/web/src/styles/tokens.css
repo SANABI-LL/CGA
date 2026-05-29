@@ -1,0 +1,207 @@
+/* ============================================================
+   CampusGeo Design System — Colors & Typography Tokens
+   University of Chicago AI Geospatial Agent
+   ============================================================ */
+
+/* ---- Brand Color Primitives -------------------------------- */
+:root {
+  /* UChicago Phoenix Maroon */
+  --maroon-900: #4A0000;
+  --maroon-800: #680000;
+  --maroon-700: #800000;   /* Phoenix Maroon — primary brand */
+  --maroon-600: #960000;
+  --maroon-500: #A80000;
+  --maroon-400: #C43030;
+  --maroon-300: #D96060;
+
+  /* Greystone (named after UChicago limestone buildings) */
+  --greystone-900: #1A1714;  /* near-black map canvas */
+  --greystone-800: #242020;  /* dark surface */
+  --greystone-750: #2E2A27;  /* raised surface */
+  --greystone-700: #3D3530;  /* footer / strong border */
+  --greystone-600: #5C5248;  /* dark greystone — secondary text */
+  --greystone-500: #756B62;  /* muted UI elements */
+  --greystone-400: #8C8580;  /* muted text */
+  --greystone-300: #B9B0A2;  /* light greystone — borders */
+  --greystone-200: #D4CEC8;  /* light border, disabled */
+  --greystone-100: #EDE9E5;  /* very light surface */
+  --greystone-50:  #F5F3F0;  /* near-white surface */
+
+  /* Accent — warm gold from UChicago tile roofs */
+  --amber-700: #9A6F28;
+  --amber-600: #B07F30;
+  --amber-500: #C4903A;      /* primary accent amber */
+  --amber-400: #D4A44E;
+  --amber-300: #E4BC78;
+  --amber-200: #F0D4A8;
+
+  /* Status */
+  --green-500: #2E7D5E;
+  --green-400: #3A9970;
+  --green-300: #4DB88A;
+  --red-500: #C0392B;
+  --red-400: #E74C3C;
+  --blue-500: #2563A8;
+  --blue-400: #3A7BC8;
+  --blue-300: #60A0E0;
+
+  /* Pure */
+  --white: #FFFFFF;
+  --black: #0A0908;
+
+  /* ---- Semantic UI Tokens ---------------------------------- */
+
+  /* Backgrounds */
+  --bg-canvas:    var(--greystone-900);
+  --bg-surface:   var(--greystone-800);
+  --bg-raised:    var(--greystone-750);
+  --bg-overlay:   var(--greystone-700);
+  --bg-input:     var(--greystone-800);
+  --bg-hover:     var(--greystone-750);
+  --bg-active:    var(--greystone-700);
+  --bg-brand:     var(--maroon-700);
+
+  /* Foreground / Text */
+  --fg-primary:   #F0EDE8;
+  --fg-secondary: var(--greystone-300);
+  --fg-muted:     var(--greystone-400);
+  --fg-disabled:  var(--greystone-600);
+  --fg-on-brand:  var(--white);
+  --fg-link:      var(--amber-400);
+  --fg-link-hover:var(--amber-300);
+
+  /* Borders */
+  --border-subtle:  var(--greystone-700);
+  --border-default: var(--greystone-600);
+  --border-strong:  var(--greystone-400);
+  --border-brand:   var(--maroon-700);
+  --border-accent:  var(--amber-500);
+
+  /* Brand */
+  --brand-primary:  var(--maroon-700);
+  --brand-hover:    var(--maroon-600);
+  --brand-active:   var(--maroon-800);
+  --accent-primary: var(--amber-500);
+  --accent-hover:   var(--amber-400);
+
+  /* Status */
+  --status-success: var(--green-400);
+  --status-warning: var(--amber-500);
+  --status-error:   var(--red-400);
+  --status-info:    var(--blue-400);
+
+  /* ---- Spacing Scale --------------------------------------- */
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---- Radii -------------------------------------------- */
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  8px;
+  --radius-xl:  12px;
+  --radius-pill: 20px;
+  --radius-full: 9999px;
+
+  /* ---- Shadows ------------------------------------------ */
+  --shadow-sm:  0 1px 4px rgba(0,0,0,0.3);
+  --shadow-md:  0 2px 8px rgba(0,0,0,0.35);
+  --shadow-lg:  0 4px 24px rgba(0,0,0,0.45);
+  --shadow-xl:  0 8px 40px rgba(0,0,0,0.55);
+  --shadow-brand: 0 2px 12px rgba(128,0,0,0.4);
+
+  /* ---- Layout ------------------------------------------- */
+  --topbar-height: 56px;
+  --sidebar-left-width: 360px;
+  --panel-right-width: 400px;
+  --content-max-width: 1440px;
+
+  /* ---- Typography --------------------------------------- */
+  --font-display: 'EB Garamond', 'Georgia', serif;
+  --font-ui:      'Plus Jakarta Sans', 'Helvetica Neue', sans-serif;
+  --font-mono:    'JetBrains Mono', 'Menlo', monospace;
+
+  /* Font Sizes — modular scale (1.25 ratio) */
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   17px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  30px;
+  --text-3xl:  38px;
+  --text-4xl:  48px;
+  --text-5xl:  60px;
+
+  /* Font Weights */
+  --weight-light:   300;
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semibold:600;
+  --weight-bold:    700;
+
+  /* Line Heights */
+  --leading-tight:  1.15;
+  --leading-snug:   1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed:1.7;
+
+  /* Letter Spacing */
+  --tracking-tight:  -0.02em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.04em;
+  --tracking-wider:   0.08em;
+}
+
+/* ---- Global Resets --------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg-canvas);
+  color: var(--fg-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+/* ---- Utility Classes ------------------------------------- */
+.overline {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.label {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  color: var(--fg-secondary);
+}
+
+.caption {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  line-height: var(--leading-normal);
+}
+
+/* ArcGIS map container fills parent */
+.esri-view {
+  width: 100%;
+  height: 100%;
+}

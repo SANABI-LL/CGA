@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Buttons</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { background: #1A1714; padding: 16px 20px; margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .section { font-size: 9px; color: #5C5248; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin-bottom: 8px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 500; border-radius: 6px; transition: all 0.15s; white-space: nowrap; }
+  .btn-primary { background: #800000; color: white; padding: 8px 18px; font-size: 14px; box-shadow: 0 2px 12px rgba(128,0,0,0.4); }
+  .btn-secondary { background: #2E2A27; color: #F0EDE8; padding: 8px 18px; font-size: 14px; border: 1px solid #3D3530; }
+  .btn-ghost { background: transparent; color: #B9B0A2; padding: 8px 18px; font-size: 14px; border: 1px solid #3D3530; }
+  .btn-accent { background: #C4903A; color: white; padding: 8px 18px; font-size: 14px; }
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+  .btn-lg { padding: 12px 24px; font-size: 15px; font-weight: 600; }
+  .btn-danger { background: rgba(192,57,43,0.15); color: #E74C3C; padding: 8px 18px; font-size: 14px; border: 1px solid rgba(192,57,43,0.3); }
+  .btn-icon { background: #2E2A27; color: #B9B0A2; padding: 8px; border: 1px solid #3D3530; border-radius: 6px; }
+  .disabled { opacity: 0.4; pointer-events: none; }
+  .divider { border: none; border-top: 1px solid #2E2A27; margin: 4px 0 10px; }
+</style>
+</head>
+<body>
+<div class="section">Variants</div>
+<div class="row">
+  <button class="btn btn-primary">Explore map</button>
+  <button class="btn btn-secondary">Save results</button>
+  <button class="btn btn-ghost">Clear layer</button>
+  <button class="btn btn-accent">⚡ Ask AI</button>
+  <button class="btn btn-danger">Remove</button>
+</div>
+<hr class="divider">
+<div class="section">Sizes</div>
+<div class="row">
+  <button class="btn btn-primary btn-sm">Small</button>
+  <button class="btn btn-primary">Default</button>
+  <button class="btn btn-primary btn-lg">Large — Run analysis</button>
+</div>
+<hr class="divider">
+<div class="section">States</div>
+<div class="row">
+  <button class="btn btn-primary">Default</button>
+  <button class="btn btn-primary" style="background:#960000">Hover</button>
+  <button class="btn btn-primary" style="transform:scale(0.98);background:#680000">Active</button>
+  <button class="btn btn-primary disabled">Disabled</button>
+  <button class="btn btn-icon">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+  </button>
+</div>
+</body>
+</html>

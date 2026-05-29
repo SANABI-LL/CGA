@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>UI Type</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { background: #1A1714; padding: 16px 20px; margin: 0; }
+  .row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; border-bottom: 1px solid #242020; padding-bottom: 8px; }
+  .meta { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 9px; color: #5C5248; letter-spacing: 0.08em; text-transform: uppercase; width: 120px; flex-shrink: 0; font-weight: 600; }
+  .sans { font-family: 'Plus Jakarta Sans', sans-serif; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+</style>
+</head>
+<body>
+<div class="row">
+  <div class="meta">Body / 15px Regular</div>
+  <div class="sans" style="font-size:15px;color:#F0EDE8;line-height:1.7">The Reg closes at 2am on weekdays. 3 entrances available from the quad.</div>
+</div>
+<div class="row">
+  <div class="meta">Body Sm / 13px</div>
+  <div class="sans" style="font-size:13px;color:#B9B0A2;line-height:1.5">870 E 60th St · Open until midnight · 312 seats available</div>
+</div>
+<div class="row">
+  <div class="meta">Label / 13px Medium</div>
+  <div class="sans" style="font-size:13px;font-weight:500;color:#B9B0A2;letter-spacing:0.04em">DINING · LIBRARY · ATHLETICS</div>
+</div>
+<div class="row">
+  <div class="meta">Overline / 11px</div>
+  <div class="sans" style="font-size:11px;font-weight:600;color:#8C8580;letter-spacing:0.08em;text-transform:uppercase">4 results · 0.3 mi radius</div>
+</div>
+<div class="row" style="border:none;padding-bottom:0;margin-bottom:0">
+  <div class="meta">Mono / 13px</div>
+  <div class="mono" style="font-size:13px;color:#D4A44E;background:#2E2A27;padding:4px 10px;border-radius:4px">41.7886° N, 87.5987° W</div>
+</div>
+</body>
+</html>

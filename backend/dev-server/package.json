@@ -1,0 +1,20 @@
+{
+  "name": "@campusgeo/dev-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local SSE dev server wrapping the CampusGeo Bedrock agent (Lambda-free local development).",
+  "scripts": {
+    "dev": "tsx watch server.ts",
+    "start": "tsx server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@campusgeo/ai-agent": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

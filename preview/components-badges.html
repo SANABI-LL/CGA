@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Badges & Chips</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { background: #1A1714; padding: 14px 18px; margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .section { font-size: 9px; color: #5C5248; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin-bottom: 8px; margin-top: 10px; }
+  .row { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 6px; align-items: center; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; border-radius: 20px; font-size: 12px; font-weight: 500; padding: 3px 11px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; font-size: 12px; font-weight: 500; padding: 4px 10px; cursor: pointer; }
+  .layer-row { display: flex; gap: 6px; flex-direction: column; }
+  .layer { display: flex; align-items: center; gap: 8px; background: #2E2A27; border: 1px solid #3D3530; border-radius: 6px; padding: 6px 10px; }
+  .layer-color { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  .layer-name { font-size: 12px; color: #F0EDE8; flex: 1; }
+  .toggle { width: 28px; height: 16px; border-radius: 8px; background: #800000; position: relative; flex-shrink: 0; }
+  .toggle::after { content:''; position:absolute; top:2px; right:2px; width:12px; height:12px; border-radius:50%; background:white; }
+  .toggle.off { background: #3D3530; }
+  .toggle.off::after { right:auto; left:2px; }
+</style>
+</head>
+<body>
+<div class="section">Status Badges</div>
+<div class="row">
+  <div class="badge" style="background:rgba(46,125,94,0.15);color:#4DB88A;border:1px solid rgba(46,125,94,0.3)"><div class="dot" style="background:#4DB88A"></div>Open</div>
+  <div class="badge" style="background:rgba(196,144,58,0.15);color:#E4BC78;border:1px solid rgba(196,144,58,0.3)"><div class="dot" style="background:#E4BC78"></div>Closing soon</div>
+  <div class="badge" style="background:rgba(92,82,72,0.3);color:#8C8580;border:1px solid #3D3530"><div class="dot" style="background:#8C8580"></div>Closed</div>
+  <div class="badge" style="background:rgba(37,99,168,0.15);color:#60A0E0;border:1px solid rgba(37,99,168,0.3)"><div class="dot" style="background:#60A0E0"></div>AI processing</div>
+</div>
+<div class="section">Category Chips</div>
+<div class="row">
+  <div class="chip" style="background:rgba(128,0,0,0.2);color:#D96060;border:1px solid rgba(128,0,0,0.35)">Dining</div>
+  <div class="chip" style="background:#2E2A27;color:#B9B0A2;border:1px solid #3D3530">Libraries</div>
+  <div class="chip" style="background:#2E2A27;color:#B9B0A2;border:1px solid #3D3530">Health</div>
+  <div class="chip" style="background:#2E2A27;color:#B9B0A2;border:1px solid #3D3530">Athletics</div>
+  <div class="chip" style="background:#2E2A27;color:#B9B0A2;border:1px solid #3D3530">Transit</div>
+</div>
+<div class="section">Map Layer Toggles</div>
+<div class="layer-row">
+  <div class="layer">
+    <div class="layer-color" style="background:#800000"></div>
+    <span class="layer-name">Dining locations</span>
+    <div class="toggle"></div>
+  </div>
+  <div class="layer">
+    <div class="layer-color" style="background:#3A7BC8"></div>
+    <span class="layer-name">Libraries &amp; study spaces</span>
+    <div class="toggle"></div>
+  </div>
+  <div class="layer">
+    <div class="layer-color" style="background:#5C5248"></div>
+    <span class="layer-name">Building footprints</span>
+    <div class="toggle off"></div>
+  </div>
+</div>
+</body>
+</html>

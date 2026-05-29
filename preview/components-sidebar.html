@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sidebar Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@1,400&family=Plus+Jakarta+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  body { background: #1A1714; margin: 0; padding: 0; display: flex; height: 380px; overflow: hidden; }
+  .sidebar { width: 260px; background: #242020; border-right: 1px solid #3D3530; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+  .sidebar-header { background: #800000; padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
+  .sidebar-header-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; font-weight: 600; color: white; }
+  .query-wrap { padding: 10px; border-bottom: 1px solid #3D3530; }
+  .query-input { background: #2E2A27; border: 1px solid #3D3530; border-radius: 6px; padding: 8px 12px; width: 100%; box-sizing: border-box; color: #F0EDE8; font-family: 'EB Garamond', serif; font-size: 16px; font-style: italic; }
+  .history { flex: 1; overflow-y: auto; padding: 8px; }
+  .history-item { padding: 8px 10px; border-radius: 6px; margin-bottom: 4px; cursor: pointer; }
+  .history-item:hover { background: #2E2A27; }
+  .history-item.active { background: rgba(128,0,0,0.12); border-left: 2px solid #800000; padding-left: 8px; }
+  .h-query { font-size: 12px; color: #F0EDE8; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .h-meta { font-size: 10px; color: #5C5248; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+  .results-panel { flex: 1; background: #1A1714; padding: 12px; overflow-y: auto; }
+  .result-card { background: #2E2A27; border: 1px solid #3D3530; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; display: flex; gap: 10px; }
+  .result-dot { width: 4px; border-radius: 2px; background: #800000; flex-shrink: 0; }
+  .r-name { font-size: 13px; font-weight: 600; color: #F0EDE8; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .r-sub { font-size: 11px; color: #8C8580; margin-top: 2px; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .r-tag { font-size: 10px; background: rgba(46,125,94,0.15); color: #4DB88A; border: 1px solid rgba(46,125,94,0.3); border-radius: 20px; padding: 1px 8px; margin-top: 6px; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="sidebar-header">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+    <div class="sidebar-header-title">CampusGeo</div>
+  </div>
+  <div class="query-wrap">
+    <input class="query-input" value="Where can I eat near the Quad?" readonly>
+  </div>
+  <div class="history">
+    <div style="font-size:9px;color:#5C5248;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;padding:4px 10px 6px;font-family:'Plus Jakarta Sans',sans-serif">Recent queries</div>
+    <div class="history-item active">
+      <div class="h-query">Where can I eat near the Quad?</div>
+      <div class="h-meta">2 min ago · 5 results</div>
+    </div>
+    <div class="history-item">
+      <div class="h-query">Is Crerar open right now?</div>
+      <div class="h-meta">14 min ago · 1 result</div>
+    </div>
+    <div class="history-item">
+      <div class="h-query">Parking near Booth School</div>
+      <div class="h-meta">1 hr ago · 3 results</div>
+    </div>
+    <div class="history-item">
+      <div class="h-query">Accessible building entrances on 57th</div>
+      <div class="h-meta">Yesterday · 8 results</div>
+    </div>
+  </div>
+</div>
+<div class="results-panel">
+  <div style="font-size:11px;color:#8C8580;margin-bottom:10px;font-family:'Plus Jakarta Sans',sans-serif">5 dining locations · within 0.3 mi</div>
+  <div class="result-card">
+    <div class="result-dot"></div>
+    <div>
+      <div class="r-name">Hutchinson Commons</div>
+      <div class="r-sub">Ratskeller · 5706 S University Ave</div>
+      <div class="r-tag">Open · until 8 PM</div>
+    </div>
+  </div>
+  <div class="result-card">
+    <div class="result-dot" style="background:#C4903A"></div>
+    <div>
+      <div class="r-name">Cathey Dining</div>
+      <div class="r-sub">1414 E 59th St · 0.2 mi</div>
+      <div class="r-tag" style="background:rgba(196,144,58,0.15);color:#E4BC78;border-color:rgba(196,144,58,0.3)">Closing 8:30 PM</div>
+    </div>
+  </div>
+  <div class="result-card">
+    <div class="result-dot" style="background:#3A7BC8"></div>
+    <div>
+      <div class="r-name">Bartlett Dining</div>
+      <div class="r-sub">5640 S University Ave · 0.1 mi</div>
+      <div class="r-tag" style="background:rgba(46,125,94,0.15);color:#4DB88A;border-color:rgba(46,125,94,0.3)">Open · until 9 PM</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
