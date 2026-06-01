@@ -11,4 +11,8 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
   },
-  "eng
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

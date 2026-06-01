@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(pnpm -v)",
-      "Bash(pnpm --filter web dev)"
+      "Bash(pnpm --filter web dev)",
+      "Bash(uv --version)",
+      "Bash(git --version)",
+      "Bash(uv tool *)"
     ]
   }
 }

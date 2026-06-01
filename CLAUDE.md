@@ -326,3 +326,8 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 - Beta tester recruitment: 5–10 UChicago campus users (GIS, urban planning, facilities)
 - AWS Bedrock quota: request increase if default limits too low
 - UChicago GIS team: coordinate geodatabase access and update schedule
+
+<!-- SPECKIT START -->
+Project constitution (governing principles, tech stack, workflow rules): `.specify/memory/constitution.md`
+For feature specs and implementation plans, see `specs/` directory (created per feature via /speckit-specify).
+<!-- SPECKIT END -->
