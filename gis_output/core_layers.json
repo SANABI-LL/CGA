@@ -1,0 +1,83 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2026-06-06T00:00:00Z",
+  "layers": [
+    {
+      "id": "buildings-2026",
+      "category": "建筑与设施",
+      "sourceFile": "Building_Information_2026.geojson",
+      "priority": 1,
+      "description": "主建筑信息表，包含建筑名称、地址、用途、建成年份"
+    },
+    {
+      "id": "building-footprints",
+      "category": "建筑与设施",
+      "sourceFile": "Campus_Building_Footprint.geojson",
+      "priority": 1,
+      "description": "建筑轮廓面，用于空间分析和可视化"
+    },
+    {
+      "id": "dining-facilities",
+      "category": "建筑与设施",
+      "sourceFile": "Cafe__Market__Restaurant_and_Dining_Hall.geojson",
+      "priority": 2,
+      "description": "餐饮设施点位"
+    },
+    {
+      "id": "leed-buildings",
+      "category": "建筑与设施",
+      "sourceFile": "LEED_Buildings.geojson",
+      "priority": 3,
+      "description": "LEED 认证绿色建筑"
+    },
+    {
+      "id": "archive-buildings",
+      "category": "建筑与设施",
+      "sourceFile": "Archive_Buildings.geojson",
+      "priority": 3,
+      "description": "历史建筑"
+    },
+    {
+      "id": "all-gender-restrooms",
+      "category": "建筑与设施",
+      "sourceFile": "All_Gender_Restroom.geojson",
+      "priority": 2,
+      "description": "无性别卫生间（ADA 无障碍设施规划相关）"
+    },
+    {
+      "id": "main-quad-trees",
+      "category": "景观与自然",
+      "sourceFile": "Main_Quad_Tree_Infor_Project.geojson",
+      "priority": 2,
+      "description": "Main Quad 树木普查，含树种、树龄、健康状态"
+    },
+    {
+      "id": "lawn-areas",
+      "category": "景观与自然",
+      "sourceFile": "Lawn_Area_Merge.geojson",
+      "priority": 3,
+      "description": "草坪面积，用于绿地覆盖分析"
+    },
+    {
+      "id": "land-parcels",
+      "category": "地块与区划",
+      "sourceFile": "UChicago_Land_Parcel.geojson",
+      "priority": 1,
+      "description": "大学土地权属边界（FAR 分析基础）"
+    },
+    {
+      "id": "campus-districts",
+      "category": "地块与区划",
+      "sourceFile": "Campus_District.geojson",
+      "priority": 1,
+      "description": "校园功能分区（Main Campus / Medical Center / Gleacher Center）"
+    },
+    {
+      "id": "planning-boundary",
+      "category": "地块与区划",
+      "sourceFile": "PD_Boundary.geojson",
+      "priority": 2,
+      "description": "规划发展边界"
+    }
+  ]
+}

@@ -198,6 +198,238 @@ def upload_to_s3(output_dir: Path, bucket: str, prefix: str) -> None:
     print(f"\nUpload complete: {uploaded} file(s).")
 
 
+def generate_layer_metadata(geojson_path: Path, layer_config: dict) -> dict:
+    """
+    从 GeoJSON 文件提取元数据，符合 DynamoDB layer-metadata 表结构。
+
+    Args:
+        geojson_path: GeoJSON 文件路径
+        layer_config: core_layers.json 中的图层配置
+
+    Returns:
+        符合 DynamoDB schema 的元数据字典
+    """
+    with open(geojson_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    features = data.get("features", [])
+
+    if not features:
+        return {
+            "layerId": layer_config["id"],
+            "displayName": layer_config["description"],
+            "category": layer_config["category"],
+            "s3Key": f"layers/{layer_config['sourceFile']}",
+            "geometryType": "Unknown",
+            "fieldsSchema": {},
+            "bbox": [0, 0, 0, 0],
+            "featureCount": 0,
+            "lastUpdated": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "priority": layer_config["priority"],
+            "tags": [layer_config["category"].lower()],
+        }
+
+    # 计算边界框
+    coords = []
+    geom_types = set()
+    for feature in features:
+        geom = feature.get("geometry")
+        if not geom:
+            continue
+        geom_type = geom.get("type")
+        geom_types.add(geom_type)
+
+        if geom_type == "Point":
+            coords.append(geom["coordinates"])
+        elif geom_type == "LineString":
+            coords.extend(geom["coordinates"])
+        elif geom_type == "Polygon":
+            for ring in geom["coordinates"]:
+                coords.extend(ring)
+        elif geom_type == "MultiPolygon":
+            for polygon in geom["coordinates"]:
+                for ring in polygon:
+                    coords.extend(ring)
+        elif geom_type == "MultiLineString":
+            for line in geom["coordinates"]:
+                coords.extend(line)
+        elif geom_type == "MultiPoint":
+            coords.extend(geom["coordinates"])
+
+    if coords:
+        lons = [c[0] for c in coords]
+        lats = [c[1] for c in coords]
+        bbox = [
+            round(min(lons), 6),
+            round(min(lats), 6),
+            round(max(lons), 6),
+            round(max(lats), 6),
+        ]
+    else:
+        bbox = [0, 0, 0, 0]
+
+    # 提取字段 schema（从第一个 feature 推断类型）
+    fields_schema = {}
+    if features:
+        sample_props = features[0].get("properties", {})
+        for key, value in sample_props.items():
+            if value is None:
+                fields_schema[key] = {"type": "string"}
+            elif isinstance(value, bool):
+                fields_schema[key] = {"type": "boolean"}
+            elif isinstance(value, int):
+                fields_schema[key] = {"type": "number"}
+            elif isinstance(value, float):
+                fields_schema[key] = {"type": "number"}
+            elif isinstance(value, str):
+                fields_schema[key] = {"type": "string"}
+            else:
+                fields_schema[key] = {"type": "string"}
+
+    # 确定主要几何类型（取最常见的）
+    primary_geom_type = list(geom_types)[0] if geom_types else "Unknown"
+
+    return {
+        "layerId": layer_config["id"],
+        "displayName": layer_config["description"],
+        "category": layer_config["category"],
+        "s3Key": f"layers/{layer_config['sourceFile']}",
+        "geometryType": primary_geom_type,
+        "fieldsSchema": fields_schema,
+        "bbox": bbox,
+        "featureCount": len(features),
+        "lastUpdated": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "priority": layer_config["priority"],
+        "tags": [layer_config["category"].lower()],
+    }
+
+
+def generate_metadata_from_core_layers(output_dir: Path, core_layers_path: Path) -> Path:
+    """
+    读取 core_layers.json，为每个核心图层生成 DynamoDB 元数据。
+
+    Args:
+        output_dir: GeoJSON 输出目录（gis_output/）
+        core_layers_path: core_layers.json 配置文件路径
+
+    Returns:
+        生成的 layers_metadata.json 文件路径
+    """
+    if not core_layers_path.exists():
+        print(f"\nERROR: core_layers.json not found at {core_layers_path}")
+        sys.exit(1)
+
+    with open(core_layers_path, "r", encoding="utf-8") as f:
+        core_layers_config = json.load(f)
+
+    layers = core_layers_config.get("layers", [])
+    if not layers:
+        print("\nWARNING: No layers defined in core_layers.json")
+        return None
+
+    print(f"\nGenerating metadata for {len(layers)} core layers...")
+    metadata_list = []
+
+    geojson_dir = output_dir / "geojson"
+    for layer_config in layers:
+        source_file = layer_config["sourceFile"]
+        geojson_path = geojson_dir / source_file
+
+        if not geojson_path.exists():
+            print(f"   WARNING: {source_file} not found, skipping")
+            continue
+
+        print(f"   Processing {source_file}...")
+        try:
+            metadata = generate_layer_metadata(geojson_path, layer_config)
+            metadata_list.append(metadata)
+            print(f"      {metadata['featureCount']} features, bbox: {metadata['bbox']}")
+        except Exception as e:  # noqa: BLE001
+            print(f"      ERROR: {e}")
+
+    # 输出元数据文件
+    metadata_path = output_dir / "layers_metadata.json"
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(metadata_list, f, indent=2, ensure_ascii=False)
+
+    print(f"\nMetadata generated: {metadata_path}")
+    print(f"   {len(metadata_list)}/{len(layers)} layers processed successfully")
+
+    return metadata_path
+
+
+def upload_core_layers_to_s3(output_dir: Path, core_layers_path: Path,
+                             bucket: str, metadata_path: Path = None) -> None:
+    """
+    仅上传 core_layers.json 中定义的核心图层到 S3。
+
+    Args:
+        output_dir: GeoJSON 输出目录
+        core_layers_path: core_layers.json 配置文件路径
+        bucket: S3 bucket 名称
+        metadata_path: layers_metadata.json 文件路径（可选）
+    """
+    import boto3
+
+    if not core_layers_path.exists():
+        print(f"\nERROR: core_layers.json not found at {core_layers_path}")
+        sys.exit(1)
+
+    with open(core_layers_path, "r", encoding="utf-8") as f:
+        core_layers_config = json.load(f)
+
+    layers = core_layers_config.get("layers", [])
+    print(f"\nUploading {len(layers)} core layers to s3://{bucket}/")
+
+    s3 = boto3.client("s3")
+    geojson_dir = output_dir / "geojson"
+    uploaded = 0
+
+    for layer_config in layers:
+        source_file = layer_config["sourceFile"]
+        local_path = geojson_dir / source_file
+
+        if not local_path.exists():
+            print(f"   SKIP: {source_file} not found locally")
+            continue
+
+        s3_key = f"layers/{source_file}"
+        try:
+            s3.upload_file(
+                str(local_path),
+                bucket,
+                s3_key,
+                ExtraArgs={
+                    "ContentType": "application/geo+json",
+                    "CacheControl": "public, max-age=3600",
+                },
+            )
+            size_kb = local_path.stat().st_size / 1024
+            print(f"   ✓ {s3_key}  ({size_kb:.1f} KB)")
+            uploaded += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"   ✗ {source_file}: {e}")
+
+    # 上传元数据文件
+    if metadata_path and metadata_path.exists():
+        try:
+            s3.upload_file(
+                str(metadata_path),
+                bucket,
+                "metadata/layers_metadata.json",
+                ExtraArgs={
+                    "ContentType": "application/json",
+                    "CacheControl": "public, max-age=3600",
+                },
+            )
+            print(f"   ✓ metadata/layers_metadata.json")
+            uploaded += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"   ✗ metadata upload failed: {e}")
+
+    print(f"\nUpload complete: {uploaded} file(s) uploaded to S3")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="UChicago GIS Agent -- GDB to GeoJSON converter")
     parser.add_argument("--gdb", default=str(DEFAULT_GDB), help="Path to the .gdb directory")
@@ -209,8 +441,38 @@ def main() -> None:
     parser.add_argument("--upload", action="store_true", help="Upload output to S3 after conversion")
     parser.add_argument("--bucket", default="", help="Target S3 bucket (required with --upload)")
     parser.add_argument("--prefix", default=DEFAULT_S3_PREFIX, help="S3 key prefix")
+
+    # 新增参数：元数据生成和核心图层上传
+    parser.add_argument("--generate-metadata", action="store_true",
+                       help="Generate DynamoDB metadata from core_layers.json")
+    parser.add_argument("--core-layers", default="gis_output/core_layers.json",
+                       help="Path to core_layers.json config file")
+    parser.add_argument("--upload-core-only", action="store_true",
+                       help="Upload only core layers defined in core_layers.json (not all files)")
+
     args = parser.parse_args()
 
+    output_dir = Path(args.output)
+
+    # 独立功能：仅生成元数据（不执行转换）
+    if args.generate_metadata:
+        check_dependencies(need_parquet=False, need_s3=False)
+        core_layers_path = Path(args.core_layers)
+        generate_metadata_from_core_layers(output_dir, core_layers_path)
+        return
+
+    # 独立功能：仅上传核心图层（不执行转换）
+    if args.upload_core_only:
+        check_dependencies(need_parquet=False, need_s3=True)
+        if not args.bucket:
+            print("\n--upload-core-only requires --bucket")
+            sys.exit(1)
+        core_layers_path = Path(args.core_layers)
+        metadata_path = output_dir / "layers_metadata.json"
+        upload_core_layers_to_s3(output_dir, core_layers_path, args.bucket, metadata_path)
+        return
+
+    # 常规转换流程
     check_dependencies(need_parquet=not args.no_parquet, need_s3=args.upload)
 
     gdb_path = args.gdb
@@ -232,7 +494,6 @@ def main() -> None:
             sys.exit(1)
         targets = [args.layer]
 
-    output_dir = Path(args.output)
     results = []
     for layer in targets:
         try:
