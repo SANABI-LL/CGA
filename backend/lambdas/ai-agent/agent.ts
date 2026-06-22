@@ -5,14 +5,16 @@ import {
   type Tool,
   type ContentBlock,
 } from '@aws-sdk/client-bedrock-runtime'
+import type { DocumentType } from '@smithy/types'
 import { queryArcGIS, QueryArcGISInputSchema } from './tools/campus/queryArcGIS'
 import { getShuttleArrivals, GetShuttleArrivalsInputSchema } from './tools/campus/getShuttleArrivals'
 import { getBikeStations, GetBikeStationsInputSchema } from './tools/campus/getBikeStations'
 import { findCampusNearby, FindCampusNearbyInputSchema } from './tools/campus/findCampusNearby'
 import { getBuildingInfo, GetBuildingInfoInputSchema } from './tools/campus/getBuildingInfo'
 import { checkHours, CheckHoursInputSchema } from './tools/campus/checkHours'
+import { queryTrees, QueryTreesInputSchema } from './tools/campus/queryTrees'
 
-const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'anthropic.claude-3-5-sonnet-20241022-v2:0'
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
 
 const client = new BedrockRuntimeClient({ region: AWS_REGION })
@@ -137,6 +139,25 @@ const CAMPUS_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    toolSpec: {
+      name: 'query_trees',
+      description:
+        'Query Main Quad tree inventory data. Filter by species (common name like "Maple", "Ash", "Oak"), age class ("Young", "Semi-mature", "Mature"), condition ("Good", "Fair", "Poor"), or minimum diameter. Returns tree locations and statistics. Total inventory: 539 trees.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            species: { type: 'string', description: 'Tree species common name (e.g., "Maple", "Ash")' },
+            ageClass: { type: 'string', description: 'Age class: "Young", "Semi-mature", or "Mature"' },
+            condition: { type: 'string', description: 'Tree condition: "Good", "Fair", or "Poor"' },
+            minDiameter: { type: 'number', description: 'Minimum trunk diameter in cm' },
+            location: { type: 'string', description: 'Location description' },
+          },
+        },
+      },
+    },
+  },
 ]
 
 const SYSTEM_PROMPT = `You are CampusGeo, an AI geospatial assistant for the University of Chicago. You have access to real-time campus data through tools.
@@ -210,7 +231,7 @@ export async function runCampusGeoAgent(
             toolUse: {
               toolUseId: currentToolUse.toolUseId,
               name: currentToolUse.name,
-              input: parsedInput,
+              input: parsedInput as DocumentType,
             },
           })
           currentToolUse = null
@@ -259,7 +280,7 @@ export async function runCampusGeoAgent(
         toolResults.push({
           toolResult: {
             toolUseId: toolUseId!,
-            content: [{ json: result as Record<string, unknown> }],
+            content: [{ json: result as DocumentType }],
           },
         })
       }
@@ -296,6 +317,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'check_hours': {
       const input = CheckHoursInputSchema.parse(rawInput)
       return checkHours(input)
+    }
+    case 'query_trees': {
+      const input = QueryTreesInputSchema.parse(rawInput)
+      return queryTrees(input)
     }
     default:
       return { error: `Unknown tool: ${name}` }

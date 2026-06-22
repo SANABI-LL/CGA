@@ -9,11 +9,14 @@
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.717.0",
+    "@aws-sdk/client-s3": "^3.1073.0",
     "@campusgeo/shared-types": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@smithy/types": "^4.15.0",
     "@types/aws-lambda": "^8.10.147",
+    "@types/node": "^22.10.0",
     "typescript": "^5.7.2"
   }
 }

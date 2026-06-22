@@ -77,21 +77,31 @@ export async function findCampusNearby(input: FindCampusNearbyInput) {
   }
 
   const layerName = LAYER_BY_FEATURE[input.featureType]
-  const result = await queryArcGIS({ layerName, whereClause: '1=1', maxResults: 200, returnGeometry: true })
+  const result = await queryArcGIS({
+    layerName,
+    whereClause: '1=1',
+    maxResults: 200,
+    returnGeometry: true,
+    outFields: '*'
+  })
 
   if ('error' in result) return result
 
   // Filter and sort by distance
   const nearby = result.features
     .filter((f) => {
-      const geom = f.geometry as { type: string; coordinates: number[] | number[][] | number[][][] } | null
+      const geom = f.geometry as { type: string; coordinates: number[] | number[][] | number[][][] | number[][][][] } | null
       if (!geom) return false
       let lng: number, lat: number
       if (geom.type === 'Point') {
         [lng, lat] = geom.coordinates as number[]
-      } else if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
-        // Use first coordinate as approximation
-        const coords = geom.type === 'Polygon' ? (geom.coordinates as number[][][])[0][0] : (geom.coordinates as number[][][][])[0][0][0]
+      } else if (geom.type === 'Polygon') {
+        // Use first coordinate as approximation for polygon centroid
+        const coords = (geom.coordinates as number[][][])[0][0]
+        ;[lng, lat] = coords
+      } else if (geom.type === 'MultiPolygon') {
+        // Use first polygon's first coordinate
+        const coords = (geom.coordinates as number[][][][])[0][0][0]
         ;[lng, lat] = coords
       } else {
         return false

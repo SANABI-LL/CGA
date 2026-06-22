@@ -36,7 +36,6 @@ export class ApiStack extends cdk.Stack {
           props.stage === 'prod'
             ? 'anthropic.claude-3-5-sonnet-20241022-v2:0'
             : 'anthropic.claude-3-haiku-20240307-v1:0',
-        AWS_REGION: this.region,
         ALLOWED_ORIGIN: props.stage === 'prod' ? 'https://campusgeo.uchicago.edu' : '*',
         // TRANSLOC_API_KEY and TRANSLOC_AGENCY_ID injected via Secrets Manager in Phase 2
       },

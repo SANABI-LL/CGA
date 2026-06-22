@@ -20,6 +20,7 @@ export async function getBuildingInfo(input: GetBuildingInfoInput) {
     whereClause,
     maxResults: 5,
     returnGeometry: true,
+    outFields: '*'
   })
 
   if ('error' in result) return result

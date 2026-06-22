@@ -10,17 +10,24 @@ const app = new cdk.App()
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION ?? 'us-east-1' }
 const stage = app.node.tryGetContext('env') as string ?? 'dev'
 
+// Always deploy DataStack
 const dataStack = new DataStack(app, `CampusGeoData-${stage}`, { env, stage })
-const authStack = new AuthStack(app, `CampusGeoAuth-${stage}`, { env, stage })
-const apiStack = new ApiStack(app, `CampusGeoApi-${stage}`, {
-  env,
-  stage,
-  userPool: authStack.userPool,
-  queryTable: dataStack.queryTable,
-  bookmarkTable: dataStack.bookmarkTable,
-})
-new FrontendStack(app, `CampusGeoFrontend-${stage}`, {
-  env,
-  stage,
-  apiEndpoint: apiStack.apiEndpoint,
-})
+
+// Only deploy other stacks if explicitly requested (Phase 1: DataStack only)
+const deployAll = app.node.tryGetContext('deployAll') === true
+
+if (deployAll) {
+  const authStack = new AuthStack(app, `CampusGeoAuth-${stage}`, { env, stage })
+  const apiStack = new ApiStack(app, `CampusGeoApi-${stage}`, {
+    env,
+    stage,
+    userPool: authStack.userPool,
+    queryTable: dataStack.queryTable,
+    bookmarkTable: dataStack.bookmarkTable,
+  })
+  new FrontendStack(app, `CampusGeoFrontend-${stage}`, {
+    env,
+    stage,
+    apiEndpoint: apiStack.apiEndpoint,
+  })
+}

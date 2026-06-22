@@ -164,11 +164,35 @@ If any answer is no, redo it.
 
 ## Technical Stack
 
-- React 18 + Vite
-- ArcGIS Maps SDK for JavaScript 4.x — load via ESM
-- Tailwind CSS — utility layer ONLY for layout primitives (flex, grid, spacing). Use the CSS variables above for all color, typography, and aesthetic decisions. Do not reference Tailwind's default color ramp.
-- Anthropic Claude API with tool use (function calling) for query interpretation. Server-side proxy via Next.js API routes — never expose the API key.
-- Deployment: Vercel for MVP. AWS (S3 + CloudFront + Lambda + Bedrock) for the production / portfolio version.
+**Frontend:**
+- React 18 + Vite + TypeScript
+- ArcGIS Maps SDK for JavaScript 4.x (ESM, CDN assets)
+- Tailwind CSS (utility layer only for layout) + CSS Modules (aesthetic components)
+- TanStack Router (type-safe routing)
+
+**Backend:**
+- AWS Lambda (Node.js 20.x) with streaming response (awslambda.streamifyResponse)
+- AWS Bedrock (Claude 3.5 Sonnet for production, Haiku for dev/test)
+- API Gateway HTTP API v2 (CORS, Lambda proxy integration)
+- DynamoDB (query history, bookmarks, user profiles)
+- S3 (GeoJSON data storage, CloudFront caching)
+
+**Infrastructure:**
+- AWS CDK (TypeScript) — DataStack, AuthStack, ApiStack, FrontendStack
+- CloudFront (frontend distribution, S3 origin)
+- Cognito User Pools (Phase 2: OAuth integration)
+
+**LLM Interface Abstraction:**
+- `src/agent/llm-client.ts` — unified interface for Bedrock/Anthropic API
+- MVP: Anthropic API direct (fast iteration, complete docs)
+- Production: AWS Bedrock (IAM, compliance, portfolio value)
+- Migration cost: ~1 file change due to abstraction
+
+**Deployment:**
+- Frontend: CloudFront + S3 (via CDK FrontendStack)
+- Backend: Lambda + API Gateway (via CDK ApiStack)
+- Data: DynamoDB + S3 (via CDK DataStack)
+- Auth: Cognito User Pools (via CDK AuthStack)
 
 ## Engineering Conventions
 
@@ -214,22 +238,33 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 
 ---
 
-### Phase 1: Foundation (Months 1–4) — 75% complete, ~40–60 hours remaining
+### Phase 1: Foundation (Months 1–4) — 90% complete, ~15–25 hours remaining
 **Goal:** Deployable prototype with self-hosted data.
 
 **Completed:**
 - Natural language query via Claude tool use
 - ArcGIS Maps SDK frontend integration
 - Editorial cartography UI (Fraunces + IBM Plex, warm paper aesthetic)
+- **[2026-06-04] Geodatabase → GeoJSON ETL toolkit (ArcGIS Pro compatible)**
+  - `convert_gdb.py` — Core conversion script (geopandas + fiona)
+  - `setup_arcgis_env.bat` — One-time environment setup
+  - `convert_with_arcgis.bat` — Daily-use conversion launcher
+  - `verify_conversion.bat` — Post-conversion validation
+  - `README_ARCGIS.md` — Complete user documentation
+  - Verified output: 308 buildings, 1.7MB GeoJSON, WGS84 projection
 
 **Remaining:**
-- [ ] Geodatabase → GeoJSON ETL script (Python + GDAL)
 - [ ] Upload GeoJSON to S3, populate DynamoDB metadata
-- [ ] Rewrite Lambda query tools: S3 + Turf.js instead of ArcGIS REST API
+- [ ] Rewrite Lambda query tools: S3 + Turf.js (with global-scope caching for warm invocations)
 - [ ] Fix Lambda handler TypeScript errors
-- [ ] Deploy to Vercel (frontend) + AWS Lambda (backend)
+- [ ] Deploy via CDK: `cdk deploy --all --context env=dev`
 
 **Success metric:** Public demo URL responds to "Show me campus trees" with S3-hosted data visualization.
+
+**Performance notes:**
+- Lambda cold start: ~1.5–2s (includes S3 fetch + GeoJSON parse)
+- Warm invocation: <400ms (GeoJSON cached in handler global scope)
+- Demo strategy: Pre-warm Lambda with dummy request before showcasing
 
 ---
 
@@ -237,10 +272,11 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 **Goal:** Persistent user accounts and cross-session memory.
 
 **Key features:**
-- **Google Workspace OAuth** (UChicago CNetID validation)
-  - Frontend: Google Sign-In button
-  - Backend: verify `@uchicago.edu` domain, check DynamoDB whitelist
-  - Admin panel: add/remove invited users
+- **Authentication** (simplified for alpha/beta)
+  - Environment variable whitelist: `ALLOWED_EMAILS="user1@uchicago.edu,user2@uchicago.edu"`
+  - Frontend: Google Sign-In button (Google Identity Services)
+  - Backend: verify `@uchicago.edu` domain + check whitelist in Lambda
+  - Future: full admin panel in Phase 4 if needed
 - **DynamoDB storage:**
   - `users` table: profile (CNetID, email, join date)
   - `query_history` table: user queries + GeoJSON results
@@ -250,6 +286,8 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 **Access control:** Internal-only. Invitation-required whitelist. Future migration to UChicago IT CNetID SSO (SAML/Shibboleth) when scaling.
 
 **Success metric:** Returning UChicago users see query history and bookmarks. Non-UChicago accounts rejected at login.
+
+**Time savings:** Invitation code approach saves ~30 hours vs. building full admin panel. Those hours reallocated to Phase 3 advanced queries (the portfolio differentiator).
 
 ---
 
@@ -270,21 +308,65 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 
 **Long-term goal (Phase 4+):** Integrate real optimization models (e.g., Location-Allocation via ArcGIS Spatial Analyst Python API or custom MILP solver).
 
+**User Memory & Personalization** (~10–15 hours):
+- Claude-powered query pattern extraction from `query_history` table
+- Generate user profile: common query themes, preferred attributes, domain focus
+- Store in `user_profiles` DynamoDB table (user_id, profile_summary, generated_at)
+- Refresh trigger: EventBridge weekly cron → Lambda summarization
+- Frontend: show personalized attribute defaults (e.g., auto-expand ADA fields for users who frequently query accessibility)
+
+**Example:**
+- Raw history: 12 queries about wheelchair access, 8 about parking
+- Generated profile: "Primary interest: accessibility compliance. Prefers detailed ADA attributes. Frequent parking analysis."
+- UI adaptation: default to showing accessible entrance counts, highlight ADA-compliant parking spots
+
 **Success metric:** 3 complex queries execute with editorial answer formatting and candidate scoring tables.
 
 ---
 
-### Phase 4: Production (Months 15–18)
-**Goal:** Beta-ready system for 5–10 invited users.
+### Phase 4: ETL Automation & Production (Months 15–18)
+**Goal:** Self-healing data pipeline + beta-ready system.
 
-**Tasks:**
-- Performance: MapCanvas rendering optimization, S3 query result caching (CloudFront)
-- Monitoring: Sentry error tracking + CloudWatch Lambda metrics
-- ETL automation: Lambda-triggered geodatabase updates (when new data uploaded to S3)
-- User docs: query syntax guide, data attribution, privacy policy
-- Beta testing: feedback forms, user interviews
+#### A. Automated Data Pipeline (~20–25 hours)
+**Architecture:**
+```
+EventBridge (daily 4am UTC)
+  → Lambda: GeoDatabase Checker
+    ├─ Fetch UChicago GIS endpoint metadata (last-modified timestamps)
+    ├─ Compare with DynamoDB `data_updates` table
+    └─ If changed:
+       ├─ Invoke GeoJSON Converter Lambda (reuses ETL toolkit logic)
+       ├─ Upload to S3 with versioning
+       ├─ Update DynamoDB metadata (layer_name, version, updated_at)
+       └─ SNS notification → email stakeholders
+```
 
-**Success metric:** Beta launch with <2s query response (p95), zero critical bugs over 2-week test period.
+**Implementation:**
+- `backend/lambdas/data-checker/` — scheduled checker
+- `backend/lambdas/data-converter/` — on-demand ETL invocation
+- DynamoDB table: `campusgeo-data-updates-{stage}` (layer_name, s3_version, updated_at)
+- S3 versioning enabled on `campusgeo-geojson-{stage}` bucket
+- SNS topic: `campusgeo-data-changes-{stage}` → email subscription
+
+**Portfolio story:** "Self-healing spatial data pipeline with automated diff detection and zero-downtime updates"
+
+#### B. Performance & Monitoring (~15–20 hours)
+- CloudFront cache policies for S3 GeoJSON (max-age 3600s, stale-while-revalidate)
+- Lambda cold start reduction: Provisioned Concurrency (1 instance) or SnapStart (Node.js 20 compatible)
+- Sentry error tracking (frontend + Lambda)
+- CloudWatch dashboards: Lambda duration (p50/p95/p99), Bedrock token usage, DynamoDB RCU/WCU
+
+#### C. Beta Launch (~10–15 hours)
+- User docs: query syntax guide, data sources, update schedule
+- Privacy policy: data retention (90 days for query_history)
+- Beta feedback form (Google Forms → Notion integration)
+- 2-week monitored testing with 5–10 invited UChicago users
+
+**Success metric:**
+- <2s query response (p95, warm Lambda)
+- Zero critical bugs in 2-week beta period
+- Data pipeline executes successfully for 14 consecutive days
+- Positive feedback from ≥4/5 beta testers
 
 ---
 
@@ -310,22 +392,26 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 |-------|--------|------------|
 | Foundation | Month 4 | Demo URL with S3 data |
 | User Infrastructure | Month 8 | Login + history UI |
-| Advanced Queries | Month 14 | Decision-support queries |
-| Production | Month 18 | Beta with 5–10 users |
+| Advanced Queries | Month 14 | Decision-support + user memory |
+| ETL & Production | Month 18 | Automated pipeline + beta |
 
 ---
 
 **Time commitment:** 280–380 hours over 15–18 months (~5–10 hrs/week sustained).
 
 **Cost estimate (Beta phase):**
-- AWS S3 + DynamoDB + Lambda: ~$0.12–0.50/month
-- Bedrock Claude invocations: ~$5–15/month (10 users × 100 queries/month)
-- **Total: <$20/month** (vs. $50–100/month with ArcGIS Online Credits)
+- AWS S3 + DynamoDB + Lambda (warm): ~$0.50–1.50/month
+- Bedrock Claude invocations (10 users × 100 queries/month): ~$8–20/month
+- CloudFront (1000 req/day): ~$0.10/month
+- SNS notifications: <$0.01/month
+- **Total: ~$10–25/month** (vs. $50–100/month with ArcGIS Online Credits)
+- Optional: Provisioned Concurrency (+$12/month if p95 latency critical)
 
 **Support needed:**
 - Beta tester recruitment: 5–10 UChicago campus users (GIS, urban planning, facilities)
 - AWS Bedrock quota: request increase if default limits too low
 - UChicago GIS team: coordinate geodatabase access and update schedule
+- **Email notification recipients:** for automated data update alerts (SNS subscription)
 
 <!-- SPECKIT START -->
 Project constitution (governing principles, tech stack, workflow rules): `.specify/memory/constitution.md`
