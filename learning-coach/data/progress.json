@@ -1,0 +1,15 @@
+{
+  "currentWeek": 1,
+  "startDate": "2026-06-23",
+  "weeklyProgress": {
+    "week1": {
+      "status": "not_started",
+      "completedObjectives": [],
+      "hoursSpent": 0,
+      "notes": [],
+      "practiceCompleted": false
+    }
+  },
+  "streakDays": 0,
+  "lastActiveDate": ""
+}

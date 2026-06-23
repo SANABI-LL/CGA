@@ -1,0 +1,29 @@
+{
+  "name": "@campusgeo/learning-coach",
+  "version": "1.0.0",
+  "description": "AWS Learning Coach - MCP Server for tracking learning progress",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "analyze-pattern": "node dist/cli.js analyze-pattern"
+  },
+  "keywords": [
+    "mcp",
+    "learning",
+    "aws",
+    "coach"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.15.0",
+    "typescript": "^5.4.5"
+  }
+}
