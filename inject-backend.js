@@ -224,11 +224,15 @@
 
   // 拦截搜索框
   function hookSearchInput() {
-    // 查找搜索输入框
-    const searchInput = document.querySelector('input[type="text"]') ||
+    // 查找搜索输入框（更宽泛的选择器）
+    const searchInput = document.querySelector('input[placeholder*="CampusGeo"]') ||
+                        document.querySelector('input[placeholder*="campus"]') ||
+                        document.querySelector('input[type="text"]') ||
                         document.querySelector('input[placeholder*="search"]') ||
                         document.querySelector('input[placeholder*="Search"]') ||
-                        document.querySelector('[role="searchbox"]');
+                        document.querySelector('[role="searchbox"]') ||
+                        document.querySelector('textarea[placeholder]') ||
+                        document.querySelector('input:not([type="hidden"])');
 
     if (!searchInput) {
       console.warn('[CampusGeo Backend] Search input not found, retrying...');
