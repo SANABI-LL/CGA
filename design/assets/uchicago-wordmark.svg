@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 60" fill="none">
+  <rect width="400" height="60" fill="#800000"></rect>
+  
+  <g transform="translate(12,6) scale(0.48)" fill="white">
+    <ellipse cx="60" cy="62" rx="14" ry="18"></ellipse>
+    <path d="M46 58 C30 45 18 50 20 65 C28 58 38 60 46 68 Z"></path>
+    <path d="M74 58 C90 45 102 50 100 65 C92 58 82 60 74 68 Z"></path>
+    <path d="M52 78 C48 88 44 94 40 98 C50 92 55 85 60 80 C65 85 70 92 80 98 C76 94 72 88 68 78 Z"></path>
+    <ellipse cx="60" cy="48" rx="8" ry="10"></ellipse>
+    <circle cx="60" cy="36" r="9"></circle>
+    <path d="M56 28 C54 20 50 14 52 8 C56 16 58 22 60 26 C62 22 64 16 68 8 C70 14 66 20 64 28 Z"></path>
+  </g>
+  
+  <text x="52" y="22" font-family="Georgia, serif" font-size="10" fill="white" font-weight="400" letter-spacing="2">THE UNIVERSITY OF CHICAGO</text>
+  <text x="52" y="40" font-family="Georgia, serif" font-size="18" fill="white" font-weight="400" letter-spacing="1">CampusGeo</text>
+  <text x="52" y="54" font-family="&#39;Helvetica Neue&#39;, sans-serif" font-size="9" fill="rgba(255,255,255,0.7)" letter-spacing="3">AI GEOSPATIAL AGENT</text>
+</svg>

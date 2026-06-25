@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Colors" name="Semantic & Status Colors" subtitle="Status badges and category chips in context" viewport="700x160" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Semantic Colors</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { background: #1A1714; padding: 16px; margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { height: 48px; border-radius: 6px; display: flex; align-items: flex-end; padding: 6px 10px; min-width: 80px; }
+  .name { font-size: 9px; color: rgba(255,255,255,0.8); font-weight: 600; letter-spacing: 0.04em; }
+  .section-label { font-size: 10px; color: #756B62; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 6px; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; }
+</style>
+</head>
+<body>
+<div class="section-label">Status Colors</div>
+<div class="row">
+  <div class="chip" style="background:#2E7D5E"><span class="name">Success</span></div>
+  <div class="chip" style="background:#C4903A"><span class="name">Warning</span></div>
+  <div class="chip" style="background:#C0392B"><span class="name">Error</span></div>
+  <div class="chip" style="background:#2563A8"><span class="name">Info</span></div>
+  <div class="chip" style="background:#800000"><span class="name">Brand</span></div>
+</div>
+<div class="section-label" style="margin-top:14px">Status Badges in Context</div>
+<div class="badges">
+  <div class="badge" style="background:rgba(46,125,94,0.15);color:#4DB88A;border:1px solid rgba(46,125,94,0.3)">
+    <div class="dot" style="background:#4DB88A"></div>Layer active
+  </div>
+  <div class="badge" style="background:rgba(196,144,58,0.15);color:#E4BC78;border:1px solid rgba(196,144,58,0.3)">
+    <div class="dot" style="background:#E4BC78"></div>Loading data
+  </div>
+  <div class="badge" style="background:rgba(192,57,43,0.15);color:#E74C3C;border:1px solid rgba(192,57,43,0.3)">
+    <div class="dot" style="background:#E74C3C"></div>No results
+  </div>
+  <div class="badge" style="background:rgba(37,99,168,0.15);color:#60A0E0;border:1px solid rgba(37,99,168,0.3)">
+    <div class="dot" style="background:#60A0E0"></div>AI processing
+  </div>
+  <div class="badge" style="background:rgba(128,0,0,0.15);color:#D96060;border:1px solid rgba(128,0,0,0.3)">
+    <div class="dot" style="background:#D96060"></div>UChicago only
+  </div>
+</div>
+</body>
+</html>

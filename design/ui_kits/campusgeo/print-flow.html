@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<!-- @dsCard group="UI Kit — Campusgeo" name="CampusGeo — Print-a-Map Flow" subtitle="Clean empty start → agent searches layers + attribute table → movable, zoomable print composer → back to clean start" viewport="1440x860" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampusGeo — Print a Map</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{height:100%;width:100%;overflow:hidden;}
+body{background:#F5F0E8;font-family:'Plus Jakarta Sans',sans-serif;color:#2A2218;-webkit-font-smoothing:antialiased;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#C8BFB0;border-radius:3px;}
+input,textarea,button{font-family:inherit;}
+button{cursor:pointer;}
+
+.maplibregl-ctrl-attrib{background:rgba(250,247,242,0.75)!important;font-size:9px!important;}
+.maplibregl-ctrl-attrib a{color:#8C8070!important;}
+.maplibregl-popup-content{background:#FAF7F2;border:1px solid #D8CFC0;border-radius:8px;padding:9px 12px;box-shadow:0 4px 20px rgba(0,0,0,0.18);font-family:'Plus Jakarta Sans',sans-serif;}
+.maplibregl-popup-tip{border-top-color:#FAF7F2!important;border-bottom-color:#FAF7F2!important;}
+.pop-title{font-size:12px;font-weight:600;color:#2A2218;margin-bottom:2px;}
+.pop-sub{font-size:11px;color:#5A5046;}
+.pop-coord{font-size:9px;color:#B5ADA0;font-family:'JetBrains Mono',monospace;margin-top:3px;}
+
+@keyframes ccFadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ccFade{from{opacity:0}to{opacity:1}}
+@keyframes ccPop{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}
+@keyframes ccBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes ccSpin{to{transform:rotate(360deg)}}
+@keyframes ccPulse{0%,100%{opacity:1}50%{opacity:0.35}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect,useMemo,useCallback}=React;
+
+/* ── Tokens ─────────────────────────────────────────────────── */
+const T={
+  maroon:'#800000',maroonDk:'#5A0000',maroonLt:'#A82020',
+  maroonTint:'rgba(128,0,0,0.08)',maroonRing:'rgba(128,0,0,0.2)',
+  amber:'#B07830',amberLt:'#D4A84E',amberTint:'rgba(176,120,48,0.12)',
+  paper:'#F5F0E8',paperDk:'#EDE6D8',paperDkr:'#E2D9C8',cream:'#FAF7F2',
+  ink:'#2A2218',inkMd:'#5A5046',inkLt:'#8C8070',inkXlt:'#B5ADA0',
+  rule:'#D8CFC0',ruleLt:'#E8E2D8',ruleDk:'#C0B5A5',
+  green:'#2E7D52',greenBg:'rgba(46,125,82,0.12)',greenBd:'rgba(46,125,82,0.3)',
+  blue:'#2060A0',white:'#FFFFFF',
+};
+
+/* ── Warm "data canvas" basemap ─────────────────────────────── */
+const WARM_STYLE={
+  version:8,
+  glyphs:'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sources:{omt:{type:'vector',url:'https://tiles.openfreemap.org/planet'}},
+  layers:[
+    {id:'bg',type:'background',paint:{'background-color':'#ECE7DC'}},
+    {id:'water',type:'fill',source:'omt','source-layer':'water',paint:{'fill-color':'#DAD7CC'}},
+    {id:'green',type:'fill',source:'omt','source-layer':'landcover',
+      filter:['in',['get','class'],['literal',['grass','meadow','park','wood']]],
+      paint:{'fill-color':'#E0E2CC','fill-opacity':0.8}},
+    {id:'park',type:'fill',source:'omt','source-layer':'park',paint:{'fill-color':'#E0E2CC','fill-opacity':0.6}},
+    {id:'building',type:'fill',source:'omt','source-layer':'building',minzoom:13.5,
+      paint:{'fill-color':'#E3DDD0','fill-opacity':['interpolate',['linear'],['zoom'],13.5,0,15,1]}},
+    {id:'road-minor',type:'line',source:'omt','source-layer':'transportation',
+      filter:['in',['get','class'],['literal',['minor','service','path','track','footway']]],
+      paint:{'line-color':'#E5E0D4','line-width':['interpolate',['linear'],['zoom'],13,0.5,18,5]}},
+    {id:'road-main',type:'line',source:'omt','source-layer':'transportation',
+      filter:['in',['get','class'],['literal',['secondary','tertiary','primary','trunk','motorway']]],
+      paint:{'line-color':'#E0DACB','line-width':['interpolate',['linear'],['zoom'],10,1,18,14]}},
+    {id:'rail',type:'line',source:'omt','source-layer':'transportation',
+      filter:['==',['get','class'],'rail'],paint:{'line-color':'#CFC7B5','line-width':0.8,'line-dasharray':[3,3]}},
+    {id:'road-label',type:'symbol',source:'omt','source-layer':'transportation_name',minzoom:14.5,
+      layout:{'symbol-placement':'line','text-field':['get','name'],'text-font':['Noto Sans Regular'],'text-size':10.5},
+      paint:{'text-color':'#A89B88','text-halo-color':'#ECE7DC','text-halo-width':1.4}},
+    {id:'place-label',type:'symbol',source:'omt','source-layer':'place',
+      filter:['in',['get','class'],['literal',['suburb','neighbourhood','quarter']]],
+      layout:{'text-field':['get','name'],'text-font':['Noto Sans Regular'],'text-size':12,'text-transform':'uppercase','text-letter-spacing':0.18},
+      paint:{'text-color':'#B3A691','text-halo-color':'#ECE7DC','text-halo-width':1.4,'text-opacity':0.8}},
+  ],
+};
+
+/* ── Sample campus tree inventory (with attribute table) ────── */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const SPECIES=['Honey Locust','Northern Red Oak','American Elm','Ginkgo','Littleleaf Linden','Hackberry','Kentucky Coffeetree','Swamp White Oak','River Birch','Norway Maple'];
+const COND=['Excellent','Good','Good','Good','Fair','Fair','Poor'];
+function genTrees(){
+  const rnd=mulberry32(20260606);
+  // [lng, lat, spreadLng, spreadLat, count] — planting zones across Hyde Park campus
+  const zones=[
+    [-87.5990,41.7896,0.0042,0.0026,46], // Main Quadrangles
+    [-87.5999,41.7921,0.0026,0.0016,22], // Regenstein lawn
+    [-87.5978,41.7903,0.0018,0.0014,18], // Hull Court / Botany Pond
+    [-87.5986,41.7876,0.0090,0.0011,52], // Midway Plaisance corridor
+    [-87.6016,41.7906,0.0016,0.0040,26], // Ellis Ave
+    [-87.5968,41.7905,0.0016,0.0042,24], // University Ave
+    [-87.5950,41.7888,0.0034,0.0024,22], // East campus
+  ];
+  const feats=[];let id=1001;
+  zones.forEach(([clng,clat,sx,sy,n])=>{
+    for(let i=0;i<n;i++){
+      const lng=clng+(rnd()-0.5)*sx, lat=clat+(rnd()-0.5)*sy;
+      const recent=rnd()<0.31;
+      const year=recent?2025:(2015+Math.floor(rnd()*9)); // last year = 2025
+      const dbh=recent?(2+rnd()*3):(5+rnd()*22);
+      feats.push({type:'Feature',
+        properties:{OBJECTID:id++,species:SPECIES[Math.floor(rnd()*SPECIES.length)],
+          year_planted:year,dbh_in:+dbh.toFixed(1),condition:COND[Math.floor(rnd()*COND.length)]},
+        geometry:{type:'Point',coordinates:[+lng.toFixed(6),+lat.toFixed(6)]}});
+    }
+  });
+  return{type:'FeatureCollection',features:feats};
+}
+const TREES=genTrees();
+const TREES_TOTAL=TREES.features.length;
+const TREES_2025=TREES.features.filter(f=>f.properties.year_planted===2025);
+const TREES_2025_GJ={type:'FeatureCollection',features:TREES_2025};
+
+/* ── Icons ──────────────────────────────────────────────────── */
+const IP={
+  zap:<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+  search:<><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></>,
+  x:<><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
+  layers:<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
+  table:<><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></>,
+  filter:<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>,
+  map:<><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></>,
+  printer:<><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></>,
+  check:<polyline points="20 6 9 17 4 12"/>,
+  arrowUp:<><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></>,
+  plus:<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+  minus:<line x1="5" y1="12" x2="19" y2="12"/>,
+  move:<><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></>,
+  rotate:<><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></>,
+  leaf:<><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6"/></>,
+  building:<><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 21v-5h6v5"/><path d="M9 7h.01M15 7h.01M9 11h.01M15 11h.01"/></>,
+  corner:<><path d="M22 12A10 10 0 0 0 12 2v10z"/></>,
+};
+const Ic=({n,size=16,color='currentColor',sw=1.6,style={}})=>(
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,...style}}>{IP[n]}</svg>
+);
+const Phoenix=({size=24,color=T.maroon})=>(
+  <svg width={size} height={Math.round(size*0.83)} viewBox="0 0 120 100" fill="none">
+    <g fill={color}>
+      <ellipse cx="60" cy="62" rx="14" ry="18"/>
+      <path d="M46 58 C30 45 18 50 20 65 C28 58 38 60 46 68 Z"/>
+      <path d="M74 58 C90 45 102 50 100 65 C92 58 82 60 74 68 Z"/>
+      <path d="M52 78 C48 88 44 94 40 98 C50 92 55 85 60 80 C65 85 70 92 80 98 C76 94 72 88 68 78 Z"/>
+      <ellipse cx="60" cy="48" rx="8" ry="10"/>
+      <circle cx="60" cy="36" r="9"/>
+      <path d="M56 28 C54 20 50 14 52 8 C56 16 58 22 60 26 C62 22 64 16 68 8 C70 14 66 20 64 28 Z"/>
+    </g>
+  </svg>
+);
+
+/* ── Gotham-family stack for the search input ──────────────── */
+const GOTHAM="'Gotham Book','Gotham','Plus Jakarta Sans','Helvetica Neue',sans-serif";
+
+/* ── Suggestions (one per scenario the agent can resolve) ───── */
+const SUGGESTIONS=[
+  'Show me buildings with an RI value higher than 0.52',
+  'Print a map of the trees we planted last year',
+  '帮我打印一张去年种植的树木位置地图',
+];
+
+/* ── Intent routing ─────────────────────────────────────────── */
+function detectKind(q){
+  const s=q.toLowerCase();
+  if(/build|footprint|\bri\b|ri[_ ]|resilien|fci|楼|建筑|房/.test(s))return'buildings';
+  return'trees';
+}
+function fcBounds(fc){
+  let w=180,s=90,e=-180,n=-90;
+  const walk=co=>{if(typeof co[0]==='number'){const x=co[0],y=co[1];if(x<w)w=x;if(x>e)e=x;if(y<s)s=y;if(y>n)n=y;}else co.forEach(walk);};
+  fc.features.forEach(f=>walk(f.geometry.coordinates));
+  return[[w,s],[e,n]];
+}
+const codeChip={fontFamily:'JetBrains Mono,monospace',background:T.amberTint,color:T.amber,padding:'1px 5px',borderRadius:4,fontSize:12};
+
+/* ── Scenario builder — drives the whole flow from the query ── */
+function buildScenario(q,buildings){
+  const kind=buildings?detectKind(q):'trees';
+  if(kind==='buildings'){
+    const m=q.match(/\d*\.?\d+/);
+    const thr=m?parseFloat(m[0]):0.52;
+    const feats=buildings.features;
+    const isHit=f=>typeof f.properties.RI_==='number'&&f.properties.RI_>thr;
+    const hit=feats.filter(isHit), miss=feats.filter(f=>!isHit(f));
+    const fieldCount=Object.keys(feats[0].properties).length;
+    const rows=feats.slice(0,5).map(f=>{const p=f.properties;return{
+      cells:[(p.BD_ID||'').trim()||'—',(p.DISCRIPT1||'').trim()||'Building',
+        typeof p.RI_==='number'?p.RI_.toFixed(2):'—',(p.CHRS||'').trim()||'—'],
+      hit:isHit(f)};});
+    return{
+      kind:'buildings',unit:'buildings',title:`Buildings · RI > ${thr}`,
+      center:[-87.5985,41.7892],zoom:14.4,
+      data:{type:'FeatureCollection',features:hit},
+      allData:{type:'FeatureCollection',features:miss},
+      matchCount:hit.length,recordCount:feats.length,fieldCount,
+      chip:'Campus Buildings',chipIcon:'building',fieldName:'RI_',
+      intentDetail:<span>Intent <b>print map</b> · subject <b>buildings</b> · metric <b>RI &gt; {thr}</b></span>,
+      scanDetail:<span>Scanned 47 layers · matched the <b>Campus Buildings</b> footprint layer</span>,
+      filterDetail:<span>Applying filter <b>RI_ &gt; {thr}</b> → <b style={{color:T.green}}>{hit.length} matches</b></span>,
+      plotDetail:<span>Outlining {hit.length} building footprints · generating title, legend, scale bar &amp; north arrow</span>,
+      table:{grid:'58px 1fr 78px 92px',head:['BD_ID','building','RI_','CHRS'],hi:2,rows,more:feats.length-5},
+      legend:[{color:T.maroon,label:<>RI &gt; {thr} <b style={{fontFamily:'JetBrains Mono,monospace'}}>({hit.length})</b></>},
+        {color:'#C9BCA6',label:'Other buildings',sub:true}],
+      legendSquare:true,
+    };
+  }
+  return{
+    kind:'trees',unit:'trees',title:'Trees Planted in 2025',
+    center:[-87.5986,41.7900],zoom:15.3,
+    data:TREES_2025_GJ,
+    allData:{type:'FeatureCollection',features:TREES.features.filter(f=>f.properties.year_planted<2025)},
+    matchCount:TREES_2025.length,recordCount:TREES_TOTAL,fieldCount:6,
+    chip:'Campus Trees',chipIcon:'leaf',fieldName:'year_planted',
+    intentDetail:<span>Intent <b>print map</b> · subject <b>trees</b> · time filter <b>last year (2025)</b></span>,
+    scanDetail:<span>Scanned 47 layers · matched the <b>Campus Trees</b> point layer</span>,
+    filterDetail:<span>Applying filter <b>year_planted = 2025</b> → <b style={{color:T.green}}>{TREES_2025.length} matches</b></span>,
+    plotDetail:<span>Placing {TREES_2025.length} markers · generating title, legend, scale bar &amp; north arrow</span>,
+    table:{grid:'58px 1fr 116px 80px',head:['OBJECTID','species','year_planted','condition'],hi:2,
+      rows:TREES.features.slice(0,5).map(f=>{const p=f.properties;return{
+        cells:[String(p.OBJECTID),p.species,String(p.year_planted),p.condition],hit:p.year_planted===2025};}),
+      more:TREES_TOTAL-5},
+    legend:[{color:T.green,label:<>Planted 2025 <b style={{fontFamily:'JetBrains Mono,monospace'}}>({TREES_2025.length})</b></>},
+      {color:'#A89B86',label:'Earlier plantings',sub:true}],
+    legendSquare:false,
+  };
+}
+
+/* ── Map canvas (renders points for trees, polygons for buildings) */
+const MapCanvas=({sc,visible,zoomCmd,fitCmd})=>{
+  const containerRef=useRef(null);
+  const mapRef=useRef(null);
+  const [ready,setReady]=useState(false);
+
+  useEffect(()=>{
+    if(!visible||!sc||mapRef.current)return;
+    const map=new maplibregl.Map({
+      container:containerRef.current,style:WARM_STYLE,
+      center:sc.center,zoom:sc.zoom,attributionControl:{compact:true},maxZoom:19,
+    });
+    mapRef.current=map;
+    map.on('load',()=>{
+      const pop=new maplibregl.Popup({offset:12,closeButton:false});
+      if(sc.kind==='trees'){
+        map.addSource('trees-old',{type:'geojson',data:sc.allData});
+        map.addLayer({id:'trees-old',type:'circle',source:'trees-old',
+          paint:{'circle-radius':['interpolate',['linear'],['zoom'],14,2,17,4.5],
+            'circle-color':'#A89B86','circle-opacity':0.5,
+            'circle-stroke-color':'#ECE7DC','circle-stroke-width':1}});
+        map.addSource('trees-2025',{type:'geojson',data:sc.data});
+        map.addLayer({id:'trees-2025-halo',type:'circle',source:'trees-2025',
+          paint:{'circle-radius':['interpolate',['linear'],['zoom'],14,8,17,15],
+            'circle-color':T.green,'circle-opacity':0.14}});
+        map.addLayer({id:'trees-2025',type:'circle',source:'trees-2025',
+          paint:{'circle-radius':['interpolate',['linear'],['zoom'],14,3.5,17,7],
+            'circle-color':T.green,'circle-stroke-color':'#FAF7F2','circle-stroke-width':1.8}});
+        map.on('mouseenter','trees-2025',()=>map.getCanvas().style.cursor='pointer');
+        map.on('mouseleave','trees-2025',()=>{map.getCanvas().style.cursor='';pop.remove();});
+        map.on('click','trees-2025',e=>{
+          const f=e.features[0],p=f.properties,c=f.geometry.coordinates.slice();
+          pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">Planted ${p.year_planted} · ${p.dbh_in}" DBH · ${p.condition}</div><div class="pop-coord">OBJECTID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+        });
+      }else{
+        map.addSource('bldg-all',{type:'geojson',data:sc.allData});
+        map.addLayer({id:'bldg-all-fill',type:'fill',source:'bldg-all',
+          paint:{'fill-color':'#C9BCA6','fill-opacity':0.45}});
+        map.addLayer({id:'bldg-all-line',type:'line',source:'bldg-all',
+          paint:{'line-color':'#A89B86','line-width':0.6}});
+        map.addSource('bldg-hit',{type:'geojson',data:sc.data});
+        map.addLayer({id:'bldg-hit-fill',type:'fill',source:'bldg-hit',
+          paint:{'fill-color':T.maroon,'fill-opacity':0.34}});
+        map.addLayer({id:'bldg-hit-line',type:'line',source:'bldg-hit',
+          paint:{'line-color':T.maroon,'line-width':1.7}});
+        map.on('mouseenter','bldg-hit-fill',()=>map.getCanvas().style.cursor='pointer');
+        map.on('mouseleave','bldg-hit-fill',()=>{map.getCanvas().style.cursor='';pop.remove();});
+        map.on('click','bldg-hit-fill',e=>{
+          const p=e.features[0].properties;
+          const ri=typeof p.RI_==='number'?(+p.RI_).toFixed(2):'—';
+          const bits=[`RI ${ri}`];
+          if(p.Year_Completed)bits.push('built '+Math.round(p.Year_Completed));
+          if((p.CHRS||'').trim())bits.push(p.CHRS.trim());
+          pop.setLngLat(e.lngLat).setHTML(`<div class="pop-title">${(p.DISCRIPT1||'Building').trim()}</div><div class="pop-sub">${bits.join(' · ')}</div><div class="pop-coord">${(p.BD_ID||'').trim()||(p.ADDRESS||'').trim()}</div>`).addTo(map);
+        });
+      }
+      setReady(true);
+    });
+    const ro=new ResizeObserver(()=>map.resize());
+    ro.observe(containerRef.current);
+    return()=>ro.disconnect();
+  },[visible,sc]);
+
+  useEffect(()=>{
+    const map=mapRef.current;if(!map||!ready||!zoomCmd)return;
+    if(zoomCmd.dir>0)map.zoomIn({duration:300});else map.zoomOut({duration:300});
+  },[zoomCmd,ready]);
+
+  useEffect(()=>{
+    const map=mapRef.current;if(!map||!ready||!fitCmd||!sc||!sc.data.features.length)return;
+    map.fitBounds(fcBounds(sc.data),{padding:{top:130,bottom:150,left:120,right:120},duration:1100,maxZoom:sc.kind==='trees'?17:16.2});
+  },[fitCmd,ready,sc]);
+
+  return <div ref={containerRef} style={{position:'absolute',inset:0}}/>;
+};
+
+/* ── North arrow + scale bar (print furniture) ──────────────── */
+const NorthArrow=()=>(
+  <svg width="30" height="38" viewBox="0 0 30 38" fill="none">
+    <polygon points="15,3 21,21 15,16 9,21" fill={T.ink}/>
+    <polygon points="15,3 15,16 9,21" fill={T.inkMd}/>
+    <text x="15" y="34" textAnchor="middle" fontFamily="Plus Jakarta Sans" fontWeight="700" fontSize="11" fill={T.ink}>N</text>
+  </svg>
+);
+const ScaleBar=()=>(
+  <div style={{display:'flex',flexDirection:'column',gap:3}}>
+    <div style={{display:'flex',height:6,border:`1px solid ${T.ink}`}}>
+      <div style={{width:26,background:T.ink}}/><div style={{width:26,background:T.white}}/>
+      <div style={{width:26,background:T.ink}}/><div style={{width:26,background:T.white}}/>
+    </div>
+    <div style={{display:'flex',justifyContent:'space-between',fontSize:8,color:T.inkMd,fontFamily:'JetBrains Mono,monospace',width:104}}>
+      <span>0</span><span>500 ft</span>
+    </div>
+  </div>
+);
+
+/* ── Print composer (movable + zoomable page frame) ─────────── */
+const PAPERS={
+  Letter:{w:11,h:8.5},A4:{w:11.69,h:8.27},Tabloid:{w:17,h:11},
+};
+const PrintComposer=({sc,title,setTitle,onZoom,onPrint,onCancel})=>{
+  const [paper,setPaper]=useState('Letter');
+  const [landscape,setLandscape]=useState(true);
+  const [scale,setScale]=useState(1);            // frame size multiplier
+  const [pos,setPos]=useState({x:0,y:-6});       // offset from center (px)
+  const drag=useRef(null);
+
+  const base=PAPERS[paper];
+  const ratio=landscape?base.w/base.h:base.h/base.w;
+  const baseH=Math.min(560,Math.max(320,window.innerHeight-300));
+  const h=baseH*scale, w=h*ratio;
+
+  const onDown=e=>{
+    e.preventDefault();
+    drag.current={sx:e.clientX,sy:e.clientY,px:pos.x,py:pos.y};
+    window.addEventListener('pointermove',onMove);
+    window.addEventListener('pointerup',onUp);
+  };
+  const onMove=e=>{
+    if(!drag.current)return;
+    setPos({x:drag.current.px+(e.clientX-drag.current.sx),y:drag.current.py+(e.clientY-drag.current.sy)});
+  };
+  const onUp=()=>{drag.current=null;window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onUp);};
+
+  const corner=(t,l,b,r)=>({position:'absolute',width:16,height:16,
+    borderTop:t?`2px solid ${T.white}`:'none',borderLeft:l?`2px solid ${T.white}`:'none',
+    borderBottom:b?`2px solid ${T.white}`:'none',borderRight:r?`2px solid ${T.white}`:'none',
+    [t?'top':'bottom']:-2,[l?'left':'right']:-2,filter:'drop-shadow(0 0 2px rgba(0,0,0,0.4))'});
+
+  return(
+    <>
+      {/* The page frame — spotlight mask via huge box-shadow; pointer-events pass through to map */}
+      <div style={{position:'absolute',top:'50%',left:'50%',width:w,height:h,
+        transform:`translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,
+        boxShadow:'0 0 0 9999px rgba(26,21,14,0.5)',outline:`1px solid rgba(255,255,255,0.9)`,
+        pointerEvents:'none',zIndex:40,animation:'ccFade 0.4s ease-out both',transition:'width 0.25s,height 0.25s'}}>
+        {/* crop corners */}
+        <div style={corner(1,1,0,0)}/><div style={corner(1,0,0,1)}/>
+        <div style={corner(0,1,1,0)}/><div style={corner(0,0,1,1)}/>
+
+        {/* title banner (drag handle) */}
+        <div onPointerDown={onDown} style={{position:'absolute',top:14,left:14,right:14,
+          background:'rgba(250,247,242,0.94)',border:`1px solid ${T.rule}`,borderRadius:8,
+          padding:'9px 12px',display:'flex',alignItems:'center',gap:10,cursor:'grab',
+          pointerEvents:'auto',backdropFilter:'blur(3px)',boxShadow:'0 2px 10px rgba(0,0,0,0.12)'}}>
+          <Ic n="move" size={15} color={T.inkLt}/>
+          <div style={{flex:1,minWidth:0}}>
+            <input value={title} onChange={e=>setTitle(e.target.value)} onPointerDown={e=>e.stopPropagation()}
+              style={{width:'100%',background:'none',border:'none',outline:'none',
+                fontFamily:'EB Garamond,Georgia,serif',fontSize:20,fontWeight:600,color:T.ink,lineHeight:1.15}}/>
+            <div style={{fontSize:10.5,color:T.inkMd,letterSpacing:'0.04em'}}>University of Chicago · Hyde Park Campus · Facilities GIS</div>
+          </div>
+          <Phoenix size={22} color={T.maroon}/>
+        </div>
+
+        {/* legend (bottom-left furniture) */}
+        <div style={{position:'absolute',left:14,bottom:14,background:'rgba(250,247,242,0.94)',
+          border:`1px solid ${T.rule}`,borderRadius:8,padding:'9px 11px',pointerEvents:'none',
+          backdropFilter:'blur(3px)',boxShadow:'0 2px 10px rgba(0,0,0,0.12)'}}>
+          <div style={{fontSize:9,fontWeight:700,color:T.inkLt,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:6}}>Legend</div>
+          {sc.legend.map((lg,i)=>(
+            <div key={i} style={{display:'flex',alignItems:'center',gap:7,marginBottom:i<sc.legend.length-1?4:0}}>
+              <span style={{width:lg.sub?9:11,height:lg.sub?9:11,borderRadius:sc.legendSquare?2:'50%',background:lg.color,border:lg.sub?'none':'1.5px solid #FAF7F2',flexShrink:0,marginLeft:lg.sub?1:0,marginRight:lg.sub?1:0}}/>
+              <span style={{fontSize:11,color:lg.sub?T.inkMd:T.ink}}>{lg.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* scale + north (bottom-right furniture) */}
+        <div style={{position:'absolute',right:14,bottom:14,display:'flex',alignItems:'flex-end',gap:14,
+          background:'rgba(250,247,242,0.94)',border:`1px solid ${T.rule}`,borderRadius:8,padding:'9px 12px',
+          pointerEvents:'none',backdropFilter:'blur(3px)',boxShadow:'0 2px 10px rgba(0,0,0,0.12)'}}>
+          <ScaleBar/><NorthArrow/>
+        </div>
+      </div>
+
+      {/* Composer toolbar (docked bottom-center, outside the page) */}
+      <div style={{position:'absolute',bottom:22,left:'50%',transform:'translateX(-50%)',zIndex:60,
+        display:'flex',alignItems:'center',gap:6,background:T.cream,border:`1px solid ${T.rule}`,
+        borderRadius:14,padding:'8px 10px',boxShadow:'0 10px 36px rgba(0,0,0,0.22)',animation:'ccFadeUp 0.4s ease-out both'}}>
+        <div style={{display:'flex',alignItems:'center',gap:6,paddingRight:8}}>
+          <Ic n="printer" size={15} color={T.maroon}/>
+          <span style={{fontSize:12,fontWeight:700,color:T.ink}}>Print layout</span>
+        </div>
+        <div style={{width:1,height:26,background:T.rule}}/>
+
+        {/* paper size */}
+        <select value={paper} onChange={e=>setPaper(e.target.value)}
+          style={{background:T.paper,border:`1px solid ${T.rule}`,borderRadius:8,padding:'6px 9px',fontSize:12,color:T.ink,fontWeight:500,cursor:'pointer',outline:'none'}}>
+          {Object.keys(PAPERS).map(p=><option key={p} value={p}>{p}</option>)}
+        </select>
+
+        {/* orientation */}
+        <button onClick={()=>setLandscape(l=>!l)} title="Rotate orientation"
+          style={{display:'flex',alignItems:'center',gap:6,background:T.paper,border:`1px solid ${T.rule}`,borderRadius:8,padding:'6px 9px',fontSize:12,color:T.inkMd,fontWeight:500}}>
+          <Ic n="rotate" size={13} color={T.inkMd}/>{landscape?'Landscape':'Portrait'}
+        </button>
+
+        {/* frame size (zoom the page) */}
+        <div style={{display:'flex',alignItems:'center',background:T.paper,border:`1px solid ${T.rule}`,borderRadius:8,overflow:'hidden'}}>
+          <button onClick={()=>setScale(s=>Math.max(0.6,+(s-0.1).toFixed(2)))} title="Shrink frame" style={{width:30,height:32,display:'flex',alignItems:'center',justifyContent:'center',background:'none',border:'none'}}><Ic n="minus" size={14} color={T.inkMd}/></button>
+          <span style={{fontSize:10.5,color:T.inkLt,fontFamily:'JetBrains Mono,monospace',width:38,textAlign:'center'}}>{Math.round(scale*100)}%</span>
+          <button onClick={()=>setScale(s=>Math.min(1.4,+(s+0.1).toFixed(2)))} title="Grow frame" style={{width:30,height:32,display:'flex',alignItems:'center',justifyContent:'center',background:'none',border:'none'}}><Ic n="plus" size={14} color={T.inkMd}/></button>
+        </div>
+
+        {/* map zoom */}
+        <div style={{display:'flex',alignItems:'center',background:T.paper,border:`1px solid ${T.rule}`,borderRadius:8,overflow:'hidden'}}>
+          <button onClick={()=>onZoom(-1)} title="Zoom map out" style={{width:30,height:32,display:'flex',alignItems:'center',justifyContent:'center',background:'none',border:'none'}}><Ic n="search" size={13} color={T.inkMd}/><span style={{fontSize:11,marginLeft:-3,color:T.inkMd}}>−</span></button>
+          <div style={{width:1,height:18,background:T.rule}}/>
+          <button onClick={()=>onZoom(1)} title="Zoom map in" style={{width:30,height:32,display:'flex',alignItems:'center',justifyContent:'center',background:'none',border:'none'}}><Ic n="search" size={13} color={T.inkMd}/><span style={{fontSize:11,marginLeft:-3,color:T.inkMd}}>+</span></button>
+        </div>
+
+        <div style={{width:1,height:26,background:T.rule}}/>
+        <button onClick={onCancel} style={{background:'none',border:`1px solid ${T.rule}`,borderRadius:8,padding:'7px 13px',fontSize:12,fontWeight:600,color:T.inkMd}}
+          onMouseEnter={e=>e.currentTarget.style.background=T.paperDk} onMouseLeave={e=>e.currentTarget.style.background='none'}>Cancel</button>
+        <button onClick={onPrint} style={{display:'flex',alignItems:'center',gap:6,background:T.maroon,border:'none',borderRadius:8,padding:'7px 15px',fontSize:12,fontWeight:700,color:T.white,boxShadow:'0 2px 8px rgba(128,0,0,0.3)'}}
+          onMouseEnter={e=>e.currentTarget.style.background=T.maroonLt} onMouseLeave={e=>e.currentTarget.style.background=T.maroon}>
+          <Ic n="printer" size={14} color={T.white}/>Print map
+        </button>
+      </div>
+
+      {/* hint */}
+      <div style={{position:'absolute',top:66,left:'50%',transform:'translateX(-50%)',zIndex:65,
+        display:'flex',alignItems:'center',gap:7,background:'rgba(250,247,242,0.92)',border:`1px solid ${T.rule}`,
+        borderRadius:20,padding:'6px 13px',fontSize:11,color:T.inkMd,boxShadow:'0 2px 10px rgba(0,0,0,0.1)',
+        backdropFilter:'blur(3px)',animation:'ccFade 0.5s 0.3s both'}}>
+        <Ic n="move" size={13} color={T.amber}/>Drag the title bar to reposition · pan & zoom the map to frame your print
+      </div>
+    </>
+  );
+};
+
+/* ── Agent reasoning trace ──────────────────────────────────── */
+function makeSteps(sc){
+  return[
+    {icon:'search',label:'Interpreting your request',detail:sc.intentDetail},
+    {icon:'layers',label:'Searching campus GIS layers',chip:sc.chip,chipIcon:sc.chipIcon,detail:sc.scanDetail},
+    {icon:'table',label:'Reading attribute table',table:true,
+      detail:<span><b>{sc.recordCount.toLocaleString()}</b> records · {sc.fieldCount} fields</span>},
+    {icon:'filter',label:<span>Found field <code style={codeChip}>{sc.fieldName}</code></span>,detail:sc.filterDetail},
+    {icon:'map',label:'Plotting locations & composing print layout',detail:sc.plotDetail},
+  ];
+}
+const AttrTable=({sc})=>{
+  const t=sc.table;
+  return(
+    <div style={{marginTop:9,border:`1px solid ${T.rule}`,borderRadius:8,overflow:'hidden',background:T.cream}}>
+      <div style={{display:'grid',gridTemplateColumns:t.grid,fontSize:9,fontWeight:700,color:T.inkLt,
+        textTransform:'uppercase',letterSpacing:'0.02em',background:T.paperDk,borderBottom:`1px solid ${T.rule}`}}>
+        {t.head.map((h,i)=>(
+          <div key={h} style={{padding:'6px 8px',background:i===t.hi?T.amberTint:'transparent',color:i===t.hi?T.amber:T.inkLt,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{h}</div>
+        ))}
+      </div>
+      {t.rows.map((r,i)=>(
+        <div key={i} style={{display:'grid',gridTemplateColumns:t.grid,fontSize:11,
+          color:T.inkMd,borderBottom:i<t.rows.length-1?`1px solid ${T.ruleLt}`:'none',fontFamily:'JetBrains Mono,monospace'}}>
+          {r.cells.map((cell,ci)=>{
+            const isHi=ci===t.hi, mono=ci===0||ci===t.hi;
+            return(
+              <div key={ci} style={{padding:'5px 9px',
+                background:isHi?T.amberTint:'transparent',
+                color:isHi?(r.hit?T.green:T.inkMd):T.inkMd,fontWeight:isHi&&r.hit?700:400,
+                fontFamily:mono?'JetBrains Mono,monospace':'Plus Jakarta Sans',
+                whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{cell}</div>
+            );
+          })}
+        </div>
+      ))}
+      <div style={{padding:'5px 9px',fontSize:9.5,color:T.inkXlt,fontFamily:'JetBrains Mono,monospace',background:T.paperDk}}>… {t.more.toLocaleString()} more rows</div>
+    </div>
+  );
+};
+const ReasoningTrace=({sc,steps,query,shown,done})=>(
+  <div style={{width:'100%',maxWidth:560,margin:'0 auto',animation:'ccFadeUp 0.4s ease-out both'}}>
+    <div style={{display:'flex',justifyContent:'center',marginBottom:18}}>
+      <div style={{maxWidth:'85%',background:T.maroon,color:T.white,borderRadius:'14px 14px 4px 14px',
+        padding:'11px 16px',fontSize:16,fontFamily:'EB Garamond,serif',fontStyle:'italic',lineHeight:1.4,boxShadow:'0 3px 12px rgba(128,0,0,0.22)'}}>{query}</div>
+    </div>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,paddingLeft:2}}>
+      <div style={{width:26,height:26,borderRadius:7,background:T.amberTint,border:`1px solid rgba(176,120,48,0.3)`,display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="zap" size={14} color={T.amber}/></div>
+      <span style={{fontSize:11,fontWeight:700,color:T.amber,letterSpacing:'0.07em',textTransform:'uppercase'}}>CampusGeo Agent</span>
+    </div>
+    <div style={{display:'flex',flexDirection:'column',gap:2}}>
+      {steps.map((s,i)=>{
+        const visible=i<shown, active=i===shown-1&&!done, complete=i<shown-1||done;
+        if(!visible)return null;
+        return(
+          <div key={i} style={{display:'flex',gap:12,animation:'ccFadeUp 0.35s ease-out both'}}>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
+              <div style={{width:28,height:28,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',
+                background:complete?T.greenBg:T.cream,border:`1.5px solid ${complete?T.greenBd:active?T.amber:T.rule}`,transition:'all 0.3s'}}>
+                {complete?<Ic n="check" size={14} color={T.green}/>:active?<div style={{width:13,height:13,border:`2px solid ${T.amberTint}`,borderTopColor:T.amber,borderRadius:'50%',animation:'ccSpin 0.7s linear infinite'}}/>:<Ic n={s.icon} size={13} color={T.inkLt}/>}
+              </div>
+              {i<steps.length-1&&<div style={{width:1.5,flex:1,minHeight:18,background:complete?T.greenBd:T.rule,marginTop:2}}/>}
+            </div>
+            <div style={{flex:1,minWidth:0,paddingBottom:14}}>
+              <div style={{fontSize:13.5,fontWeight:600,color:complete||active?T.ink:T.inkLt,lineHeight:1.35,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                {s.label}
+                {s.chip&&visible&&<span style={{fontSize:11,fontWeight:600,background:T.greenBg,color:T.green,border:`1px solid ${T.greenBd}`,borderRadius:20,padding:'2px 9px',display:'inline-flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}><Ic n={s.chipIcon} size={11} color={T.green}/>{s.chip}</span>}
+              </div>
+              <div style={{fontSize:12,color:T.inkMd,marginTop:3,lineHeight:1.5}}>{s.detail}</div>
+              {s.table&&<AttrTable sc={sc}/>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
+
+/* ── Search bar (used in both hero & after) ─────────────────── */
+const SearchBar=({value,onChange,onSubmit,big,disabled}) => {
+  const [focused,setFocused]=useState(false);
+  return(
+    <div style={{display:'flex',alignItems:'center',gap:11,width:'100%',
+      background:T.cream,border:`1.5px solid ${focused?T.maroon:T.rule}`,borderRadius:big?14:11,
+      padding:big?'4px 4px 4px 18px':'3px 3px 3px 15px',
+      boxShadow:focused?`0 0 0 4px ${T.maroonRing}, 0 8px 28px rgba(0,0,0,0.08)`:'0 4px 18px rgba(0,0,0,0.07)',transition:'all 0.18s'}}>
+      <Ic n="zap" size={big?19:16} color={T.maroon}/>
+      <input value={value} onChange={e=>onChange(e.target.value)} disabled={disabled}
+        onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
+        onKeyDown={e=>e.key==='Enter'&&onSubmit()}
+        placeholder="Ask CampusGeo to find, map, or print campus data…"
+        style={{flex:1,background:'none',border:'none',outline:'none',fontFamily:GOTHAM,
+          fontStyle:'normal',fontSize:big?17:15,fontWeight:400,letterSpacing:'0.01em',color:value?T.ink:T.inkXlt}}/>
+      <button onClick={onSubmit} disabled={!value.trim()||disabled}
+        style={{display:'flex',alignItems:'center',gap:6,background:value.trim()?T.maroon:T.paperDkr,
+          color:value.trim()?T.white:T.inkLt,border:'none',borderRadius:big?11:9,
+          padding:big?'11px 18px':'9px 15px',fontSize:big?14:13,fontWeight:700,transition:'all 0.15s',flexShrink:0,
+          boxShadow:value.trim()?'0 2px 10px rgba(128,0,0,0.3)':'none'}}>
+        Ask<Ic n="arrowUp" size={big?16:14} color={value.trim()?T.white:T.inkLt}/>
+      </button>
+    </div>
+  );
+};
+
+/* ── App ────────────────────────────────────────────────────── */
+const App=()=>{
+  const [phase,setPhase]=useState('idle');   // idle · thinking · composing
+  const [query,setQuery]=useState('');
+  const [submitted,setSubmitted]=useState('');
+  const [shown,setShown]=useState(0);         // reasoning steps revealed
+  const [traceDone,setTraceDone]=useState(false);
+  const [title,setTitle]=useState('Trees Planted in 2025');
+  const [zoomCmd,setZoomCmd]=useState(null);
+  const [fitCmd,setFitCmd]=useState(null);
+  const [printing,setPrinting]=useState(null); // null · 'sending' · 'sent'
+  const timers=useRef([]);
+
+  const clearTimers=()=>{timers.current.forEach(clearTimeout);timers.current=[];};
+
+  const reset=useCallback(()=>{
+    clearTimers();
+    setPhase('idle');setQuery('');setSubmitted('');setShown(0);
+    setTraceDone(false);setPrinting(null);setTitle('Trees Planted in 2025');
+  },[]);
+
+  const submit=useCallback((override)=>{
+    const q=(typeof override==='string'?override:query).trim();
+    if(!q)return;
+    clearTimers();
+    setSubmitted(q);setQuery('');setShown(0);setTraceDone(false);setPhase('thinking');
+
+    // reveal reasoning steps in sequence
+    const cadence=[700,1150,1500,1250,1100]; // ms each step dwells
+    let t=400;
+    STEPS.forEach((_,i)=>{
+      timers.current.push(setTimeout(()=>setShown(i+1),t));
+      t+=cadence[i];
+    });
+    // mark trace complete, then reveal map + composer
+    timers.current.push(setTimeout(()=>setTraceDone(true),t));
+    timers.current.push(setTimeout(()=>{
+      setPhase('composing');
+      timers.current.push(setTimeout(()=>setFitCmd({ts:Date.now()}),350));
+    },t+550));
+  },[query]);
+
+  const onPrint=useCallback(()=>{
+    setPrinting('sending');
+    timers.current.push(setTimeout(()=>setPrinting('sent'),1300));
+    timers.current.push(setTimeout(()=>reset(),2600)); // → back to clean initial page
+  },[reset]);
+
+  useEffect(()=>()=>clearTimers(),[]);
+
+  const composing=phase==='composing';
+
+  return(
+    <div style={{position:'relative',height:'100vh',width:'100vw',overflow:'hidden',background:T.paper}}>
+      {/* Top bar */}
+      <div style={{position:'absolute',top:0,left:0,right:0,height:54,display:'flex',alignItems:'center',
+        padding:'0 18px',gap:12,zIndex:70,background:composing?'rgba(245,240,232,0.9)':'transparent',
+        borderBottom:composing?`1px solid ${T.rule}`:'1px solid transparent',backdropFilter:composing?'blur(6px)':'none',transition:'all 0.4s'}}>
+        <button onClick={reset} style={{display:'flex',alignItems:'center',gap:9,background:'none',border:'none',padding:0}}>
+          <div style={{width:31,height:31,borderRadius:8,background:T.maroon,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(128,0,0,0.3)'}}><Phoenix size={18} color={T.white}/></div>
+          <div style={{textAlign:'left'}}>
+            <div style={{fontFamily:'EB Garamond,Georgia,serif',fontSize:18,color:T.maroon,lineHeight:1.05,fontWeight:500}}>CampusGeo</div>
+            <div style={{fontSize:8,color:T.inkLt,letterSpacing:'0.11em',textTransform:'uppercase',fontWeight:600}}>University of Chicago</div>
+          </div>
+        </button>
+        <div style={{flex:1}}/>
+        {phase!=='idle'&&(
+          <button onClick={reset} style={{display:'flex',alignItems:'center',gap:6,background:T.cream,border:`1px solid ${T.rule}`,borderRadius:8,padding:'7px 12px',color:T.inkMd,fontSize:12,fontWeight:600}}
+            onMouseEnter={e=>e.currentTarget.style.background=T.paperDk} onMouseLeave={e=>e.currentTarget.style.background=T.cream}>
+            <Ic n="plus" size={13} color={T.inkMd}/>New search
+          </button>
+        )}
+      </div>
+
+      {/* Map layer (only mounted while composing) */}
+      {composing&&(
+        <div style={{position:'absolute',inset:0,zIndex:1,animation:'ccFade 0.6s ease-out both'}}>
+          <MapCanvas visible={true} zoomCmd={zoomCmd} fitCmd={fitCmd}/>
+        </div>
+      )}
+
+      {/* Print composer overlay */}
+      {composing&&!printing&&(
+        <PrintComposer title={title} setTitle={setTitle}
+          onZoom={d=>setZoomCmd({dir:d,ts:Date.now()})}
+          onPrint={onPrint} onCancel={reset}/>
+      )}
+
+      {/* Idle hero + thinking trace (centered column) */}
+      {phase!=='composing'&&(
+        <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',
+          justifyContent:'center',padding:'74px 24px 40px',overflowY:'auto'}}>
+          {phase==='idle'?(
+            <div style={{width:'100%',maxWidth:620,textAlign:'center',animation:'ccFadeUp 0.5s ease-out both'}}>
+              <div style={{width:62,height:62,borderRadius:16,background:T.maroon,display:'flex',alignItems:'center',
+                justifyContent:'center',margin:'0 auto 24px',boxShadow:'0 6px 26px rgba(128,0,0,0.32)'}}>
+                <Phoenix size={34} color={T.white}/>
+              </div>
+              <h1 style={{fontFamily:'EB Garamond,Georgia,serif',fontWeight:500,fontSize:38,color:T.ink,lineHeight:1.12,marginBottom:12,letterSpacing:'-0.01em'}}>
+                What can I help you map today?
+              </h1>
+              <p style={{fontSize:15,color:T.inkLt,lineHeight:1.55,maxWidth:440,margin:'0 auto 34px'}}>
+                Ask in plain language. CampusGeo finds the right campus layer, reads its data, and builds a map or print-ready sheet for you.
+              </p>
+              <div style={{marginBottom:20}}>
+                <SearchBar value={query} onChange={setQuery} onSubmit={()=>submit()} big/>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center'}}>
+                {SUGGESTIONS.map(s=>(
+                  <button key={s} onClick={()=>submit(s)} style={{display:'flex',alignItems:'center',gap:8,
+                    background:T.cream,border:`1px solid ${T.rule}`,borderRadius:20,padding:'8px 14px',
+                    fontFamily:'EB Garamond,serif',fontStyle:'italic',fontSize:14,color:T.inkMd,transition:'all 0.12s'}}
+                    onMouseEnter={e=>{e.currentTarget.style.background=T.paperDk;e.currentTarget.style.borderColor=T.ruleDk;}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=T.cream;e.currentTarget.style.borderColor=T.rule;}}>
+                    <Ic n="search" size={12} color={T.amber}/>{s}
+                  </button>
+                ))}
+              </div>
+              <div style={{marginTop:42,fontSize:10.5,color:T.inkXlt,letterSpacing:'0.03em'}}>
+                Live campus GIS · 47 layers · powered by the CampusGeo agent
+              </div>
+            </div>
+          ):(
+            <ReasoningTrace query={submitted} shown={shown} done={traceDone}/>
+          )}
+        </div>
+      )}
+
+      {/* Print confirmation overlay */}
+      {printing&&(
+        <div style={{position:'absolute',inset:0,zIndex:95,background:'rgba(26,21,14,0.5)',
+          display:'flex',alignItems:'center',justifyContent:'center',animation:'ccFade 0.3s ease-out both'}}>
+          <div style={{background:T.cream,border:`1px solid ${T.rule}`,borderRadius:16,padding:'34px 44px',
+            textAlign:'center',boxShadow:'0 20px 60px rgba(0,0,0,0.3)',minWidth:320,animation:'ccPop 0.3s ease-out both'}}>
+            {printing==='sending'?(
+              <>
+                <div style={{width:46,height:46,border:`3px solid ${T.amberTint}`,borderTopColor:T.amber,borderRadius:'50%',margin:'0 auto 18px',animation:'ccSpin 0.8s linear infinite'}}/>
+                <div style={{fontSize:16,fontWeight:600,color:T.ink,marginBottom:5}}>Preparing your map…</div>
+                <div style={{fontSize:12.5,color:T.inkLt}}>Rendering “{title}” at print resolution</div>
+              </>
+            ):(
+              <>
+                <div style={{width:52,height:52,borderRadius:'50%',background:T.greenBg,border:`1.5px solid ${T.greenBd}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px'}}>
+                  <Ic n="check" size={26} color={T.green}/>
+                </div>
+                <div style={{fontSize:16,fontWeight:600,color:T.ink,marginBottom:5}}>Sent to printer</div>
+                <div style={{fontSize:12.5,color:T.inkLt}}>“{title}” · {TREES_2025.length} trees · Letter landscape</div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

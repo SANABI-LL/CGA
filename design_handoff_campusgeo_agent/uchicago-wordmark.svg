@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80">
+  <rect width="400" height="80" fill="#800000"></rect>
+  <image x="14" y="9" width="51" height="62" preserveAspectRatio="xMidYMid meet"></image>
+  <text x="82" y="28" font-family="Georgia, serif" font-size="10" fill="rgba(255,255,255,0.82)" letter-spacing="2.5">THE UNIVERSITY OF CHICAGO</text>
+  <text x="82" y="50" font-family="Georgia, serif" font-size="22" fill="white" letter-spacing="0.5">CampusGeo</text>
+  <text x="82" y="66" font-family="&#39;Helvetica Neue&#39;, sans-serif" font-size="8.5" fill="rgba(255,255,255,0.65)" letter-spacing="3">AI GEOSPATIAL AGENT</text>
+</svg>

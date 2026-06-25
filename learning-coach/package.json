@@ -12,7 +12,8 @@
     "track:init": "tsx src/cli.ts init",
     "track:log": "tsx src/cli.ts log",
     "track:stats": "tsx src/cli.ts stats",
-    "track:remind": "tsx src/cli.ts remind"
+    "track:remind": "tsx src/cli.ts remind",
+    "analyze-pattern": "node dist/cli.js analyze-pattern"
   },
   "keywords": [
     "mcp",

@@ -1,0 +1,327 @@
+/* ============================================================
+   CampusGeo Design System — Colors & Typography Tokens
+   University of Chicago AI Geospatial Agent
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---- Brand Color Primitives -------------------------------- */
+:root {
+  /* UChicago Phoenix Maroon */
+  --maroon-900: #4A0000;
+  --maroon-800: #680000;
+  --maroon-700: #800000;   /* Phoenix Maroon — primary brand */
+  --maroon-600: #960000;
+  --maroon-500: #A80000;
+  --maroon-400: #C43030;
+  --maroon-300: #D96060;
+
+  /* Greystone (named after UChicago limestone buildings) */
+  --greystone-900: #1A1714;  /* near-black map canvas */
+  --greystone-800: #242020;  /* dark surface */
+  --greystone-750: #2E2A27;  /* raised surface */
+  --greystone-700: #3D3530;  /* footer / strong border */
+  --greystone-600: #5C5248;  /* dark greystone — secondary text */
+  --greystone-500: #756B62;  /* muted UI elements */
+  --greystone-400: #8C8580;  /* muted text */
+  --greystone-300: #B9B0A2;  /* light greystone — borders */
+  --greystone-200: #D4CEC8;  /* light border, disabled */
+  --greystone-100: #EDE9E5;  /* very light surface */
+  --greystone-50:  #F5F3F0;  /* near-white surface */
+
+  /* Accent — warm gold from UChicago tile roofs */
+  --amber-700: #9A6F28;
+  --amber-600: #B07F30;
+  --amber-500: #C4903A;      /* primary accent amber */
+  --amber-400: #D4A44E;
+  --amber-300: #E4BC78;
+  --amber-200: #F0D4A8;
+
+  /* Status */
+  --green-500: #2E7D5E;
+  --green-400: #3A9970;
+  --green-300: #4DB88A;
+  --red-500: #C0392B;
+  --red-400: #E74C3C;
+  --blue-500: #2563A8;
+  --blue-400: #3A7BC8;
+  --blue-300: #60A0E0;
+
+  /* Pure */
+  --white: #FFFFFF;
+  --black: #0A0908;
+
+  /* ---- Semantic UI Tokens ---------------------------------- */
+
+  /* Backgrounds */
+  --bg-canvas:    var(--greystone-900);   /* full-page map canvas */
+  --bg-surface:   var(--greystone-800);   /* panels, sidebars */
+  --bg-raised:    var(--greystone-750);   /* cards, dropdowns */
+  --bg-overlay:   var(--greystone-700);   /* modals overlay surface */
+  --bg-input:     var(--greystone-800);   /* input field backgrounds */
+  --bg-hover:     var(--greystone-750);   /* hover state on items */
+  --bg-active:    var(--greystone-700);   /* active/selected state */
+  --bg-brand:     var(--maroon-700);      /* brand header bar */
+
+  /* Foreground / Text */
+  --fg-primary:   #F0EDE8;               /* primary text on dark */
+  --fg-secondary: var(--greystone-300);   /* secondary / caption text */
+  --fg-muted:     var(--greystone-400);   /* muted/placeholder text */
+  --fg-disabled:  var(--greystone-600);   /* disabled text */
+  --fg-on-brand:  var(--white);           /* text on maroon surface */
+  --fg-link:      var(--amber-400);       /* links */
+  --fg-link-hover:var(--amber-300);
+
+  /* Borders */
+  --border-subtle:  var(--greystone-700);
+  --border-default: var(--greystone-600);
+  --border-strong:  var(--greystone-400);
+  --border-brand:   var(--maroon-700);
+  --border-accent:  var(--amber-500);
+
+  /* Brand */
+  --brand-primary:  var(--maroon-700);
+  --brand-hover:    var(--maroon-600);
+  --brand-active:   var(--maroon-800);
+  --accent-primary: var(--amber-500);
+  --accent-hover:   var(--amber-400);
+
+  /* Status */
+  --status-success: var(--green-400);
+  --status-warning: var(--amber-500);
+  --status-error:   var(--red-400);
+  --status-info:    var(--blue-400);
+
+  /* ---- Spacing Scale --------------------------------------- */
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---- Radii -------------------------------------------- */
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  8px;
+  --radius-xl:  12px;
+  --radius-pill: 20px;
+  --radius-full: 9999px;
+
+  /* ---- Shadows ------------------------------------------ */
+  --shadow-sm:  0 1px 4px rgba(0,0,0,0.3);
+  --shadow-md:  0 2px 8px rgba(0,0,0,0.35);
+  --shadow-lg:  0 4px 24px rgba(0,0,0,0.45);
+  --shadow-xl:  0 8px 40px rgba(0,0,0,0.55);
+  --shadow-brand: 0 2px 12px rgba(128,0,0,0.4);
+
+  /* ---- Typography --------------------------------------- */
+
+  /* Font Families */
+  --font-display: 'EB Garamond', 'Georgia', serif;
+    /* Substitutes Adobe Garamond Pro — the UChicago traditional serif.
+       Flag: Gotham (licensed) unavailable; using Plus Jakarta Sans as substitute. */
+  --font-ui:      'Plus Jakarta Sans', 'Helvetica Neue', sans-serif;
+    /* Substitutes Gotham — UChicago's primary web font. */
+  --font-mono:    'JetBrains Mono', 'Menlo', monospace;
+
+  /* Font Sizes — modular scale (1.25 ratio) */
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   17px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  30px;
+  --text-3xl:  38px;
+  --text-4xl:  48px;
+  --text-5xl:  60px;
+
+  /* Font Weights */
+  --weight-light:   300;
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semibold:600;
+  --weight-bold:    700;
+
+  /* Line Heights */
+  --leading-tight:  1.15;
+  --leading-snug:   1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed:1.7;
+
+  /* Letter Spacing */
+  --tracking-tight:  -0.02em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.04em;
+  --tracking-wider:   0.08em;
+
+  /* ---- Semantic Type Roles ------------------------------ */
+
+  /* Display — large hero text, Garamond */
+  --h-display-font:    var(--font-display);
+  --h-display-size:    var(--text-5xl);
+  --h-display-weight:  var(--weight-regular);
+  --h-display-leading: var(--leading-tight);
+  --h-display-tracking: var(--tracking-tight);
+
+  /* H1 */
+  --h1-font:    var(--font-display);
+  --h1-size:    var(--text-4xl);
+  --h1-weight:  var(--weight-regular);
+  --h1-leading: var(--leading-tight);
+
+  /* H2 */
+  --h2-font:    var(--font-ui);
+  --h2-size:    var(--text-3xl);
+  --h2-weight:  var(--weight-semibold);
+  --h2-leading: var(--leading-snug);
+
+  /* H3 */
+  --h3-font:    var(--font-ui);
+  --h3-size:    var(--text-xl);
+  --h3-weight:  var(--weight-semibold);
+  --h3-leading: var(--leading-snug);
+
+  /* H4 */
+  --h4-font:    var(--font-ui);
+  --h4-size:    var(--text-lg);
+  --h4-weight:  var(--weight-medium);
+  --h4-leading: var(--leading-normal);
+
+  /* Body */
+  --body-font:    var(--font-ui);
+  --body-size:    var(--text-base);
+  --body-weight:  var(--weight-regular);
+  --body-leading: var(--leading-relaxed);
+
+  /* Caption */
+  --caption-font:    var(--font-ui);
+  --caption-size:    var(--text-sm);
+  --caption-weight:  var(--weight-regular);
+  --caption-leading: var(--leading-normal);
+
+  /* Label */
+  --label-font:    var(--font-ui);
+  --label-size:    var(--text-sm);
+  --label-weight:  var(--weight-medium);
+  --label-leading: var(--leading-tight);
+  --label-tracking: var(--tracking-wide);
+
+  /* Overline */
+  --overline-font:    var(--font-ui);
+  --overline-size:    var(--text-xs);
+  --overline-weight:  var(--weight-semibold);
+  --overline-leading: var(--leading-normal);
+  --overline-tracking: var(--tracking-wider);
+  --overline-transform: uppercase; /* @kind other */
+
+  /* Code */
+  --code-font:    var(--font-mono);
+  --code-size:    var(--text-sm);
+  --code-weight:  var(--weight-regular);
+}
+
+/* ---- Global Resets --------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg-canvas);
+  color: var(--fg-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Semantic Element Styles ----------------------------- */
+h1 {
+  font-family: var(--h1-font);
+  font-size: var(--h1-size);
+  font-weight: var(--h1-weight);
+  line-height: var(--h1-leading);
+  color: var(--fg-primary);
+  margin: 0 0 var(--space-4);
+}
+
+h2 {
+  font-family: var(--h2-font);
+  font-size: var(--h2-size);
+  font-weight: var(--h2-weight);
+  line-height: var(--h2-leading);
+  color: var(--fg-primary);
+  margin: 0 0 var(--space-3);
+}
+
+h3 {
+  font-family: var(--h3-font);
+  font-size: var(--h3-size);
+  font-weight: var(--h3-weight);
+  line-height: var(--h3-leading);
+  color: var(--fg-primary);
+  margin: 0 0 var(--space-2);
+}
+
+h4 {
+  font-family: var(--h4-font);
+  font-size: var(--h4-size);
+  font-weight: var(--h4-weight);
+  line-height: var(--h4-leading);
+  color: var(--fg-secondary);
+  margin: 0 0 var(--space-2);
+}
+
+p {
+  font-family: var(--body-font);
+  font-size: var(--body-size);
+  font-weight: var(--body-weight);
+  line-height: var(--body-leading);
+  color: var(--fg-primary);
+  margin: 0 0 var(--space-4);
+}
+
+code, pre {
+  font-family: var(--code-font);
+  font-size: var(--code-size);
+  background: var(--bg-raised);
+  color: var(--amber-300);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
+a {
+  color: var(--fg-link);
+  text-decoration: none;
+}
+a:hover { color: var(--fg-link-hover); }
+
+/* ---- Utility Classes ------------------------------------- */
+.overline {
+  font-family: var(--overline-font);
+  font-size: var(--overline-size);
+  font-weight: var(--overline-weight);
+  letter-spacing: var(--overline-tracking);
+  text-transform: var(--overline-transform);
+  color: var(--fg-muted);
+}
+
+.label {
+  font-family: var(--label-font);
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  letter-spacing: var(--label-tracking);
+  color: var(--fg-secondary);
+}
+
+.caption {
+  font-family: var(--caption-font);
+  font-size: var(--caption-size);
+  color: var(--fg-muted);
+  line-height: var(--leading-normal);
+}

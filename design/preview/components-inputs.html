@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Query & Search Inputs" subtitle="Natural language query bar, standard search, quick suggestion chips" viewport="700x220" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Query Input</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@1,400&family=Plus+Jakarta+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  body { background: #1A1714; padding: 16px 20px; margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+  .section { font-size: 9px; color: #5C5248; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin-bottom: 8px; }
+  .input-wrap { background: #242020; border: 1px solid #3D3530; border-radius: 8px; display: flex; align-items: center; padding: 10px 14px; gap: 10px; margin-bottom: 10px; }
+  .input-wrap.focused { border-color: #800000; box-shadow: 0 0 0 2px rgba(128,0,0,0.2); }
+  .input-icon { color: #8C8580; flex-shrink: 0; }
+  .input-text { flex: 1; font-family: 'EB Garamond', serif; font-size: 17px; color: #F0EDE8; font-style: italic; }
+  .input-placeholder { color: #5C5248; }
+  .input-action { background: #800000; border: none; color: white; padding: 6px 14px; border-radius: 5px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; flex-shrink: 0; }
+  .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { background: #2E2A27; border: 1px solid #3D3530; color: #B9B0A2; border-radius: 20px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+  .chip.active { background: rgba(128,0,0,0.15); border-color: rgba(128,0,0,0.4); color: #D96060; }
+  .search-row { display: flex; gap: 6px; }
+  .search-input { background: #2E2A27; border: 1px solid #3D3530; border-radius: 6px; padding: 8px 12px; color: #F0EDE8; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 14px; flex: 1; }
+</style>
+</head>
+<body>
+<div class="section">Primary Query Bar — Natural Language</div>
+<div class="input-wrap focused">
+  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+  <div class="input-text">Where can I print near the main quad?</div>
+  <button class="input-action">Ask →</button>
+</div>
+<div class="input-wrap">
+  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+  <div class="input-text input-placeholder">Ask anything about campus…</div>
+  <button class="input-action" style="opacity:0.4">Ask →</button>
+</div>
+<div class="section" style="margin-top:4px">Quick Suggestions</div>
+<div class="chip-row">
+  <div class="chip active">🗺 Dining</div>
+  <div class="chip">📚 Libraries</div>
+  <div class="chip">🏥 Health</div>
+  <div class="chip">🏃 Athletics</div>
+  <div class="chip">🚌 Transit</div>
+  <div class="chip">🅿 Parking</div>
+</div>
+<div class="section">Standard Search Input</div>
+<div class="search-row">
+  <input class="search-input" value="Crerar Library" readonly>
+  <button style="background:#2E2A27;border:1px solid #3D3530;color:#B9B0A2;border-radius:6px;padding:8px 14px;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px">Filter</button>
+</div>
+</body>
+</html>

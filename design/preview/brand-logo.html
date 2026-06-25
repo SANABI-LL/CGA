@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Brand" name="Brand Logo Lockup" subtitle="Phoenix mark + CampusGeo wordmark on maroon, dark, and light" viewport="700x260" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Brand Logo</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { background: #1A1714; padding: 20px; margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .lockup { display: flex; flex-direction: column; gap: 12px; }
+  .bar { background: #800000; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-radius: 6px; }
+  .phoenix-wrap { display: flex; align-items: center; justify-content: center; }
+  .wordmark { font-family: 'EB Garamond', serif; font-size: 22px; color: white; letter-spacing: 0.5px; }
+  .sub { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 9px; color: rgba(255,255,255,0.65); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500; }
+  .on-dark { background: #242020; padding: 14px 18px; border-radius: 6px; display: flex; align-items: center; gap: 10px; }
+  .on-light { background: #F5F3F0; padding: 14px 18px; border-radius: 6px; display: flex; align-items: center; gap: 10px; }
+  .label { font-size: 9px; color: #5C5248; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="lockup">
+  <div class="label">Primary — Maroon bar</div>
+  <div class="bar">
+    <div class="phoenix-wrap">
+      <img src="../assets/phoenix.svg" width="32" height="27" alt="Phoenix">
+    </div>
+    <div>
+      <div class="wordmark">CampusGeo</div>
+      <div class="sub">University of Chicago</div>
+    </div>
+  </div>
+
+  <div class="label">On dark surface</div>
+  <div class="on-dark">
+    <img src="../assets/phoenix.svg" width="28" height="24" alt="Phoenix">
+    <div>
+      <div style="font-family:'EB Garamond',serif;font-size:18px;color:#F0EDE8">CampusGeo</div>
+      <div style="font-size:9px;color:#8C8580;letter-spacing:0.1em;text-transform:uppercase;font-weight:500">AI Geospatial Agent</div>
+    </div>
+  </div>
+
+  <div class="label">On light surface</div>
+  <div class="on-light">
+    <img src="../assets/phoenix.svg" width="28" height="24" alt="Phoenix">
+    <div>
+      <div style="font-family:'EB Garamond',serif;font-size:18px;color:#800000">CampusGeo</div>
+      <div style="font-size:9px;color:#756B62;letter-spacing:0.1em;text-transform:uppercase;font-weight:500">AI Geospatial Agent</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
