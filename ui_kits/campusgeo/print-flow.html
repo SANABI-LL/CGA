@@ -1,0 +1,1671 @@
+<!DOCTYPE html>
+<!-- @dsCard group="UI Kit — Campusgeo" name="CampusGeo — Print-a-Map Flow" subtitle="Clean empty start → agent searches layers + attribute table → print composer · attribute edits with review-before-apply" viewport="1440x860" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampusGeo — Print a Map</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{height:100%;width:100%;overflow:hidden;}
+body{background:#F5F0E8;font-family:'Plus Jakarta Sans',sans-serif;color:#2A2218;-webkit-font-smoothing:antialiased;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#C8BFB0;border-radius:3px;}
+input,textarea,button{font-family:inherit;}
+button{cursor:pointer;}
+
+.maplibregl-ctrl-attrib{background:rgba(250,247,242,0.75)!important;font-size:9px!important;}
+.maplibregl-ctrl-attrib a{color:#8C8070!important;}
+.maplibregl-popup-content{background:#FAF7F2;border:1px solid #D8CFC0;border-radius:8px;padding:9px 12px;box-shadow:0 4px 20px rgba(0,0,0,0.18);font-family:'Plus Jakarta Sans',sans-serif;}
+.maplibregl-popup-tip{border-top-color:#FAF7F2!important;border-bottom-color:#FAF7F2!important;}
+.pop-title{font-size:12px;font-weight:600;color:#2A2218;margin-bottom:2px;}
+.pop-sub{font-size:11px;color:#5A5046;}
+.pop-coord{font-size:9px;color:#B5ADA0;font-family:'JetBrains Mono',monospace;margin-top:3px;}
+
+@keyframes ccFadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ccFade{from{opacity:0}to{opacity:1}}
+@keyframes ccPop{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}
+@keyframes ccBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes ccSpin{to{transform:rotate(360deg)}}
+@keyframes ccPulse{0%,100%{opacity:1}50%{opacity:0.35}}
+@keyframes ccProgress{from{width:0}to{width:100%}}
+@keyframes ccSlideIn{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:translateX(0)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel">
+
+const { useState, useRef, useEffect, useMemo, useCallback } = React;
+
+/* ── Tokens ─────────────────────────────────────────────────── */
+const T = {
+  maroon: '#800000', maroonDk: '#5A0000', maroonLt: '#A82020',
+  maroonTint: 'rgba(128,0,0,0.08)', maroonRing: 'rgba(128,0,0,0.2)',
+  amber: '#B07830', amberLt: '#D4A84E', amberTint: 'rgba(176,120,48,0.12)',
+  paper: '#F5F0E8', paperDk: '#EDE6D8', paperDkr: '#E2D9C8', cream: '#FAF7F2',
+  ink: '#2A2218', inkMd: '#5A5046', inkLt: '#8C8070', inkXlt: '#B5ADA0',
+  rule: '#D8CFC0', ruleLt: '#E8E2D8', ruleDk: '#C0B5A5',
+  green: '#2E7D52', greenBg: 'rgba(46,125,82,0.12)', greenBd: 'rgba(46,125,82,0.3)',
+  blue: '#2060A0', white: '#FFFFFF'
+};
+
+/* ── Warm "data canvas" basemap ─────────────────────────────── */
+const WARM_STYLE = {
+  version: 8,
+  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sources: { omt: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' } },
+  layers: [
+  { id: 'bg', type: 'background', paint: { 'background-color': '#ECE7DC' } },
+  { id: 'water', type: 'fill', source: 'omt', 'source-layer': 'water', paint: { 'fill-color': '#DAD7CC' } },
+  { id: 'green', type: 'fill', source: 'omt', 'source-layer': 'landcover',
+    filter: ['in', ['get', 'class'], ['literal', ['grass', 'meadow', 'park', 'wood']]],
+    paint: { 'fill-color': '#E0E2CC', 'fill-opacity': 0.8 } },
+  { id: 'park', type: 'fill', source: 'omt', 'source-layer': 'park', paint: { 'fill-color': '#E0E2CC', 'fill-opacity': 0.6 } },
+  { id: 'building', type: 'fill', source: 'omt', 'source-layer': 'building', minzoom: 13.5,
+    paint: { 'fill-color': '#E3DDD0', 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 13.5, 0, 15, 1] } },
+  { id: 'road-minor', type: 'line', source: 'omt', 'source-layer': 'transportation',
+    filter: ['in', ['get', 'class'], ['literal', ['minor', 'service', 'path', 'track', 'footway']]],
+    paint: { 'line-color': '#E5E0D4', 'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 18, 5] } },
+  { id: 'road-main', type: 'line', source: 'omt', 'source-layer': 'transportation',
+    filter: ['in', ['get', 'class'], ['literal', ['secondary', 'tertiary', 'primary', 'trunk', 'motorway']]],
+    paint: { 'line-color': '#E0DACB', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 18, 14] } },
+  { id: 'rail', type: 'line', source: 'omt', 'source-layer': 'transportation',
+    filter: ['==', ['get', 'class'], 'rail'], paint: { 'line-color': '#CFC7B5', 'line-width': 0.8, 'line-dasharray': [3, 3] } },
+  { id: 'road-label', type: 'symbol', source: 'omt', 'source-layer': 'transportation_name', minzoom: 14.5,
+    layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 10.5 },
+    paint: { 'text-color': '#A89B88', 'text-halo-color': '#ECE7DC', 'text-halo-width': 1.4 } },
+  { id: 'place-label', type: 'symbol', source: 'omt', 'source-layer': 'place',
+    filter: ['in', ['get', 'class'], ['literal', ['suburb', 'neighbourhood', 'quarter']]],
+    layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-transform': 'uppercase', 'text-letter-spacing': 0.18 },
+    paint: { 'text-color': '#B3A691', 'text-halo-color': '#ECE7DC', 'text-halo-width': 1.4, 'text-opacity': 0.8 } }]
+
+};
+
+/* ── Sample campus tree inventory (with attribute table) ────── */
+function mulberry32(a) {return function () {a |= 0;a = a + 0x6D2B79F5 | 0;let t = Math.imul(a ^ a >>> 15, 1 | a);t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;return ((t ^ t >>> 14) >>> 0) / 4294967296;};}
+const SPECIES = ['Honey Locust', 'Northern Red Oak', 'American Elm', 'Ginkgo', 'Littleleaf Linden', 'Hackberry', 'Kentucky Coffeetree', 'Swamp White Oak', 'River Birch', 'Norway Maple'];
+const COND = ['Excellent', 'Good', 'Good', 'Good', 'Fair', 'Fair', 'Poor'];
+function genTrees() {
+  const rnd = mulberry32(20260606);
+  // [lng, lat, spreadLng, spreadLat, count] — planting zones across Hyde Park campus
+  const zones = [
+  [-87.5990, 41.7896, 0.0042, 0.0026, 46], // Main Quadrangles
+  [-87.5999, 41.7921, 0.0026, 0.0016, 22], // Regenstein lawn
+  [-87.5978, 41.7903, 0.0018, 0.0014, 18], // Hull Court / Botany Pond
+  [-87.5986, 41.7876, 0.0090, 0.0011, 52], // Midway Plaisance corridor
+  [-87.6016, 41.7906, 0.0016, 0.0040, 26], // Ellis Ave
+  [-87.5968, 41.7905, 0.0016, 0.0042, 24], // University Ave
+  [-87.5950, 41.7888, 0.0034, 0.0024, 22], // East campus
+  [-87.5912, 41.7859, 0.0032, 0.0022, 24], // 58th & Dorchester / CTS block
+  [-87.5925, 41.7878, 0.0024, 0.0020, 16] // Woodlawn Ave corridor
+  ];
+  const feats = [];let id = 1001;
+  zones.forEach(([clng, clat, sx, sy, n]) => {
+    for (let i = 0; i < n; i++) {
+      const lng = clng + (rnd() - 0.5) * sx,lat = clat + (rnd() - 0.5) * sy;
+      const recent = rnd() < 0.31;
+      const year = recent ? 2025 : 2015 + Math.floor(rnd() * 9); // last year = 2025
+      const dbh = recent ? 2 + rnd() * 3 : 5 + rnd() * 22;
+      feats.push({ type: 'Feature',
+        properties: { OBJECTID: id++, species: SPECIES[Math.floor(rnd() * SPECIES.length)],
+          year_planted: year, dbh_in: +dbh.toFixed(1), condition: COND[Math.floor(rnd() * COND.length)] },
+        geometry: { type: 'Point', coordinates: [+lng.toFixed(6), +lat.toFixed(6)] } });
+    }
+  });
+  return { type: 'FeatureCollection', features: feats };
+}
+const TREES = genTrees();
+const TREES_TOTAL = TREES.features.length;
+const TREES_2025 = TREES.features.filter((f) => f.properties.year_planted === 2025);
+const TREES_2025_GJ = { type: 'FeatureCollection', features: TREES_2025 };
+
+/* ── Icons ──────────────────────────────────────────────────── */
+const IP = {
+  zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
+  search: <><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></>,
+  x: <><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>,
+  layers: <><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></>,
+  table: <><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="3" y1="15" x2="21" y2="15" /><line x1="9" y1="3" x2="9" y2="21" /></>,
+  filter: <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />,
+  map: <><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21" /><line x1="9" y1="3" x2="9" y2="18" /><line x1="15" y1="6" x2="15" y2="21" /></>,
+  printer: <><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></>,
+  check: <polyline points="20 6 9 17 4 12" />,
+  arrowUp: <><line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" /></>,
+  plus: <><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></>,
+  minus: <line x1="5" y1="12" x2="19" y2="12" />,
+  move: <><polyline points="5 9 2 12 5 15" /><polyline points="9 5 12 2 15 5" /><polyline points="15 19 12 22 9 19" /><polyline points="19 9 22 12 19 15" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="12" y1="2" x2="12" y2="22" /></>,
+  rotate: <><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></>,
+  leaf: <><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6" /></>,
+  building: <><rect x="4" y="3" width="16" height="18" rx="1" /><path d="M9 21v-5h6v5" /><path d="M9 7h.01M15 7h.01M9 11h.01M15 11h.01" /></>,
+  corner: <><path d="M22 12A10 10 0 0 0 12 2v10z" /></>,
+  pen: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
+  refresh: <><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></>,
+  cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
+  diff: <><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><path d="M11 18H8a2 2 0 0 1-2-2V9" /></>,
+  clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>,
+  link: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></>,
+  bell: <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></>,
+  arrowRight: <><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></>
+};
+const Ic = ({ n, size = 16, color = 'currentColor', sw = 1.6, style = {} }) =>
+<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, ...style }}>{IP[n]}</svg>;
+
+const Phoenix = ({ size = 24, white = false }) =>
+<img src={white ? 'uchicago-shield-white.png' : 'uchicago-shield.png'} alt="University of Chicago shield"
+style={{ height: size, width: 'auto', display: 'block' }} draggable={false} />;
+
+
+/* ── Gotham-family stack for the search input ──────────────── */
+const GOTHAM = "'Gotham Book','Gotham','Plus Jakarta Sans','Helvetica Neue',sans-serif";
+
+// ── Data source config ──────────────────────────────────────────────────────
+// Set window.CAMPUSGEO_CDN_URL to your CloudFront domain before this script
+// to load layers from S3 via manifest.json. Falls back to local data/ folder.
+const CAMPUSGEO_CDN = (window.CAMPUSGEO_CDN_URL || '').replace(/\/$/, '');
+
+/* ── Suggestions (one per scenario the agent can resolve) ───── */
+const SUGGESTIONS_EN = [
+'Show me buildings with an RI value higher than 0.52',
+'Show me a 1″ = 50′ scale map near Keller Center',
+'Print a map of the trees we planted last year',
+'Change the building name of 5460 University Ave to ‘Lorraine and Yuji Suzuki Center’',
+'What changed in the campus data this week?'];
+
+const SUGGESTIONS_ZH = '帮我打印一张去年种植的树木位置地图';
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "exampleCount": 3,
+  "showChinese": false
+}/*EDITMODE-END*/;
+
+/* ── Data provenance — the source web map + nightly sync log ── */
+const SYNC_SOURCE = {
+  name: 'UChicago Campus GIS', type: 'ArcGIS Online web map', layers: 47,
+  webmap: '012f41f00d584e6f891d65a400b6b66e',
+  url: 'https://uchicago.maps.arcgis.com/apps/mapviewer/index.html?webmap=012f41f00d584e6f891d65a400b6b66e'
+};
+const SYNC_STATUS = {
+  applied: { c: T.green, bg: T.greenBg, bd: T.greenBd, label: 'applied' },
+  skipped: { c: T.inkLt, bg: 'rgba(140,128,112,0.10)', bd: 'rgba(140,128,112,0.28)', label: 'no changes' },
+  held: { c: T.amber, bg: T.amberTint, bd: 'rgba(176,120,48,0.32)', label: 'held for review' }
+};
+const SYNC_LOG = [
+{ date: 'Jun 15', rel: 'Today', summary: 'Renamed 5460 University Ave · 12 trees added · 2 more names updated', status: 'applied' },
+{ date: 'Jun 14', rel: 'Yesterday', summary: 'No changes detected since the previous run', status: 'skipped' },
+{ date: 'Jun 13', rel: '2 days ago', summary: '1 building footprint revised — Crerar annex', status: 'applied' },
+{ date: 'Jun 12', rel: '3 days ago', summary: 'Coordinate drift flagged on 2 tree features', status: 'held' },
+{ date: 'Jun 11', rel: '4 days ago', summary: '47 trees added — spring planting batch', status: 'applied' }];
+
+const SYNC_PIPELINE = ['ArcGIS REST', 'Diff', 'Validate', 'LLM QA', 'S3 + DynamoDB', 'CloudFront', 'Notify'];
+
+/* ── Changes pulled from the ArcGIS Feature Service at the latest nightly sync ── */
+const DIGEST_DATE = 'Jun 15, 2026';
+const SOURCE_UPDATES = [
+{ bd: 'L31', field: 'DISCRIPT1', from: '5460 S University Ave', to: 'Lorraine and Yuji Suzuki Center' }];
+
+const DIGEST = [
+{ icon: 'pen', headline: 'Building renamed', detail: <span>5460 S University Ave → <b>Lorraine and Yuji Suzuki Center</b></span>, sub: 'Campus Buildings · parcel L31', open: 'Lorraine and Yuji Suzuki Center site plan' },
+{ icon: 'leaf', headline: '12 trees added', detail: <span>New plantings logged across the Main Quadrangles and Midway corridor</span>, sub: 'Campus Trees' },
+{ icon: 'pen', headline: '2 more names updated', detail: <span>Minor label corrections on the Campus Buildings layer</span>, sub: 'Campus Buildings' }];
+
+
+/* ── Intent routing ─────────────────────────────────────────── */
+function detectKind(q) {
+  const s = q.toLowerCase();
+  if (/build|footprint|site ?plan|parcel|\bri\b|ri[_ ]|resilien|fci|楼|建筑|房/.test(s)) return 'buildings';
+  if (/tree|plant|种植|树|planting|sapling|arbo/.test(s)) return 'trees';
+  if (/map|print|打印|地图|显示|show|display|find|locate|where/.test(s)) {
+    // generic map request — check for building or tree hints in wider context
+    if (/height|tall|old|year.*built|complet|age|sqft|sq ft|square|area|gross/.test(s)) return 'buildings';
+    return null; // ambiguous — ask user
+  }
+  return null; // not a map/data query
+}
+/* ── Engineering-scale parser — "1'' = 50'", "1 inch to 100 ft", "1:600" ─ */
+function parseScaleHint(s) {
+  let m = s.match(/1\s*(?:''|"|″|inch(?:es)?|in\.?|英寸)\s*(?:=|:|：|to)?\s*(\d+(?:\.\d+)?)\s*(?:'|′|ft|feet|foot|英尺)/);
+  if (m) return { ftPerIn: parseFloat(m[1]), label: `1″ = ${m[1]}′` };
+  m = s.match(/1\s*[:：]\s*(\d{2,6})\b/);
+  if (m) return { ftPerIn: parseInt(m[1], 10) / 12, label: `1:${m[1]}` };
+  return null;
+}
+/* ── Data-freshness / sync intent — "when was the data last updated?" ── */
+function detectSyncIntent(q) {
+  const s = q.toLowerCase();
+  const en = [
+  /\b(sync(ed|ing)?|re-?sync|refresh(ed|ing)?|reload|re-?pull|pull (the )?latest)\b/,
+  /\bdata source\b|\bsource of truth\b|\bsync log\b|\bup[\s-]?to[\s-]?date\b|\bhow current\b/,
+  /\barcgis\b|\bweb[\s-]?map\b/,
+  /\b(when|how often|how recently)\b[^?]*\b(updat|refresh|sync|current|fresh|latest|new|chang)/,
+  /\b(data|layer|layers|dataset|datasets)\b[^?]*\b(updat|fresh|current|sync|source|latest|refresh|reload|from)\b/,
+  /\bwhat'?s? (chang|new|updat)/];
+
+  const zh = [
+  /数据[^？]*?(更新|来源|同步|刷新|最新|多久|什么时候|哪来|从哪)/,
+  /(更新|同步|刷新|拉取|抓取)[^？]*?数据/,
+  /数据源|同步日志|数据来源|最新数据|多久更新|什么时候更新/,
+  /最近[^？]*?(更新|变化|变动|改动|新增)/,
+  /arcgis|网页地图/];
+
+  return en.some((r) => r.test(s)) || zh.some((r) => r.test(q));
+}
+function makeSyncScenario(q) {
+  return {
+    kind: 'sync', unit: 'updates', title: 'Data Source & Sync',
+    intentDetail: <span>Intent <b>data freshness</b> · checking the campus GIS sync pipeline</span>
+  };
+}
+function fcBounds(fc) {
+  let w = 180,s = 90,e = -180,n = -90;
+  const walk = (co) => {if (typeof co[0] === 'number') {const x = co[0],y = co[1];if (x < w) w = x;if (x > e) e = x;if (y < s) s = y;if (y > n) n = y;} else co.forEach(walk);};
+  fc.features.forEach((f) => walk(f.geometry.coordinates));
+  return [[w, s], [e, n]];
+}
+/* ── Geometry helpers for follow-up buffers ───────────────── */
+const M_PER_FT = 0.3048;
+function metersBetween(a, b) {
+  const R = 6371000,d = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * d,dLng = (b[0] - a[0]) * d;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * d) * Math.cos(b[1] * d) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function distToBBox(pt, b) {
+  const cx = Math.min(Math.max(pt[0], b[0][0]), b[1][0]);
+  const cy = Math.min(Math.max(pt[1], b[0][1]), b[1][1]);
+  return metersBetween(pt, [cx, cy]);
+}
+function circleGJ(center, radiusM, steps = 72) {
+  const d = Math.PI / 180;
+  const latR = radiusM / 111320;
+  const lngR = radiusM / (111320 * Math.cos(center[1] * d));
+  const coords = [];
+  for (let i = 0; i <= steps; i++) {const a = i / steps * Math.PI * 2;coords.push([center[0] + Math.cos(a) * lngR, center[1] + Math.sin(a) * latR]);}
+  return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [coords] } }] };
+}
+
+/* ── Follow-up refinement interpreter (runs on the composer view) ─ */
+function applyFollowUp(q, sc) {
+  const s = q.toLowerCase();
+  const mentionsTrees = /tree|树|sapling|plant/.test(s);
+  if (/remove|clear|hide|去掉|移除|隐藏/.test(s) && mentionsTrees) {
+    if (!sc.overlay) return { err: 'There is no tree overlay on this map yet.' };
+    const next = { ...sc };delete next.overlay;delete next.fitData;
+    next.legend = sc.baseLegend || sc.legend;
+    return { sc: next, note: 'Removed the tree overlay.' };
+  }
+  if (mentionsTrees) {
+    let radiusM = 150,radiusLabel = '500 ft';
+    let m = s.match(/(\d+(?:\.\d+)?)\s*(?:m\b|meters?|米)/);
+    if (m) {radiusM = parseFloat(m[1]);radiusLabel = `${m[1]} m`;} else
+    {m = s.match(/(\d+(?:\.\d+)?)\s*(?:ft|feet|英尺|′|')/);if (m) {radiusM = parseFloat(m[1]) * M_PER_FT;radiusLabel = `${m[1]} ft`;}}
+    const onlyRecent = /2025|last year|去年/.test(s);
+    const pool = onlyRecent ? TREES_2025 : TREES.features;
+    const boxes = sc.data.features.map((f) => fcBounds({ features: [f] }));
+    const hits = pool.filter((t) => boxes.some((b) => distToBBox(t.geometry.coordinates, b) <= radiusM));
+    if (!hits.length) {
+      return { err: `No trees found within ${radiusLabel}${onlyRecent ? ' (planted 2025)' : ''} — try a larger distance, e.g. “within 800 ft”.` };
+    }
+    let ring = null;
+    if (sc.data.features.length === 1) {
+      const b = boxes[0];
+      const c = [(b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2];
+      const halfW = metersBetween([b[0][0], c[1]], [b[1][0], c[1]]) / 2;
+      const halfH = metersBetween([c[0], b[0][1]], [c[0], b[1][1]]) / 2;
+      ring = circleGJ(c, radiusM + Math.max(halfW, halfH));
+    }
+    const baseLegend = sc.baseLegend || sc.legend;
+    const next = { ...sc, baseLegend,
+      overlay: { data: { type: 'FeatureCollection', features: hits }, ring, radiusM, count: hits.length, label: radiusLabel, recent: onlyRecent },
+      fitData: { type: 'FeatureCollection', features: [...sc.data.features, ...(ring ? ring.features : hits)] },
+      legend: [...baseLegend, { color: T.green, label: `Trees within ${radiusLabel} (${hits.length})`, round: true }]
+    };
+    return { sc: next, note: `Added ${hits.length} tree${hits.length === 1 ? '' : 's'} within ${radiusLabel}${onlyRecent ? ' (planted 2025)' : ''} · dashed ring shows the buffer` };
+  }
+  return { err: 'I can overlay the tree layer — try “also show trees within 200 ft” — or “remove trees”.' };
+}
+const codeChip = { fontFamily: 'JetBrains Mono,monospace', background: T.amberTint, color: T.amber, padding: '1px 5px', borderRadius: 4, fontSize: 12 };
+
+/* ── Building name lookup (full name, word overlap, or acronym e.g. "CTS") */
+function nameAcronym(name) {
+  const stop = new Set(['of', 'for', 'the', 'and', 'at', 'in', 'on']);
+  const words = name.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w && !stop.has(w));
+  if (words.length < 2) return null;
+  return words.map((w) => w[0]).join('');
+}
+const GENERIC_WORDS = new Set(['hall', 'house', 'building', 'center', 'centre', 'laboratory', 'memorial', 'south', 'north', 'east', 'west', 'street', 'avenue', 'campus']);
+function findBuilding(q, feats) {
+  const s = q.toLowerCase();
+  const tokens = new Set(s.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean));
+  let best = null,bestScore = 0;
+  for (const f of feats) {
+    const p = f.properties;
+    let score = 0;
+    const names = [p.DISCRIPT1, p.OtherNames, p.Facility_Name].
+    map((n) => (n || '').trim().toLowerCase()).filter((n) => n.length > 2);
+    for (const n of names) {
+      if (s.includes(n)) {score = Math.max(score, 100 + n.length);continue;}
+      const acr = nameAcronym(n);
+      if (acr && acr.length >= 3 && tokens.has(acr)) score = Math.max(score, 90);
+      const words = n.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !GENERIC_WORDS.has(w));
+      if (words.length) {
+        const hits = words.filter((w) => tokens.has(w)).length;
+        if (hits === words.length) score = Math.max(score, 80 + hits);else
+        if (hits >= 2) score = Math.max(score, 60 + hits);
+      }
+    }
+    const bd = (p.BD_ID || '').trim().toLowerCase();
+    if (bd && bd.length >= 2 && tokens.has(bd)) score = Math.max(score, 95);
+    if (score > bestScore) {bestScore = score;best = f;}
+  }
+  return bestScore >= 60 ? best : null;
+}
+
+/* ── Attribute-edit intent — "change the building name of X to 'Y'" ── */
+const EDIT_FIELDS = [
+{ re: /(building\s+)?name|名称|名字|更名|改名|重命名/i, field: 'DISCRIPT1', label: 'building name' },
+{ re: /address|地址/i, field: 'ADDRESS', label: 'address' },
+{ re: /\bchrs\b/i, field: 'CHRS', label: 'CHRS rating' },
+{ re: /other\s?names?|别名/i, field: 'OtherNames', label: 'alternate names' }];
+
+function parseEditIntent(q, feats) {
+  if (!feats || !feats.length) return null;
+  const s = q.toLowerCase();
+  if (!(/\b(change|rename|update|set|edit|modify|correct)\b/.test(s) || /更名|改名|修改|重命名|改为|改成/.test(q))) return null;
+  let to = null,rest = q;
+  let m = q.match(/['‘’"“”]\s*([^'‘’"“”]{2,80}?)\s*['‘’"“”]/);
+  if (m) {to = m[1].trim();rest = q.slice(0, m.index) + ' ' + q.slice(m.index + m[0].length);} else
+  {
+    m = q.match(/(?:改为|改成|更名为|重命名为|改名为)\s*(.{1,60}?)\s*$/);
+    if (m) {to = m[1].replace(/[。.!?]$/, '').trim();rest = q.slice(0, m.index);} else
+    {
+      m = q.match(/\b(?:to|as)\s+([^,]{2,80}?)[.?!]?\s*$/i);
+      if (m) {to = m[1].trim();rest = q.slice(0, m.index);}
+    }
+  }
+  if (!to) return null;
+  const fd = EDIT_FIELDS.find((f) => f.re.test(s)) || EDIT_FIELDS[0];
+  const target = findBuilding(rest, feats);
+  if (!target) return { err: true, to, fieldLabel: fd.label };
+  return { target, field: fd.field, fieldLabel: fd.label, to };
+}
+function makeEditScenario(ed, buildings) {
+  const feats = buildings.features;
+  const target = ed.target,p = target.properties;
+  const from = (p[ed.field] || '').trim() || '—';
+  const name = (p.DISCRIPT1 || 'Building').trim();
+  const bd = (p.BD_ID || '').trim();
+  const b = fcBounds({ features: [target] });
+  const center = [(b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2];
+  const others = feats.filter((f) => f !== target);
+  const rows = [target, ...others.slice(0, 4)].map((f) => {const pp = f.properties;return {
+      cells: [(pp.BD_ID || '').trim() || '—', (pp.DISCRIPT1 || '').trim() || 'Building',
+      pp.Year_Completed ? String(Math.round(pp.Year_Completed)) : '—', (pp.CHRS || '').trim() || '—'],
+      hit: f === target };});
+  return {
+    kind: 'edit', unit: 'building', title: `Edit · ${name}`,
+    center, zoom: 16.6, fitMaxZoom: 17.4,
+    fitPad: { top: 110, bottom: 110, left: 110, right: Math.min(450, Math.round(window.innerWidth * 0.38)) },
+    data: { type: 'FeatureCollection', features: [target] },
+    allData: { type: 'FeatureCollection', features: others },
+    matchCount: 1, recordCount: feats.length, fieldCount: Object.keys(p).length,
+    chip: 'Campus Buildings', chipIcon: 'building', fieldName: ed.field,
+    intentDetail: <span>Intent <b>edit attribute</b> · field <b>{ed.fieldLabel}</b> · new value <b>“{ed.to}”</b></span>,
+    scanDetail: <span>Scanned 47 layers · matched <b>{name}</b> in the Campus Buildings footprint layer</span>,
+    filterDetail: <span>Lookup <b>name ≈ “{name}”</b> → <b style={{ color: T.green }}>1 match</b>{bd ? <> · parcel <b>{bd}</b></> : null}</span>,
+    plotDetail: <span>Staging the <code style={codeChip}>{ed.field}</code> change for your review — edits are never applied without confirmation</span>,
+    table: { grid: '58px 1fr 78px 92px', head: ['BD_ID', 'building', 'built', 'CHRS'], hi: 1, rows, more: feats.length - 5 },
+    legend: [{ color: T.maroon, label: name }, { color: '#C9BCA6', label: 'Context buildings', sub: true }],
+    legendSquare: true,
+    edit: { field: ed.field, fieldLabel: ed.fieldLabel, from, to: ed.to, bd, key: `${p.BD_ID}|${p.OBJECT_ID}` }
+  };
+}
+
+/* ── Scenario builder — drives the whole flow from the query ── */
+function buildScenario(q, buildings) {
+  const sc = buildScenarioInner(q, buildings);
+  if (!sc || sc.unrec || sc.kind === 'edit' || sc.kind === 'sync') return sc;
+  const s = q.toLowerCase();
+  // paper + orientation hints from the query ("letter size portrait")
+  sc.portraitHint = /portrait|竖向|竖版|纵向/.test(s);
+  const ph = /\ba4\b/.test(s) ? 'A4' : /tabloid|11\s*[x×]\s*17|17\s*[x×]\s*11/.test(s) ? 'Tabloid' : /letter/.test(s) ? 'Letter' : null;
+  if (ph) sc.paperHint = ph;
+  // engineering scale hint ("1'' = 50'") — locks the page scale in the composer
+  const sh = parseScaleHint(s);
+  if (sh) {
+    sc.scaleHint = sh;
+    sc.title += ` · ${sh.label}`;
+    sc.intentDetail = <span>{sc.intentDetail} · scale <b>{sh.label}</b></span>;
+    sc.plotDetail = <span>{sc.plotDetail} · locking page scale to <b>{sh.label}</b></span>;
+  }
+  return sc;
+}
+function buildScenarioInner(q, buildings) {
+  // data-freshness / sync intent — answered without touching the map
+  if (detectSyncIntent(q)) return makeSyncScenario(q);
+  // attribute-edit intent takes precedence over map/print intents
+  if (buildings && Array.isArray(buildings.features) && buildings.features.length) {
+    const ed = parseEditIntent(q, buildings.features);
+    if (ed) {
+      if (ed.err) return { unrec: true, msg: `I parsed an edit — new ${ed.fieldLabel} “${ed.to}” — but couldn't match a building in your request. Try its address or full name, e.g. “5460 University Ave”.` };
+      return makeEditScenario(ed, buildings);
+    }
+  }
+  let kind = detectKind(q);
+  // generic map request that names a campus place → treat as a site plan
+  if (!kind && buildings && Array.isArray(buildings.features) && buildings.features.length && findBuilding(q, buildings.features)) kind = 'buildings';
+  if (!kind) return null; // unrecognized query
+  if (kind === 'buildings') {
+    if (!buildings || !Array.isArray(buildings.features) || !buildings.features.length) return null; // data still loading
+    const feats = buildings.features;
+    const fieldCount = Object.keys(feats[0].properties).length;
+    const sLow = q.toLowerCase();
+    // single-building lookup (site plan) takes precedence unless the query is an RI/FCI filter
+    const target = findBuilding(q, feats);
+    if (target && !/\bri\b|ri_|resilien|fci/.test(sLow)) {
+      const p = target.properties;
+      const name = (p.DISCRIPT1 || 'Building').trim();
+      const bd = (p.BD_ID || '').trim();
+      const b = fcBounds({ features: [target] });
+      const center = [(b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2];
+      const others = feats.filter((f) => f !== target);
+      const rows = [target, ...others.slice(0, 4)].map((f) => {const pp = f.properties;return {
+          cells: [(pp.BD_ID || '').trim() || '—', (pp.DISCRIPT1 || '').trim() || 'Building',
+          pp.Year_Completed ? String(Math.round(pp.Year_Completed)) : '—', (pp.CHRS || '').trim() || '—'],
+          hit: f === target };});
+      return {
+        kind: 'site', unit: 'building', title: `${name} · Site Plan`,
+        center, zoom: 16.4, fitMaxZoom: 17.2,
+        data: { type: 'FeatureCollection', features: [target] },
+        allData: { type: 'FeatureCollection', features: others },
+        matchCount: 1, recordCount: feats.length, fieldCount,
+        chip: 'Campus Buildings', chipIcon: 'building', fieldName: 'DISCRIPT1',
+        intentDetail: <span>Intent <b>site plan</b> · subject <b>{name}</b>{bd ? <> · parcel <b>{bd}</b></> : null}</span>,
+        scanDetail: <span>Scanned 47 layers · matched <b>{name}</b> in the Campus Buildings footprint layer</span>,
+        filterDetail: <span>Lookup <b>name ≈ “{name}”</b> → <b style={{ color: T.green }}>1 match</b></span>,
+        plotDetail: <span>Outlining the {name} footprint · centering page with white space · generating title, scale bar &amp; north arrow</span>,
+        table: { grid: '58px 1fr 78px 92px', head: ['BD_ID', 'building', 'built', 'CHRS'], hi: 1, rows, more: feats.length - 5 },
+        legend: [{ color: T.maroon, label: name },
+        { color: '#C9BCA6', label: 'Context buildings', sub: true }],
+        legendSquare: true
+      };
+    }
+    const m = q.match(/\d*\.?\d+/);
+    const thr = m ? parseFloat(m[0]) : 0.52;
+    const isHit = (f) => typeof f.properties.RI_ === 'number' && f.properties.RI_ > thr;
+    const hit = feats.filter(isHit),miss = feats.filter((f) => !isHit(f));
+    const rows = feats.slice(0, 5).map((f) => {const p = f.properties;return {
+        cells: [(p.BD_ID || '').trim() || '—', (p.DISCRIPT1 || '').trim() || 'Building',
+        typeof p.RI_ === 'number' ? p.RI_.toFixed(2) : '—', (p.CHRS || '').trim() || '—'],
+        hit: isHit(f) };});
+    return {
+      kind: 'buildings', unit: 'buildings', title: `Buildings · RI > ${thr}`,
+      center: [-87.5955, 41.7935], zoom: 14.2,
+      data: { type: 'FeatureCollection', features: hit },
+      allData: { type: 'FeatureCollection', features: miss },
+      matchCount: hit.length, recordCount: feats.length, fieldCount,
+      chip: 'Campus Buildings', chipIcon: 'building', fieldName: 'RI_',
+      intentDetail: <span>Intent <b>print map</b> · subject <b>buildings</b> · metric <b>RI &gt; {thr}</b></span>,
+      scanDetail: <span>Scanned 47 layers · matched the <b>Campus Buildings</b> footprint layer</span>,
+      filterDetail: <span>Applying filter <b>RI_ &gt; {thr}</b> → <b style={{ color: T.green }}>{hit.length} matches</b></span>,
+      plotDetail: <span>Outlining {hit.length} building footprints · generating title, legend, scale bar &amp; north arrow</span>,
+      table: { grid: '58px 1fr 78px 92px', head: ['BD_ID', 'building', 'RI_', 'CHRS'], hi: 2, rows, more: feats.length - 5 },
+      legend: [{ color: T.maroon, label: <>RI &gt; {thr} <b style={{ fontFamily: 'JetBrains Mono,monospace' }}>({hit.length})</b></> },
+      { color: '#C9BCA6', label: 'Other buildings', sub: true }],
+      legendSquare: true
+    };
+  }
+  return {
+    kind: 'trees', unit: 'trees', title: 'Trees Planted in 2025',
+    center: [-87.5955, 41.7935], zoom: 14.5,
+    data: TREES_2025_GJ,
+    allData: { type: 'FeatureCollection', features: TREES.features.filter((f) => f.properties.year_planted < 2025) },
+    matchCount: TREES_2025.length, recordCount: TREES_TOTAL, fieldCount: 6,
+    chip: 'Campus Trees', chipIcon: 'leaf', fieldName: 'year_planted',
+    intentDetail: <span>Intent <b>print map</b> · subject <b>trees</b> · time filter <b>last year (2025)</b></span>,
+    scanDetail: <span>Scanned 47 layers · matched the <b>Campus Trees</b> point layer</span>,
+    filterDetail: <span>Applying filter <b>year_planted = 2025</b> → <b style={{ color: T.green }}>{TREES_2025.length} matches</b></span>,
+    plotDetail: <span>Placing {TREES_2025.length} markers · generating title, legend, scale bar &amp; north arrow</span>,
+    table: { grid: '58px 1fr 116px 80px', head: ['OBJECTID', 'species', 'year_planted', 'condition'], hi: 2,
+      rows: TREES.features.slice(0, 5).map((f) => {const p = f.properties;return {
+          cells: [String(p.OBJECTID), p.species, String(p.year_planted), p.condition], hit: p.year_planted === 2025 };}),
+      more: TREES_TOTAL - 5 },
+    legend: [{ color: T.green, label: <>Planted 2025 <b style={{ fontFamily: 'JetBrains Mono,monospace' }}>({TREES_2025.length})</b></> },
+    { color: '#A89B86', label: 'Earlier plantings', sub: true }],
+    legendSquare: false
+  };
+}
+
+/* ── Map canvas (renders points for trees, polygons for buildings) */
+const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapInstanceRef }) => {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!visible || !sc || mapRef.current) return;
+    const map = new maplibregl.Map({
+      container: containerRef.current, style: WARM_STYLE,
+      center: sc.center, zoom: sc.zoom, attributionControl: { compact: true }, minZoom: 13.5, maxZoom: 19,
+      preserveDrawingBuffer: true // needed for canvas export
+    });
+    mapRef.current = map;
+    map.on('load', () => {
+      const pop = new maplibregl.Popup({ offset: 12, closeButton: false });
+      if (sc.kind === 'trees') {
+        map.addSource('trees-old', { type: 'geojson', data: sc.allData });
+        map.addLayer({ id: 'trees-old', type: 'circle', source: 'trees-old',
+          paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 4.5],
+            'circle-color': '#A89B86', 'circle-opacity': 0.5,
+            'circle-stroke-color': '#ECE7DC', 'circle-stroke-width': 1 } });
+        map.addSource('trees-2025', { type: 'geojson', data: sc.data });
+        map.addLayer({ id: 'trees-2025-halo', type: 'circle', source: 'trees-2025',
+          paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 8, 17, 15],
+            'circle-color': T.green, 'circle-opacity': 0.14 } });
+        map.addLayer({ id: 'trees-2025', type: 'circle', source: 'trees-2025',
+          paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 3.5, 17, 7],
+            'circle-color': T.green, 'circle-stroke-color': '#FAF7F2', 'circle-stroke-width': 1.8 } });
+        map.on('mouseenter', 'trees-2025', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'trees-2025', () => {map.getCanvas().style.cursor = '';pop.remove();});
+        map.on('click', 'trees-2025', (e) => {
+          const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
+          pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">Planted ${p.year_planted} · ${p.dbh_in}" DBH · ${p.condition}</div><div class="pop-coord">OBJECTID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+        });
+      } else {
+        map.addSource('bldg-all', { type: 'geojson', data: sc.allData });
+        map.addLayer({ id: 'bldg-all-fill', type: 'fill', source: 'bldg-all',
+          paint: { 'fill-color': '#C9BCA6', 'fill-opacity': 0.45 } });
+        map.addLayer({ id: 'bldg-all-line', type: 'line', source: 'bldg-all',
+          paint: { 'line-color': '#A89B86', 'line-width': 0.6 } });
+        map.addSource('bldg-hit', { type: 'geojson', data: sc.data });
+        map.addLayer({ id: 'bldg-hit-fill', type: 'fill', source: 'bldg-hit',
+          paint: { 'fill-color': T.maroon, 'fill-opacity': 0.34 } });
+        map.addLayer({ id: 'bldg-hit-line', type: 'line', source: 'bldg-hit',
+          paint: { 'line-color': T.maroon, 'line-width': 1.7 } });
+        map.on('mouseenter', 'bldg-hit-fill', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'bldg-hit-fill', () => {map.getCanvas().style.cursor = '';pop.remove();});
+        map.on('click', 'bldg-hit-fill', (e) => {
+          const p = e.features[0].properties;
+          const ri = typeof p.RI_ === 'number' ? (+p.RI_).toFixed(2) : '—';
+          const bits = [`RI ${ri}`];
+          if (p.Year_Completed) bits.push('built ' + Math.round(p.Year_Completed));
+          if ((p.CHRS || '').trim()) bits.push(p.CHRS.trim());
+          pop.setLngLat(e.lngLat).setHTML(`<div class="pop-title">${(p.DISCRIPT1 || 'Building').trim()}</div><div class="pop-sub">${bits.join(' · ')}</div><div class="pop-coord">${(p.BD_ID || '').trim() || (p.ADDRESS || '').trim()}</div>`).addTo(map);
+        });
+      }
+      // overlay tree popups (delegated — layer may not exist yet)
+      map.on('mouseenter', 'ov-trees', () => map.getCanvas().style.cursor = 'pointer');
+      map.on('mouseleave', 'ov-trees', () => {map.getCanvas().style.cursor = '';pop.remove();});
+      map.on('click', 'ov-trees', (e) => {
+        const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
+        pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">Planted ${p.year_planted} · ${p.dbh_in}" DBH · ${p.condition}</div><div class="pop-coord">OBJECTID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+      });
+      setReady(true);
+      // report meters-per-pixel for scale bar
+      const reportScale = () => {
+        const lat = map.getCenter().lat;
+        const zoom = map.getZoom();
+        const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+        if (onScaleChange) onScaleChange(mpp);
+      };
+      reportScale();
+      map.on('zoomend', reportScale);
+      map.on('moveend', reportScale);
+      // expose map instance for canvas export
+      if (mapInstanceRef) mapInstanceRef.current = map;
+    });
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, [visible, sc]);
+
+  useEffect(() => {
+    const map = mapRef.current;if (!map || !ready || !zoomCmd) return;
+    if (zoomCmd.dir > 0) map.zoomIn({ duration: 300 });else map.zoomOut({ duration: 300 });
+  }, [zoomCmd, ready]);
+
+  // jump to an exact meters-per-pixel (engineering scale request)
+  useEffect(() => {
+    const map = mapRef.current;if (!map || !ready || !scaleCmd) return;
+    const center = scaleCmd.center && sc ? sc.center : [map.getCenter().lng, map.getCenter().lat];
+    const zoom = Math.min(19, Math.max(13.5, Math.log2(156543.03392 * Math.cos(center[1] * Math.PI / 180) / scaleCmd.mpp)));
+    map.easeTo({ center, zoom, duration: 900 });
+  }, [scaleCmd, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;if (!map || !ready) return;
+    ['ov-ring-fill', 'ov-ring-line', 'ov-trees-halo', 'ov-trees'].forEach((id) => {if (map.getLayer(id)) map.removeLayer(id);});
+    ['ov-ring', 'ov-trees'].forEach((id) => {if (map.getSource(id)) map.removeSource(id);});
+    if (!sc || !sc.overlay) return;
+    if (sc.overlay.ring) {
+      map.addSource('ov-ring', { type: 'geojson', data: sc.overlay.ring });
+      map.addLayer({ id: 'ov-ring-fill', type: 'fill', source: 'ov-ring',
+        paint: { 'fill-color': T.maroon, 'fill-opacity': 0.07 } });
+      map.addLayer({ id: 'ov-ring-line', type: 'line', source: 'ov-ring',
+        paint: { 'line-color': T.maroon, 'line-width': 1.4, 'line-dasharray': [3, 3] } });
+    }
+    map.addSource('ov-trees', { type: 'geojson', data: sc.overlay.data });
+    map.addLayer({ id: 'ov-trees-halo', type: 'circle', source: 'ov-trees',
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 7, 17, 13],
+        'circle-color': T.green, 'circle-opacity': 0.14 } });
+    map.addLayer({ id: 'ov-trees', type: 'circle', source: 'ov-trees',
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 3.5, 17, 6.5],
+        'circle-color': T.green, 'circle-stroke-color': '#FAF7F2', 'circle-stroke-width': 1.6 } });
+  }, [sc, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;if (!map || !ready || !fitCmd || !sc || !sc.data.features.length) return;
+    const fitFc = sc.fitData || sc.data;
+    map.fitBounds(fcBounds(fitFc), { padding: sc.fitPad || { top: 130, bottom: 150, left: 120, right: 120 }, duration: 1100, maxZoom: sc.fitMaxZoom || (sc.kind === 'trees' ? 15.5 : 15) });
+  }, [fitCmd, ready, sc]);
+
+  return <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />;
+};
+
+/* ── North arrow + scale bar (print furniture) ──────────────── */
+const NorthArrow = () =>
+<svg width="30" height="38" viewBox="0 0 30 38" fill="none">
+    <polygon points="15,3 21,21 15,16 9,21" fill={T.ink} />
+    <polygon points="15,3 15,16 9,21" fill={T.inkMd} />
+    <text x="15" y="34" textAnchor="middle" fontFamily="Plus Jakarta Sans" fontWeight="700" fontSize="11" fill={T.ink}>N</text>
+  </svg>;
+
+/* Compute a nice round scale bar from meters-per-pixel */
+function niceScale(mpp) {
+  const ftpp = mpp * 3.28084;
+  const TARGET_PX = 104; // desired bar width in px
+  const rawFt = ftpp * TARGET_PX;
+  // pick the nearest "nice" value
+  const nices = [50, 100, 200, 500, 1000, 2000, 2500, 5000, 10000, 20000, 26400, 52800];
+  let best = nices[0];
+  for (const n of nices) {if (n <= rawFt * 1.3) best = n;else break;}
+  const barPx = Math.round(best / ftpp);
+  let label;
+  if (best >= 5280) label = (best / 5280).toFixed(best % 5280 === 0 ? 0 : 1) + ' mi';else
+  label = best.toLocaleString() + ' ft';
+  return { barPx, label, segments: 4 };
+}
+const ScaleBar = ({ mpp }) => {
+  const { barPx, label, segments } = niceScale(mpp || 0.5);
+  const segW = Math.round(barPx / segments);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <div style={{ display: 'flex', height: 6, border: `1px solid ${T.ink}` }}>
+        {Array.from({ length: segments }, (_, i) =>
+        <div key={i} style={{ width: segW, background: i % 2 === 0 ? T.ink : T.white }} />
+        )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: T.inkMd, fontFamily: 'JetBrains Mono,monospace', width: segW * segments }}>
+        <span>0</span><span>{label}</span>
+      </div>
+    </div>);
+
+};
+
+/* ── Print composer (movable + zoomable page frame) ─────────── */
+const PAPERS = {
+  Letter: { w: 11, h: 8.5 }, A4: { w: 11.69, h: 8.27 }, Tabloid: { w: 17, h: 11 }
+};
+const PrintComposer = ({ sc, mpp, title, setTitle, onZoom, onPrint, onCancel, onApplyScale }) => {
+  const [paper, setPaper] = useState(sc && sc.paperHint ? sc.paperHint : 'Letter');
+  const [landscape, setLandscape] = useState(!(sc && sc.portraitHint));
+  const [scale, setScale] = useState(1); // frame size multiplier
+  const [pos, setPos] = useState({ x: 0, y: -6 }); // offset from center (px)
+  const drag = useRef(null);
+
+  const base = PAPERS[paper];
+  const ratio = landscape ? base.w / base.h : base.h / base.w;
+  const baseH = Math.min(560, Math.max(320, window.innerHeight - 300));
+  const h = baseH * scale,w = h * ratio;
+
+  // live printed scale: screen px per paper inch → feet represented per paper inch
+  const paperHIn = landscape ? base.h : base.w;
+  const pxPerIn = h / paperHIn;
+  const liveFtPerIn = (mpp || 0.5) * pxPerIn * 3.28084;
+  const targetFt = sc && sc.scaleHint ? sc.scaleHint.ftPerIn : null;
+  const scaleMatched = targetFt != null && Math.abs(liveFtPerIn - targetFt) / targetFt < 0.03;
+  useEffect(() => {
+    if (!sc || !sc.scaleHint || !onApplyScale) return;
+    onApplyScale(sc.scaleHint.ftPerIn * M_PER_FT * paperHIn / h); // target m/px for this frame
+  }, [paper, landscape, scale]);
+
+  const onDown = (e) => {
+    e.preventDefault();
+    drag.current = { sx: e.clientX, sy: e.clientY, px: pos.x, py: pos.y };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+  const onMove = (e) => {
+    if (!drag.current) return;
+    setPos({ x: drag.current.px + (e.clientX - drag.current.sx), y: drag.current.py + (e.clientY - drag.current.sy) });
+  };
+  const onUp = () => {drag.current = null;window.removeEventListener('pointermove', onMove);window.removeEventListener('pointerup', onUp);};
+
+  const corner = (t, l, b, r) => ({ position: 'absolute', width: 16, height: 16,
+    borderTop: t ? `2px solid ${T.white}` : 'none', borderLeft: l ? `2px solid ${T.white}` : 'none',
+    borderBottom: b ? `2px solid ${T.white}` : 'none', borderRight: r ? `2px solid ${T.white}` : 'none',
+    [t ? 'top' : 'bottom']: -2, [l ? 'left' : 'right']: -2, filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.4))' });
+
+  return (
+    <>
+      {/* The page frame — spotlight mask via huge box-shadow; pointer-events pass through to map */}
+      <div style={{ position: 'absolute', top: '50%', left: '50%', width: w, height: h,
+        transform: `translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,
+        boxShadow: '0 0 0 9999px rgba(26,21,14,0.5)', outline: `1px solid rgba(255,255,255,0.9)`,
+        pointerEvents: 'none', zIndex: 40, animation: 'ccFade 0.4s ease-out both', transition: 'width 0.25s,height 0.25s' }}>
+        {/* crop corners */}
+        <div style={corner(1, 1, 0, 0)} /><div style={corner(1, 0, 0, 1)} />
+        <div style={corner(0, 1, 1, 0)} /><div style={corner(0, 0, 1, 1)} />
+
+        {/* title banner (drag handle) */}
+        <div onPointerDown={onDown} style={{ position: 'absolute', top: 14, left: 14, right: 14,
+          background: 'rgba(250,247,242,0.94)', border: `1px solid ${T.rule}`, borderRadius: 8,
+          padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'grab',
+          pointerEvents: 'auto', backdropFilter: 'blur(3px)', boxShadow: '0 2px 10px rgba(0,0,0,0.12)' }}>
+          <Ic n="move" size={15} color={T.inkLt} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} onPointerDown={(e) => e.stopPropagation()}
+            style={{ width: '100%', background: 'none', border: 'none', outline: 'none',
+              fontFamily: 'EB Garamond,Georgia,serif', fontSize: 20, fontWeight: 600, color: T.ink, lineHeight: 1.15 }} />
+            <div style={{ fontSize: 10.5, color: T.inkMd, letterSpacing: '0.04em' }}>University of Chicago · Hyde Park Campus · Facilities GIS</div>
+          </div>
+          <Phoenix size={34} />
+        </div>
+
+        {/* legend (bottom-left furniture) */}
+        <div style={{ position: 'absolute', left: 14, bottom: 14, background: 'rgba(250,247,242,0.94)',
+          border: `1px solid ${T.rule}`, borderRadius: 8, padding: '9px 11px', pointerEvents: 'none',
+          backdropFilter: 'blur(3px)', boxShadow: '0 2px 10px rgba(0,0,0,0.12)' }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: T.inkLt, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Legend</div>
+          {sc.legend.map((lg, i) =>
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: i < sc.legend.length - 1 ? 4 : 0 }}>
+              <span style={{ width: lg.sub ? 9 : 11, height: lg.sub ? 9 : 11, borderRadius: lg.round ? '50%' : sc.legendSquare ? 2 : '50%', background: lg.color, border: lg.sub ? 'none' : '1.5px solid #FAF7F2', flexShrink: 0, marginLeft: lg.sub ? 1 : 0, marginRight: lg.sub ? 1 : 0 }} />
+              <span style={{ fontSize: 11, color: lg.sub ? T.inkMd : T.ink }}>{lg.label}</span>
+            </div>
+          )}
+        </div>
+
+        {/* scale + north (bottom-right furniture) */}
+        <div style={{ position: 'absolute', right: 14, bottom: 14, display: 'flex', alignItems: 'flex-end', gap: 14,
+          background: 'rgba(250,247,242,0.94)', border: `1px solid ${T.rule}`, borderRadius: 8, padding: '9px 12px',
+          pointerEvents: 'none', backdropFilter: 'blur(3px)', boxShadow: '0 2px 10px rgba(0,0,0,0.12)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div style={{ fontSize: 9, fontFamily: 'JetBrains Mono,monospace', letterSpacing: '0.02em', color: scaleMatched ? T.green : T.inkMd, fontWeight: scaleMatched ? 700 : 400 }}>
+              {scaleMatched ? `Scale ${sc.scaleHint.label}` : `1″ ≈ ${liveFtPerIn >= 10 ? Math.round(liveFtPerIn) : liveFtPerIn.toFixed(1)}′`}
+            </div>
+            <ScaleBar mpp={mpp} />
+          </div><NorthArrow />
+        </div>
+      </div>
+
+      {/* Composer toolbar (docked bottom-center, outside the page) */}
+      <div style={{ position: 'absolute', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 60,
+        display: 'flex', alignItems: 'center', gap: 6, background: T.cream, border: `1px solid ${T.rule}`,
+        borderRadius: 14, padding: '8px 10px', boxShadow: '0 10px 36px rgba(0,0,0,0.22)', animation: 'ccFadeUp 0.4s ease-out both' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 8 }}>
+          <Ic n="printer" size={15} color={T.maroon} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>Print layout</span>
+        </div>
+        <div style={{ width: 1, height: 26, background: T.rule }} />
+
+        {/* paper size */}
+        <select value={paper} onChange={(e) => setPaper(e.target.value)}
+        style={{ background: T.paper, border: `1px solid ${T.rule}`, borderRadius: 8, padding: '6px 9px', fontSize: 12, color: T.ink, fontWeight: 500, cursor: 'pointer', outline: 'none' }}>
+          {Object.keys(PAPERS).map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+
+        {/* orientation */}
+        <button onClick={() => setLandscape((l) => !l)} title="Rotate orientation"
+        style={{ display: 'flex', alignItems: 'center', gap: 6, background: T.paper, border: `1px solid ${T.rule}`, borderRadius: 8, padding: '6px 9px', fontSize: 12, color: T.inkMd, fontWeight: 500 }}>
+          <Ic n="rotate" size={13} color={T.inkMd} />{landscape ? 'Landscape' : 'Portrait'}
+        </button>
+
+        {/* frame size (zoom the page) */}
+        <div style={{ display: 'flex', alignItems: 'center', background: T.paper, border: `1px solid ${T.rule}`, borderRadius: 8, overflow: 'hidden' }}>
+          <button onClick={() => setScale((s) => Math.max(0.6, +(s - 0.1).toFixed(2)))} title="Shrink frame" style={{ width: 30, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none' }}><Ic n="minus" size={14} color={T.inkMd} /></button>
+          <span style={{ fontSize: 10.5, color: T.inkLt, fontFamily: 'JetBrains Mono,monospace', width: 38, textAlign: 'center' }}>{Math.round(scale * 100)}%</span>
+          <button onClick={() => setScale((s) => Math.min(1.4, +(s + 0.1).toFixed(2)))} title="Grow frame" style={{ width: 30, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none' }}><Ic n="plus" size={14} color={T.inkMd} /></button>
+        </div>
+
+        {/* map zoom */}
+        <div style={{ display: 'flex', alignItems: 'center', background: T.paper, border: `1px solid ${T.rule}`, borderRadius: 8, overflow: 'hidden' }}>
+          <button onClick={() => onZoom(-1)} title="Zoom map out" style={{ width: 30, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none' }}><Ic n="search" size={13} color={T.inkMd} /><span style={{ fontSize: 11, marginLeft: -3, color: T.inkMd }}>−</span></button>
+          <div style={{ width: 1, height: 18, background: T.rule }} />
+          <button onClick={() => onZoom(1)} title="Zoom map in" style={{ width: 30, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none' }}><Ic n="search" size={13} color={T.inkMd} /><span style={{ fontSize: 11, marginLeft: -3, color: T.inkMd }}>+</span></button>
+        </div>
+
+        <div style={{ width: 1, height: 26, background: T.rule }} />
+        <button onClick={onCancel} style={{ background: 'none', border: `1px solid ${T.rule}`, borderRadius: 8, padding: '7px 13px', fontSize: 12, fontWeight: 600, color: T.inkMd }}
+        onMouseEnter={(e) => e.currentTarget.style.background = T.paperDk} onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>Cancel</button>
+        <button onClick={onPrint} style={{ display: 'flex', alignItems: 'center', gap: 6, background: T.maroon, border: 'none', borderRadius: 8, padding: '7px 15px', fontSize: 12, fontWeight: 700, color: T.white, boxShadow: '0 2px 8px rgba(128,0,0,0.3)' }}
+        onMouseEnter={(e) => e.currentTarget.style.background = T.maroonLt} onMouseLeave={(e) => e.currentTarget.style.background = T.maroon}>
+          <Ic n="printer" size={14} color={T.white} />Print map
+        </button>
+      </div>
+
+      {/* hint */}
+      <div style={{ position: 'absolute', top: 66, left: '50%', transform: 'translateX(-50%)', zIndex: 65,
+        display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(250,247,242,0.92)', border: `1px solid ${T.rule}`,
+        borderRadius: 20, padding: '6px 13px', fontSize: 11, color: T.inkMd, boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+        backdropFilter: 'blur(3px)', animation: 'ccFade 0.5s 0.3s both' }}>
+        <Ic n="move" size={13} color={T.amber} />Drag the title bar to reposition · pan & zoom the map to frame your print
+      </div>
+    </>);
+
+};
+
+/* ── Agent reasoning trace ──────────────────────────────────── */
+function makeSteps(sc) {
+  if (sc.kind === 'sync') return [
+  { icon: 'search', label: 'Interpreting your request', detail: sc.intentDetail },
+  { icon: 'refresh', label: 'Checking the data pipeline', detail: <span>EventBridge daily trigger · <b>02:00 America/Chicago</b></span> },
+  { icon: 'cloud', label: 'Querying ArcGIS Feature Service', chip: 'ArcGIS Online', chipIcon: 'cloud', detail: <span>org <b style={{ fontFamily: 'JetBrains Mono,monospace' }}>ppFhFO7kjyIF441C</b> · 4 layers</span> },
+  { icon: 'diff', label: 'Comparing against published GeoJSON', detail: <span>feature counts · attribute hashes · geometry checksums</span> },
+  { icon: 'table', label: 'Reading the sync log', detail: <span>last <b>30</b> runs · 5 shown</span> }];
+
+  return [
+  { icon: 'search', label: 'Interpreting your request', detail: sc.intentDetail },
+  { icon: 'layers', label: 'Searching campus GIS layers', chip: sc.chip, chipIcon: sc.chipIcon, detail: sc.scanDetail },
+  { icon: 'table', label: 'Reading attribute table', table: true,
+    detail: <span><b>{sc.recordCount.toLocaleString()}</b> records · {sc.fieldCount} fields</span> },
+  { icon: 'filter', label: <span>Found field <code style={codeChip}>{sc.fieldName}</code></span>, detail: sc.filterDetail },
+  sc.kind === 'edit' ?
+  { icon: 'pen', label: 'Staging edit for review', detail: sc.plotDetail } :
+  { icon: 'map', label: 'Plotting locations & composing print layout', detail: sc.plotDetail }];
+
+}
+const AttrTable = ({ sc }) => {
+  const t = sc.table;
+  return (
+    <div style={{ marginTop: 9, border: `1px solid ${T.rule}`, borderRadius: 8, overflow: 'hidden', background: T.cream }}>
+      <div style={{ display: 'grid', gridTemplateColumns: t.grid, fontSize: 9, fontWeight: 700, color: T.inkLt,
+        textTransform: 'uppercase', letterSpacing: '0.02em', background: T.paperDk, borderBottom: `1px solid ${T.rule}` }}>
+        {t.head.map((h, i) =>
+        <div key={h} style={{ padding: '6px 8px', background: i === t.hi ? T.amberTint : 'transparent', color: i === t.hi ? T.amber : T.inkLt, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h}</div>
+        )}
+      </div>
+      {t.rows.map((r, i) =>
+      <div key={i} style={{ display: 'grid', gridTemplateColumns: t.grid, fontSize: 11,
+        color: T.inkMd, borderBottom: i < t.rows.length - 1 ? `1px solid ${T.ruleLt}` : 'none', fontFamily: 'JetBrains Mono,monospace' }}>
+          {r.cells.map((cell, ci) => {
+          const isHi = ci === t.hi,mono = ci === 0 || ci === t.hi;
+          return (
+            <div key={ci} style={{ padding: '5px 9px',
+              background: isHi ? T.amberTint : 'transparent',
+              color: isHi ? r.hit ? T.green : T.inkMd : T.inkMd, fontWeight: isHi && r.hit ? 700 : 400,
+              fontFamily: mono ? 'JetBrains Mono,monospace' : 'Plus Jakarta Sans',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cell}</div>);
+
+        })}
+        </div>
+      )}
+      <div style={{ padding: '5px 9px', fontSize: 9.5, color: T.inkXlt, fontFamily: 'JetBrains Mono,monospace', background: T.paperDk }}>… {t.more.toLocaleString()} more rows</div>
+    </div>);
+
+};
+const ReasoningTrace = ({ sc, steps, query, shown, done }) =>
+<div style={{ width: '100%', maxWidth: 560, margin: '0 auto', animation: 'ccFadeUp 0.4s ease-out both' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+      <div style={{ maxWidth: '85%', background: T.maroon, color: T.white, borderRadius: '14px 14px 4px 14px',
+      padding: '11px 16px', fontSize: 16, fontFamily: 'EB Garamond,serif', fontStyle: 'italic', lineHeight: 1.4, boxShadow: '0 3px 12px rgba(128,0,0,0.22)' }}>{query}</div>
+    </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, paddingLeft: 2 }}>
+      <div style={{ width: 26, height: 26, borderRadius: 7, background: T.amberTint, border: `1px solid rgba(176,120,48,0.3)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic n="zap" size={14} color={T.amber} /></div>
+      <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, letterSpacing: '0.07em', textTransform: 'uppercase' }}>CampusGeo Agent</span>
+    </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {steps.map((s, i) => {
+      const visible = i < shown,active = i === shown - 1 && !done,complete = i < shown - 1 || done;
+      if (!visible) return null;
+      return (
+        <div key={i} style={{ display: 'flex', gap: 12, animation: 'ccFadeUp 0.35s ease-out both' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: complete ? T.greenBg : T.cream, border: `1.5px solid ${complete ? T.greenBd : active ? T.amber : T.rule}`, transition: 'all 0.3s' }}>
+                {complete ? <Ic n="check" size={14} color={T.green} /> : active ? <div style={{ width: 13, height: 13, border: `2px solid ${T.amberTint}`, borderTopColor: T.amber, borderRadius: '50%', animation: 'ccSpin 0.7s linear infinite' }} /> : <Ic n={s.icon} size={13} color={T.inkLt} />}
+              </div>
+              {i < steps.length - 1 && <div style={{ width: 1.5, flex: 1, minHeight: 18, background: complete ? T.greenBd : T.rule, marginTop: 2 }} />}
+            </div>
+            <div style={{ flex: 1, minWidth: 0, paddingBottom: 14 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: complete || active ? T.ink : T.inkLt, lineHeight: 1.35, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {s.label}
+                {s.chip && visible && <span style={{ fontSize: 11, fontWeight: 600, background: T.greenBg, color: T.green, border: `1px solid ${T.greenBd}`, borderRadius: 20, padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Ic n={s.chipIcon} size={11} color={T.green} />{s.chip}</span>}
+              </div>
+              <div style={{ fontSize: 12, color: T.inkMd, marginTop: 3, lineHeight: 1.5 }}>{s.detail}</div>
+              {s.table && <AttrTable sc={sc} />}
+            </div>
+          </div>);
+
+    })}
+    </div>
+  </div>;
+
+
+/* ── Edit review card (decision-support: propose → confirm) ── */
+const erLbl = { fontSize: 9, fontWeight: 700, color: T.inkXlt, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 };
+const EditReview = ({ sc, state, onApply, onUndo, onDiscard, onDone }) => {
+  const e = sc.edit;
+  return (
+    <div style={{ position: 'absolute', top: 74, right: 22, width: 374, zIndex: 60, background: T.cream,
+      border: `1px solid ${T.rule}`, borderRadius: 14, boxShadow: '0 14px 44px rgba(0,0,0,0.22)',
+      padding: '18px 20px', animation: 'ccFadeUp 0.45s ease-out both' }}>
+      {state === 'review' ?
+      <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 13 }}>
+            <div style={{ width: 26, height: 26, borderRadius: 7, background: T.amberTint, border: '1px solid rgba(176,120,48,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic n="pen" size={13} color={T.amber} /></div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, letterSpacing: '0.07em', textTransform: 'uppercase' }}>Proposed edit</span>
+            <div style={{ flex: 1 }}></div>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: T.inkMd, background: T.paperDk, border: `1px solid ${T.rule}`, borderRadius: 5, padding: '2px 7px' }}>{e.bd || '—'}</span>
+          </div>
+          <div style={{ fontFamily: 'EB Garamond,Georgia,serif', fontSize: 21, fontWeight: 600, color: T.ink, lineHeight: 1.2, marginBottom: 4 }}>{e.from}</div>
+          <div style={{ fontSize: 11.5, color: T.inkLt, marginBottom: 14 }}>Campus Buildings · field <code style={codeChip}>{e.field}</code> ({e.fieldLabel})</div>
+          <div style={{ borderTop: `1px solid ${T.ruleLt}`, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+            <div>
+              <div style={erLbl}>Current</div>
+              <div style={{ fontSize: 13.5, color: T.inkLt, textDecoration: 'line-through' }}>{e.from}</div>
+            </div>
+            <div>
+              <div style={erLbl}>Proposed</div>
+              <div style={{ fontSize: 14.5, color: T.ink, fontWeight: 600 }}>{e.to}</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: T.inkLt, lineHeight: 1.55, borderTop: `1px solid ${T.ruleLt}`, paddingTop: 10, marginBottom: 14 }}>
+            Applies to the working copy of this layer on this device and is logged for review. The source geodatabase is not modified.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={onDiscard} style={{ background: 'none', border: `1px solid ${T.rule}`, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: T.inkMd }}
+          onMouseEnter={(ev) => ev.currentTarget.style.background = T.paperDk} onMouseLeave={(ev) => ev.currentTarget.style.background = 'none'}>Discard</button>
+            <button onClick={onApply} style={{ display: 'flex', alignItems: 'center', gap: 6, background: T.maroon, border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, color: T.white, boxShadow: '0 2px 8px rgba(128,0,0,0.3)' }}
+          onMouseEnter={(ev) => ev.currentTarget.style.background = T.maroonLt} onMouseLeave={(ev) => ev.currentTarget.style.background = T.maroon}>
+              <Ic n="check" size={13} color={T.white} />Apply edit
+            </button>
+          </div>
+        </> :
+
+      <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 13 }}>
+            <div style={{ width: 30, height: 30, borderRadius: '50%', background: T.greenBg, border: `1.5px solid ${T.greenBd}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic n="check" size={15} color={T.green} /></div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>Attribute updated</div>
+              <div style={{ fontSize: 10.5, color: T.inkLt, fontFamily: 'JetBrains Mono,monospace' }}>{e.field} · {e.bd || '—'}</div>
+            </div>
+          </div>
+          <div style={{ fontFamily: 'EB Garamond,Georgia,serif', fontSize: 21, fontWeight: 600, color: T.ink, lineHeight: 1.25, marginBottom: 10 }}>{e.to}</div>
+          <div style={{ fontSize: 12, color: T.inkMd, lineHeight: 1.55, marginBottom: 12 }}>
+            <span style={{ textDecoration: 'line-through', color: T.inkLt }}>{e.from}</span> → <b>{e.to}</b>
+          </div>
+          <div style={{ fontSize: 11, color: T.inkLt, lineHeight: 1.55, borderTop: `1px solid ${T.ruleLt}`, paddingTop: 10, marginBottom: 14 }}>
+            Saved to the edit log on this device — future searches and map labels use the new value. Click the building to verify.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={onUndo} style={{ background: 'none', border: `1px solid ${T.rule}`, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: T.inkMd }}
+          onMouseEnter={(ev) => ev.currentTarget.style.background = T.paperDk} onMouseLeave={(ev) => ev.currentTarget.style.background = 'none'}>Undo edit</button>
+            <button onClick={onDone} style={{ background: T.maroon, border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, color: T.white, boxShadow: '0 2px 8px rgba(128,0,0,0.3)' }}
+          onMouseEnter={(ev) => ev.currentTarget.style.background = T.maroonLt} onMouseLeave={(ev) => ev.currentTarget.style.background = T.maroon}>New search</button>
+          </div>
+        </>
+      }
+    </div>);
+
+};
+
+/* ── Data provenance report (editorial answer for sync queries) ── */
+const provLbl = { fontSize: 9.5, fontWeight: 700, color: T.inkXlt, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 6 };
+const SyncReport = ({ q, query, setQuery, onSubmit }) => {
+  const [running, setRunning] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const runNow = () => {if (running) return;setChecked(false);setRunning(true);setTimeout(() => {setRunning(false);setChecked(true);}, 1700);};
+  return (
+    <div style={{ width: '100%', maxWidth: 664, margin: '0 auto', animation: 'ccFadeUp 0.45s ease-out both' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+        <div style={{ maxWidth: '85%', background: T.maroon, color: T.white, borderRadius: '14px 14px 4px 14px',
+          padding: '11px 16px', fontSize: 16, fontFamily: 'EB Garamond,serif', fontStyle: 'italic', lineHeight: 1.4, boxShadow: '0 3px 12px rgba(128,0,0,0.22)' }}>{q}</div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <div style={{ width: 26, height: 26, borderRadius: 7, background: T.amberTint, border: '1px solid rgba(176,120,48,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic n="refresh" size={13} color={T.amber} /></div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, letterSpacing: '0.07em', textTransform: 'uppercase' }}>CampusGeo Agent</span>
+      </div>
+      <h2 style={{ fontFamily: 'EB Garamond,Georgia,serif', fontWeight: 500, fontSize: 30, color: T.ink, lineHeight: 1.18, letterSpacing: '-0.01em', marginBottom: 8 }}>Campus data is current as of today, 02:00&#8201;CT.</h2>
+      <p style={{ fontSize: 14, color: T.inkLt, lineHeight: 1.55, marginBottom: 22 }}>Synced nightly from the campus ArcGIS web map — you edit there, and the agent picks up the changes on its own. The next run is tonight at 02:00 America/Chicago.</p>
+      <div style={{ background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', marginBottom: 20 }}>
+        <div style={{ padding: '16px 18px' }}>
+          <div style={provLbl}>Source of truth</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.ink, marginBottom: 3 }}>{SYNC_SOURCE.name}</div>
+          <div style={{ fontSize: 12, color: T.inkMd, marginBottom: 9 }}>{SYNC_SOURCE.type} · {SYNC_SOURCE.layers} feature layers</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 11 }}>
+            <Ic n="cloud" size={13} color={T.inkLt} />
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10.5, color: T.inkLt }}>webmap {SYNC_SOURCE.webmap.slice(0, 8)}…{SYNC_SOURCE.webmap.slice(-4)}</span>
+          </div>
+          <a href={SYNC_SOURCE.url} target="_blank" rel="noopener" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: T.maroon, textDecoration: 'none' }}
+          onMouseEnter={(e) => e.currentTarget.style.color = T.maroonLt} onMouseLeave={(e) => e.currentTarget.style.color = T.maroon}>View source map<Ic n="link" size={12} color="currentColor" /></a>
+        </div>
+        <div style={{ padding: '16px 18px', borderLeft: `1px solid ${T.ruleLt}` }}>
+          <div style={provLbl}>Sync schedule</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.ink, marginBottom: 3 }}>Daily · 02:00 CT</div>
+          <div style={{ fontSize: 12, color: T.inkMd, marginBottom: 11 }}>America/Chicago · EventBridge cron</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <Ic n="clock" size={13} color={T.inkLt} />
+            <span style={{ fontSize: 12, color: T.inkLt }}>Next run in <b style={{ color: T.inkMd }}>≈ 18 h</b></span>
+          </div>
+        </div>
+      </div>
+      <div style={{ marginBottom: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={provLbl}>Recent syncs</span>
+        <span style={{ fontSize: 11, color: T.inkXlt }}>last 5 of 30 runs</span>
+      </div>
+      <div style={{ background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+        {SYNC_LOG.map((e, i) => {const st = SYNC_STATUS[e.status];return (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '92px 1fr auto', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: i < SYNC_LOG.length - 1 ? `1px solid ${T.ruleLt}` : 'none' }}>
+            <div>
+              <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11.5, color: T.inkMd }}>{e.date}</div>
+              <div style={{ fontSize: 9.5, color: T.inkXlt }}>{e.rel} · 02:00</div>
+            </div>
+            <div style={{ fontSize: 12.5, color: T.inkMd, lineHeight: 1.4 }}>{e.summary}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: st.bg, border: `1px solid ${st.bd}`, borderRadius: 20, padding: '3px 10px' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: st.c, flexShrink: 0 }} />
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: st.c, whiteSpace: 'nowrap' }}>{st.label}</span>
+            </div>
+          </div>);
+        })}
+      </div>
+      <div style={{ marginBottom: 8 }}><span style={provLbl}>Nightly pipeline</span></div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 20 }}>
+        {SYNC_PIPELINE.map((p, i) =>
+        <React.Fragment key={p}>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 10.5, fontWeight: 500,
+            color: p === 'LLM QA' ? T.amber : T.inkMd, background: p === 'LLM QA' ? T.amberTint : T.paperDk,
+            border: `1px solid ${p === 'LLM QA' ? 'rgba(176,120,48,0.3)' : T.rule}`, borderRadius: 6, padding: '5px 9px' }}>{p}</span>
+            {i < SYNC_PIPELINE.length - 1 && <span style={{ color: T.inkXlt, fontSize: 11 }}>→</span>}
+          </React.Fragment>
+        )}
+      </div>
+      <p style={{ fontSize: 12, color: T.inkLt, lineHeight: 1.6, borderTop: `1px solid ${T.ruleLt}`, paddingTop: 14, marginBottom: 18 }}>
+        Each night the agent queries the ArcGIS Feature Service REST API, diffs the response against the published GeoJSON on S3, and republishes only what changed — refreshing the CloudFront cache and logging a change summary. Suspected anomalies (coordinate drift, dropped fields, mass deletions) are <b style={{ color: T.amber }}>held for manual review</b> rather than published automatically. The Feature Service remains the authoritative source; nothing here writes back to it.
+      </p>
+      <div style={{ position: 'relative', background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24, overflow: 'hidden' }}>
+        {running && <div style={{ position: 'absolute', top: 0, left: 0, height: 2, background: T.maroon, animation: 'ccProgress 1.7s cubic-bezier(0.4,0,0.2,1) forwards' }} />}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, marginBottom: 2 }}>{running ? 'Pulling latest from ArcGIS…' : checked ? 'Checked just now — already up to date' : 'Need the very latest?'}</div>
+          <div style={{ fontSize: 11.5, color: T.inkLt, fontFamily: running ? 'JetBrains Mono,monospace' : 'inherit' }}>{running ? 'Querying 47 feature layers · diffing against S3' : checked ? 'No new changes since the 02:00 sync · 4 changes applied today' : 'Run an off-schedule sync without waiting for tonight'}</div>
+        </div>
+        <button onClick={runNow} disabled={running} style={{ display: 'flex', alignItems: 'center', gap: 7, background: running ? T.paperDkr : T.maroon, color: running ? T.inkLt : T.white, border: 'none', borderRadius: 8, padding: '9px 15px', fontSize: 12.5, fontWeight: 700, boxShadow: running ? 'none' : '0 2px 8px rgba(128,0,0,0.3)', flexShrink: 0 }}
+        onMouseEnter={(ev) => {if (!running) ev.currentTarget.style.background = T.maroonLt;}} onMouseLeave={(ev) => {if (!running) ev.currentTarget.style.background = T.maroon;}}>
+          <Ic n="refresh" size={13} color={running ? T.inkLt : T.white} />{checked ? 'Sync again' : 'Run sync now'}
+        </button>
+      </div>
+      <SearchBar value={query} onChange={setQuery} onSubmit={onSubmit} big={false} />
+    </div>);
+
+};
+
+/* ── Search bar (used in both hero & after) ─────────────────── */
+const SearchBar = ({ value, onChange, onSubmit, big, disabled }) => {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 11, width: '100%',
+      background: T.cream, border: `1.5px solid ${focused ? T.maroon : T.rule}`, borderRadius: big ? 14 : 11,
+      padding: big ? '4px 4px 4px 18px' : '3px 3px 3px 15px',
+      boxShadow: focused ? `0 0 0 4px ${T.maroonRing}, 0 8px 28px rgba(0,0,0,0.08)` : '0 4px 18px rgba(0,0,0,0.07)', transition: 'all 0.18s' }}>
+      <Ic n="zap" size={big ? 19 : 16} color={T.maroon} />
+      <input value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
+      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+      onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
+      placeholder="Ask CampusGeo to find, map, or print campus data…"
+      style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontFamily: GOTHAM,
+        fontStyle: 'normal', fontSize: big ? 17 : 15, fontWeight: 400, letterSpacing: '0.01em', color: value ? T.ink : T.inkXlt }} />
+      <button onClick={onSubmit} disabled={!value.trim() || disabled}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, background: value.trim() ? T.maroon : T.paperDkr,
+        color: value.trim() ? T.white : T.inkLt, border: 'none', borderRadius: big ? 11 : 9,
+        padding: big ? '11px 18px' : '9px 15px', fontSize: big ? 14 : 13, fontWeight: 700, transition: 'all 0.15s', flexShrink: 0,
+        boxShadow: value.trim() ? '0 2px 10px rgba(128,0,0,0.3)' : 'none' }}>
+        Ask<Ic n="arrowUp" size={big ? 16 : 14} color={value.trim() ? T.white : T.inkLt} />
+      </button>
+    </div>);
+
+};
+
+/* ── App ────────────────────────────────────────────────────── */
+/* ── Daily digest — notification of changes from the nightly sync ── */
+const DigestPanel = ({ onView, onClose, onOpenReport }) =>
+<div style={{ position: 'absolute', top: 46, right: 0, width: 344, zIndex: 80, background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, boxShadow: '0 14px 44px rgba(0,0,0,0.22)', overflow: 'hidden', animation: 'ccFadeUp 0.25s ease-out both' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '13px 16px', borderBottom: `1px solid ${T.ruleLt}` }}>
+      <Ic n="bell" size={14} color={T.maroon} />
+      <span style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>Daily digest</span>
+      <span style={{ fontSize: 11, color: T.inkXlt }}>· {DIGEST_DATE.replace(', 2026', '')}</span>
+      <div style={{ flex: 1 }} />
+      <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono,monospace', color: T.inkXlt }}>02:00 sync</span>
+    </div>
+    <div>
+      {DIGEST.map((it, i) =>
+    <div key={i} style={{ display: 'flex', gap: 11, padding: '13px 16px', borderBottom: `1px solid ${T.ruleLt}` }}>
+          <div style={{ width: 28, height: 28, borderRadius: 7, background: T.paperDk, border: `1px solid ${T.rule}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic n={it.icon} size={14} color={T.amber} /></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, marginBottom: 2 }}>{it.headline}</div>
+            <div style={{ fontSize: 12, color: T.inkMd, lineHeight: 1.45 }}>{it.detail}</div>
+            <div style={{ fontSize: 10, color: T.inkXlt, marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>{it.sub}</div>
+            {it.open && <button onClick={() => onView(it)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8, background: 'none', border: `1px solid ${T.rule}`, borderRadius: 7, padding: '5px 10px', fontSize: 11.5, fontWeight: 600, color: T.maroon }}
+        onMouseEnter={(e) => e.currentTarget.style.background = T.paperDk} onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>Open feature card<Ic n="arrowRight" size={12} color={T.maroon} /></button>}
+          </div>
+        </div>
+    )}
+    </div>
+    <button onClick={onOpenReport} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '11px', background: T.paperDk, border: 'none', borderTop: `1px solid ${T.ruleLt}`, fontSize: 12, fontWeight: 600, color: T.inkMd }}
+  onMouseEnter={(e) => e.currentTarget.style.background = T.paperDkr} onMouseLeave={(e) => e.currentTarget.style.background = T.paperDk}>
+      View full sync report<Ic n="arrowRight" size={12} color={T.inkMd} />
+    </button>
+  </div>;
+
+const DigestToast = ({ item, onView, onClose }) =>
+<div style={{ position: 'absolute', top: 64, right: 18, width: 334, zIndex: 90, background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, boxShadow: '0 14px 44px rgba(0,0,0,0.24)', padding: '14px 16px', animation: 'ccSlideIn 0.4s cubic-bezier(0.4,0,0.2,1) both' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: T.green, boxShadow: `0 0 0 3px ${T.greenBg}` }} />
+      <span style={{ fontSize: 10.5, fontWeight: 700, color: T.inkLt, letterSpacing: '0.07em', textTransform: 'uppercase' }}>Daily digest · new</span>
+      <div style={{ flex: 1 }} />
+      <button onClick={onClose} style={{ background: 'none', border: 'none', padding: 2, display: 'flex' }}><Ic n="x" size={14} color={T.inkXlt} /></button>
+    </div>
+    <div style={{ fontSize: 14, fontWeight: 600, color: T.ink, marginBottom: 3 }}>{item.headline}</div>
+    <div style={{ fontSize: 12.5, color: T.inkMd, lineHeight: 1.45, marginBottom: 12 }}>{item.detail}</div>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <button onClick={onView} style={{ display: 'flex', alignItems: 'center', gap: 5, background: T.maroon, border: 'none', borderRadius: 8, padding: '7px 13px', fontSize: 12, fontWeight: 700, color: T.white, boxShadow: '0 2px 8px rgba(128,0,0,0.3)' }}
+    onMouseEnter={(e) => e.currentTarget.style.background = T.maroonLt} onMouseLeave={(e) => e.currentTarget.style.background = T.maroon}>Open feature card<Ic n="arrowRight" size={12} color={T.white} /></button>
+      <button onClick={onClose} style={{ background: 'none', border: `1px solid ${T.rule}`, borderRadius: 8, padding: '7px 13px', fontSize: 12, fontWeight: 600, color: T.inkMd }}
+    onMouseEnter={(e) => e.currentTarget.style.background = T.paperDk} onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>Dismiss</button>
+    </div>
+  </div>;
+
+
+const App = () => {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const suggestions = useMemo(() => {
+    let list = SUGGESTIONS_EN.slice(0, t.exampleCount);
+    // when Chinese is on, give it a visible slot within the limit (swap the last chip)
+    if (t.showChinese) list = [...list.slice(0, Math.max(0, t.exampleCount - 1)), SUGGESTIONS_ZH];
+    return list;
+  }, [t.showChinese, t.exampleCount]);
+  const [phase, setPhase] = useState('idle'); // idle · thinking · composing · editing · provenance · unrecognized
+  const [editState, setEditState] = useState(null); // null · 'review' · 'applied'
+  const [unrecMsg, setUnrecMsg] = useState(null);
+  const [query, setQuery] = useState('');
+  const [submitted, setSubmitted] = useState('');
+  const [shown, setShown] = useState(0); // reasoning steps revealed
+  const [traceDone, setTraceDone] = useState(false);
+  const [title, setTitle] = useState('');
+  const [zoomCmd, setZoomCmd] = useState(null);
+  const [fitCmd, setFitCmd] = useState(null);
+  const [printing, setPrinting] = useState(null); // null · 'sending' · 'sent'
+  const [mpp, setMpp] = useState(0.5); // meters per pixel for scale bar
+  const [scaleCmd, setScaleCmd] = useState(null); // jump map to a target m/px (engineering scale)
+  const scaleAppliedRef = useRef(false);
+  const [buildings, setBuildings] = useState(null);
+  const [sc, setSc] = useState(null); // current scenario
+  const [followQ, setFollowQ] = useState('');
+  const [followState, setFollowState] = useState(null); // null · {phase:'thinking'|'note'|'err',msg}
+  const mapInstanceRef = useRef(null);
+  const timers = useRef([]);
+  const [digestOpen, setDigestOpen] = useState(false);
+  const [digestSeen, setDigestSeen] = useState(false);
+  const [toast, setToast] = useState(false);
+
+  // load building footprint GeoJSON — from S3 via manifest if CDN is set, else local
+  useEffect(() => {
+    const loadBuildings = async () => {
+      let url = 'data/campus-buildings.geojson';
+      if (CAMPUSGEO_CDN) {
+        try {
+          const manifest = await fetch(`${CAMPUSGEO_CDN}/layers/manifest.json`).then(r => r.json());
+          const layer = manifest.layers.find(l => l.id === 'buildings');
+          if (layer) url = `${CAMPUSGEO_CDN}/${layer.file}`;
+        } catch (e) {
+          console.warn('CampusGeo: manifest fetch failed, falling back to local data', e);
+        }
+      }
+      return fetch(url).then(r => r.json());
+    };
+    loadBuildings().then((gj) => {
+      // apply changes pulled from the ArcGIS Feature Service at the nightly sync
+      for (const u of SOURCE_UPDATES) {
+        const f = gj.features.find((f) => (f.properties.BD_ID || '').trim() === u.bd);
+        if (f) f.properties[u.field] = u.to;
+      }
+      // re-apply attribute edits saved on this device
+      try {
+        const log = JSON.parse(localStorage.getItem('campusgeo-edit-log') || '[]');
+        for (const e of log) {
+          const f = gj.features.find((f) => `${f.properties.BD_ID}|${f.properties.OBJECT_ID}` === e.key);
+          if (f) f.properties[e.field] = e.to;
+        }
+      } catch (err) {}
+      setBuildings(gj);
+    }).catch(() => {});
+  }, []);
+
+  // daily digest — greet with the latest sync's headline change on load
+  useEffect(() => {
+    timers.current.push(setTimeout(() => setToast(true), 1400));
+    timers.current.push(setTimeout(() => setToast(false), 11000));
+  }, []);
+
+  const clearTimers = () => {timers.current.forEach(clearTimeout);timers.current = [];};
+
+  const reset = useCallback(() => {
+    clearTimers();
+    setPhase('idle');setQuery('');setSubmitted('');setShown(0);
+    setTraceDone(false);setPrinting(null);setTitle('');setSc(null);
+    setFollowQ('');setFollowState(null);setEditState(null);setUnrecMsg(null);
+  }, []);
+
+  const UNRECOGNIZED_MSGS = [
+  'I couldn\'t match your request to a campus GIS layer. Try a named place ("Keller Center"), a layer ("trees planted last year"), or an attribute filter ("RI above 0.52"). More layers will appear as new GeoJSON data is published.',
+  '抱歉，我无法识别您的请求。可以试试具体地点（如 "Keller Center"）、图层（如"去年种植的树木"）或属性筛选（如 "RI 大于 0.52"）。新的 GeoJSON 数据发布后将支持更多图层。'];
+
+
+  const submit = useCallback((override) => {
+    const q = (typeof override === 'string' ? override : query).trim();
+    if (!q) return;
+    clearTimers();
+    const scenario = buildScenario(q, buildings);
+    if (!scenario || scenario.unrec) {
+      setUnrecMsg(scenario && scenario.msg ? scenario.msg : null);
+      setSubmitted(q);setQuery('');setPhase('unrecognized');
+      return;
+    }
+    setUnrecMsg(null);
+    setSc(scenario);
+    setTitle(scenario.title);
+    scaleAppliedRef.current = false;setScaleCmd(null);
+    setSubmitted(q);setQuery('');setShown(0);setTraceDone(false);setPhase('thinking');
+
+    // reveal reasoning steps in sequence
+    const steps = makeSteps(scenario);
+    const cadence = [700, 1150, 1500, 1250, 1100];
+    let t = 400;
+    steps.forEach((_, i) => {
+      timers.current.push(setTimeout(() => setShown(i + 1), t));
+      t += cadence[i];
+    });
+    // mark trace complete, then reveal map + composer
+    timers.current.push(setTimeout(() => setTraceDone(true), t));
+    timers.current.push(setTimeout(() => {
+      if (scenario.kind === 'edit') {setEditState('review');setPhase('editing');} else
+      if (scenario.kind === 'sync') setPhase('provenance');else
+      setPhase('composing');
+      // a requested engineering scale wins over auto-fit (map scenarios only)
+      if (scenario.kind !== 'sync' && !scenario.scaleHint) timers.current.push(setTimeout(() => setFitCmd({ ts: Date.now() }), 350));
+    }, t + 550));
+  }, [query, buildings]);
+
+  const markDigestSeen = useCallback(() => {
+    setDigestSeen(true);
+  }, []);
+  const toggleDigest = useCallback(() => {
+    setDigestOpen((o) => {const n = !o;if (n) {setToast(false);markDigestSeen();}return n;});
+  }, [markDigestSeen]);
+  const viewDigestItem = useCallback((it) => {
+    setDigestOpen(false);setToast(false);markDigestSeen();
+    if (it && it.open) submit(it.open);
+  }, [submit, markDigestSeen]);
+
+  const followUp = useCallback(() => {
+    const q = followQ.trim();if (!q) return;
+    setFollowState({ phase: 'thinking', msg: 'Scanning layers · matching your refinement…' });
+    timers.current.push(setTimeout(() => {
+      const res = applyFollowUp(q, sc);
+      if (res.err) {setFollowState({ phase: 'err', msg: res.err });return;}
+      setSc(res.sc);setFollowQ('');
+      setFollowState({ phase: 'note', msg: res.note });
+      timers.current.push(setTimeout(() => setFitCmd({ ts: Date.now() }), 300));
+      timers.current.push(setTimeout(() => setFollowState(null), 4200));
+    }, 1300));
+  }, [followQ, sc]);
+
+  const applyEdit = useCallback(() => {
+    if (!sc || !sc.edit) return;
+    const { field, to, from, key } = sc.edit;
+    const upd = (f) => `${f.properties.BD_ID}|${f.properties.OBJECT_ID}` === key ? { ...f, properties: { ...f.properties, [field]: to } } : f;
+    setBuildings((prev) => prev ? { ...prev, features: prev.features.map(upd) } : prev);
+    const newData = { type: 'FeatureCollection', features: sc.data.features.map(upd) };
+    setSc((s) => ({ ...s, data: newData }));
+    const map = mapInstanceRef.current;
+    if (map && map.getSource && map.getSource('bldg-hit')) map.getSource('bldg-hit').setData(newData);
+    try {
+      const log = JSON.parse(localStorage.getItem('campusgeo-edit-log') || '[]');
+      log.push({ key, field, from, to, ts: Date.now() });
+      localStorage.setItem('campusgeo-edit-log', JSON.stringify(log));
+    } catch (err) {}
+    setEditState('applied');
+  }, [sc]);
+
+  const undoEdit = useCallback(() => {
+    if (!sc || !sc.edit) return;
+    const { field, to, from, key } = sc.edit;
+    const rev = (f) => `${f.properties.BD_ID}|${f.properties.OBJECT_ID}` === key ? { ...f, properties: { ...f.properties, [field]: from } } : f;
+    setBuildings((prev) => prev ? { ...prev, features: prev.features.map(rev) } : prev);
+    const newData = { type: 'FeatureCollection', features: sc.data.features.map(rev) };
+    setSc((s) => ({ ...s, data: newData }));
+    const map = mapInstanceRef.current;
+    if (map && map.getSource && map.getSource('bldg-hit')) map.getSource('bldg-hit').setData(newData);
+    try {
+      const log = JSON.parse(localStorage.getItem('campusgeo-edit-log') || '[]');
+      const sig = (e) => `${e.key}|${e.field}|${e.to}`;
+      const i = log.map(sig).lastIndexOf(`${key}|${field}|${to}`);
+      if (i >= 0) {log.splice(i, 1);localStorage.setItem('campusgeo-edit-log', JSON.stringify(log));}
+    } catch (err) {}
+    setEditState('review');
+  }, [sc]);
+
+  const onApplyScale = useCallback((tm) => {
+    setScaleCmd({ mpp: tm, center: !scaleAppliedRef.current, ts: Date.now() });
+    scaleAppliedRef.current = true;
+  }, []);
+
+  const onPrint = useCallback(() => {
+    setPrinting('sending');
+    // capture map canvas and composite print furniture, then download
+    const doCapture = () => {
+      try {
+        const mapCanvas = document.querySelector('.maplibregl-canvas');
+        if (!mapCanvas) {setPrinting('sent');timers.current.push(setTimeout(() => reset(), 2000));return;}
+        const W = mapCanvas.width,H = mapCanvas.height;
+        const dpr = window.devicePixelRatio || 1;
+        const c = document.createElement('canvas');
+        c.width = W;c.height = H;
+        const ctx = c.getContext('2d');
+        // draw map
+        ctx.drawImage(mapCanvas, 0, 0);
+        // semi-transparent vignette
+        ctx.fillStyle = 'rgba(26,21,14,0.08)';
+        ctx.fillRect(0, 0, W, H);
+        const s = dpr; // scale factor
+        // title banner
+        ctx.fillStyle = 'rgba(250,247,242,0.94)';
+        const bannerH = 56 * s,bannerM = 18 * s;
+        ctx.beginPath();
+        ctx.roundRect(bannerM, bannerM, W - bannerM * 2, bannerH, 8 * s);
+        ctx.fill();
+        ctx.font = `600 ${22 * s}px "EB Garamond",Georgia,serif`;
+        ctx.fillStyle = '#2A2218';
+        ctx.fillText(title || 'Campus Map', bannerM + 14 * s, bannerM + 28 * s);
+        ctx.font = `400 ${10 * s}px "Plus Jakarta Sans",sans-serif`;
+        ctx.fillStyle = '#5A5046';
+        ctx.fillText('University of Chicago · Hyde Park Campus · Facilities GIS', bannerM + 14 * s, bannerM + 44 * s);
+        // legend box
+        if (sc && sc.legend) {
+          ctx.font = `600 ${11 * s}px "Plus Jakarta Sans",sans-serif`;
+          const maxLbl = Math.max(...sc.legend.map((lg) => {const t = typeof lg.label === 'string' ? lg.label : lg.sub ? 'Other' : 'Match';return ctx.measureText(t).width;}));
+          const legW = Math.max(160 * s, maxLbl + 44 * s),legH = (36 + sc.legend.length * 20) * s;
+          const lx = bannerM,ly = H - bannerM - legH;
+          ctx.fillStyle = 'rgba(250,247,242,0.94)';
+          ctx.beginPath();ctx.roundRect(lx, ly, legW, legH, 8 * s);ctx.fill();
+          ctx.font = `700 ${9 * s}px "Plus Jakarta Sans",sans-serif`;
+          ctx.fillStyle = '#8C8070';
+          ctx.fillText('LEGEND', lx + 12 * s, ly + 16 * s);
+          sc.legend.forEach((lg, i) => {
+            const iy = ly + 28 * s + i * 20 * s;
+            ctx.fillStyle = lg.color;
+            if (sc.legendSquare && !lg.round) {ctx.fillRect(lx + 12 * s, iy, 10 * s, 10 * s);} else
+            {ctx.beginPath();ctx.arc(lx + 17 * s, iy + 5 * s, 5 * s, 0, Math.PI * 2);ctx.fill();}
+            ctx.fillStyle = lg.sub ? '#5A5046' : '#2A2218';
+            ctx.font = `${lg.sub ? 400 : 600} ${11 * s}px "Plus Jakarta Sans",sans-serif`;
+            const txt = typeof lg.label === 'string' ? lg.label : lg.sub ? 'Other' : 'Match';
+            ctx.fillText(txt, lx + 30 * s, iy + 10 * s);
+          });
+        }
+        // scale bar
+        const sbM = bannerM,sbY = H - bannerM - 10 * s;
+        const mppVal = mpp || 0.5;
+        const ftpp = mppVal * 3.28084 * dpr;
+        const barTarget = 104 * s;
+        const rawFt = ftpp * barTarget;
+        const nices = [50, 100, 200, 500, 1000, 2000, 2500, 5000, 10000];
+        let bestFt = nices[0];
+        for (const n of nices) {if (n <= rawFt * 1.3) bestFt = n;else break;}
+        const barPx = Math.round(bestFt / ftpp);
+        const sbX = W - sbM - barPx - 50 * s;
+        ctx.fillStyle = '#2A2218';
+        for (let i = 0; i < 4; i++) {if (i % 2 === 0) ctx.fillRect(sbX + i * (barPx / 4), sbY - 6 * s, barPx / 4, 6 * s);}
+        ctx.strokeStyle = '#2A2218';ctx.lineWidth = 1;
+        ctx.strokeRect(sbX, sbY - 6 * s, barPx, 6 * s);
+        ctx.font = `400 ${8 * s}px "JetBrains Mono",monospace`;
+        ctx.fillStyle = '#5A5046';
+        ctx.fillText('0', sbX, sbY + 10 * s);
+        const ftLabel = bestFt >= 5280 ? (bestFt / 5280).toFixed(bestFt % 5280 === 0 ? 0 : 1) + ' mi' : bestFt.toLocaleString() + ' ft';
+        ctx.fillText(ftLabel, sbX + barPx - ctx.measureText(ftLabel).width, sbY + 10 * s);
+        // North arrow
+        const nx = W - sbM - 20 * s,ny = sbY - 30 * s;
+        ctx.fillStyle = '#2A2218';
+        ctx.beginPath();ctx.moveTo(nx, ny - 18 * s);ctx.lineTo(nx + 7 * s, ny + 6 * s);ctx.lineTo(nx, ny);ctx.closePath();ctx.fill();
+        ctx.fillStyle = '#5A5046';
+        ctx.beginPath();ctx.moveTo(nx, ny - 18 * s);ctx.lineTo(nx - 7 * s, ny + 6 * s);ctx.lineTo(nx, ny);ctx.closePath();ctx.fill();
+        ctx.font = `700 ${11 * s}px "Plus Jakarta Sans",sans-serif`;
+        ctx.fillStyle = '#2A2218';
+        ctx.fillText('N', nx - 4 * s, ny + 20 * s);
+        // trigger download
+        c.toBlob((blob) => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = (title || 'CampusGeo Map').replace(/[^a-zA-Z0-9 _·\-]/g, '_') + '.png';
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          setPrinting('sent');
+          timers.current.push(setTimeout(() => reset(), 2000));
+        }, 'image/png');
+      } catch (err) {
+        console.error('Print capture failed:', err);
+        setPrinting('sent');
+        timers.current.push(setTimeout(() => reset(), 2000));
+      }
+    };
+    timers.current.push(setTimeout(doCapture, 800));
+  }, [reset, title, sc, mpp]);
+
+  useEffect(() => () => clearTimers(), []);
+
+  const composing = phase === 'composing';
+  const mapOn = composing || phase === 'editing';
+
+  return (
+    <div style={{ position: 'relative', height: '100vh', width: '100vw', overflow: 'hidden', background: T.paper }}>
+      {/* Top bar */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 54, display: 'flex', alignItems: 'center',
+        padding: '0 18px', gap: 12, zIndex: 70, background: mapOn ? 'rgba(245,240,232,0.9)' : 'transparent',
+        borderBottom: mapOn ? `1px solid ${T.rule}` : '1px solid transparent', backdropFilter: mapOn ? 'blur(6px)' : 'none', transition: 'all 0.4s' }}>
+        <button onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: 0 }}>
+          <Phoenix size={36} />
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontFamily: 'EB Garamond,Georgia,serif', fontSize: 18, color: T.maroon, fontWeight: 500, lineHeight: "1", letterSpacing: "0.5px", height: "19px" }}>CampusGeo</div>
+            <div style={{ fontSize: 8, color: T.inkLt, letterSpacing: '0.11em', textTransform: 'uppercase', fontWeight: 600, height: "1px", padding: "3px 0px 0px" }}>University of Chicago</div>
+          </div>
+        </button>
+        <div style={{ flex: 1 }} />
+        <div style={{ position: 'relative' }}>
+          <button onClick={toggleDigest} title="Daily digest" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, background: digestOpen ? T.paperDk : T.cream, border: `1px solid ${T.rule}`, borderRadius: 8 }}
+          onMouseEnter={(e) => e.currentTarget.style.background = T.paperDk} onMouseLeave={(e) => e.currentTarget.style.background = digestOpen ? T.paperDk : T.cream}>
+            <Ic n="bell" size={16} color={T.inkMd} />
+            {!digestSeen && <span style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: '50%', background: T.maroon, border: `1.5px solid ${T.cream}` }} />}
+          </button>
+          {digestOpen && <DigestPanel onView={viewDigestItem} onClose={() => setDigestOpen(false)} onOpenReport={() => {setDigestOpen(false);submit('When was the campus data last updated?');}} />}
+        </div>
+        {phase !== 'idle' &&
+        <button onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 6, background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 8, padding: '7px 12px', color: T.inkMd, fontSize: 12, fontWeight: 600 }}
+        onMouseEnter={(e) => e.currentTarget.style.background = T.paperDk} onMouseLeave={(e) => e.currentTarget.style.background = T.cream}>
+            <Ic n="plus" size={13} color={T.inkMd} />New search
+          </button>
+        }
+      </div>
+
+      {/* Daily digest toast (one-time, on first load of an unseen sync) */}
+      {toast && <DigestToast item={DIGEST[0]} onView={() => viewDigestItem(DIGEST[0])} onClose={() => setToast(false)} />}
+
+      {/* Map layer (mounted while composing or reviewing an edit) */}
+      {mapOn &&
+      <div style={{ position: 'absolute', inset: 0, zIndex: 1, animation: 'ccFade 0.6s ease-out both' }}>
+          <MapCanvas sc={sc} visible={true} zoomCmd={zoomCmd} fitCmd={fitCmd} scaleCmd={scaleCmd} onScaleChange={setMpp} mapInstanceRef={mapInstanceRef} />
+        </div>
+      }
+
+      {/* Print composer overlay */}
+      {composing && !printing &&
+      <PrintComposer sc={sc} mpp={mpp} title={title} setTitle={setTitle}
+      onZoom={(d) => setZoomCmd({ dir: d, ts: Date.now() })}
+      onPrint={onPrint} onCancel={reset} onApplyScale={onApplyScale} />
+      }
+
+      {/* Follow-up refinement bar (composer only) */}
+      {composing && !printing &&
+      <div style={{ position: 'absolute', bottom: 84, left: '50%', transform: 'translateX(-50%)', zIndex: 60,
+        width: 470, maxWidth: '90vw', display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center',
+        animation: 'ccFadeUp 0.4s 0.25s ease-out both' }}>
+          {followState &&
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, maxWidth: '100%',
+          background: followState.phase === 'err' ? '#FBEFEA' : followState.phase === 'note' ? T.greenBg : T.cream,
+          border: `1px solid ${followState.phase === 'err' ? 'rgba(128,0,0,0.25)' : followState.phase === 'note' ? T.greenBd : T.rule}`,
+          borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 500,
+          color: followState.phase === 'err' ? T.maroon : followState.phase === 'note' ? T.green : T.inkMd,
+          boxShadow: '0 4px 14px rgba(0,0,0,0.12)', animation: 'ccFadeUp 0.25s ease-out both' }}>
+              {followState.phase === 'thinking' ?
+          <div style={{ width: 12, height: 12, border: `2px solid ${T.amberTint}`, borderTopColor: T.amber, borderRadius: '50%', animation: 'ccSpin 0.7s linear infinite', flexShrink: 0 }} /> :
+          <Ic n={followState.phase === 'err' ? 'zap' : 'check'} size={13} color={followState.phase === 'err' ? T.maroon : T.green} />}
+              <span style={{ lineHeight: 1.4 }}>{followState.msg}</span>
+            </div>
+        }
+          <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9,
+          background: 'rgba(250,247,242,0.95)', border: `1.5px solid ${T.rule}`, borderRadius: 11,
+          padding: '3px 3px 3px 13px', boxShadow: '0 8px 28px rgba(0,0,0,0.2)', backdropFilter: 'blur(4px)' }}>
+            <Ic n="zap" size={15} color={T.maroon} />
+            <input value={followQ}
+          onChange={(e) => {setFollowQ(e.target.value);if (followState && followState.phase === 'err') setFollowState(null);}}
+          onKeyDown={(e) => e.key === 'Enter' && followUp()}
+          placeholder={sc && sc.overlay ? 'Refine again — “remove trees” or change the distance' : 'Ask a follow-up — “also show trees within 200 ft”'}
+          style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontFamily: GOTHAM,
+            fontSize: 13.5, fontWeight: 400, letterSpacing: '0.01em', color: followQ ? T.ink : T.inkXlt, minWidth: 0 }} />
+            <button onClick={followUp} disabled={!followQ.trim() || followState && followState.phase === 'thinking'}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, background: followQ.trim() ? T.maroon : T.paperDkr,
+            color: followQ.trim() ? T.white : T.inkLt, border: 'none', borderRadius: 8,
+            padding: '8px 13px', fontSize: 12, fontWeight: 700, transition: 'all 0.15s', flexShrink: 0 }}>
+              Add<Ic n="arrowUp" size={13} color={followQ.trim() ? T.white : T.inkLt} />
+            </button>
+          </div>
+        </div>
+      }
+
+      {/* Edit review card (right-docked, decision-support) */}
+      {phase === 'editing' && sc && sc.edit &&
+      <EditReview sc={sc} state={editState} onApply={applyEdit} onUndo={undoEdit} onDiscard={reset} onDone={reset} />
+      }
+
+      {/* Idle hero + thinking trace + unrecognized (centered column) */}
+      {phase !== 'composing' && phase !== 'editing' &&
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', padding: '74px 24px 40px', overflowY: 'auto' }}>
+          {phase === 'unrecognized' ?
+        <div style={{ width: '100%', maxWidth: 560, textAlign: 'center', animation: 'ccFadeUp 0.4s ease-out both' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+                <div style={{ maxWidth: '85%', background: T.maroon, color: T.white, borderRadius: '14px 14px 4px 14px',
+              padding: '11px 16px', fontSize: 16, fontFamily: 'EB Garamond,serif', fontStyle: 'italic', lineHeight: 1.4, boxShadow: '0 3px 12px rgba(128,0,0,0.22)' }}>{submitted}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, paddingLeft: 2, justifyContent: 'center' }}>
+                <div style={{ width: 26, height: 26, borderRadius: 7, background: T.amberTint, border: `1px solid rgba(176,120,48,0.3)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic n="zap" size={14} color={T.amber} /></div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, letterSpacing: '0.07em', textTransform: 'uppercase' }}>CampusGeo Agent</span>
+              </div>
+              <div style={{ background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, padding: '20px 24px', marginBottom: 20, textAlign: 'left' }}>
+                <div style={{ fontSize: 14, color: T.inkMd, lineHeight: 1.6 }}>
+                  {unrecMsg || (/[\u4e00-\u9fff]/.test(submitted) ? UNRECOGNIZED_MSGS[1] : UNRECOGNIZED_MSGS[0])}
+                </div>
+                <div style={{ marginTop: 14, fontSize: 11, color: T.inkXlt }}>Available layers: Campus Buildings (footprints, RI, FCI, CHRS) · Campus Trees (species, year_planted, condition)</div>
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <SearchBar value={query} onChange={setQuery} onSubmit={() => submit()} big={false} />
+              </div>
+              <button onClick={reset} style={{ background: 'none', border: `1px solid ${T.rule}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: T.inkMd, cursor: 'pointer' }}
+          onMouseEnter={(e) => e.currentTarget.style.background = T.paperDk} onMouseLeave={(e) => e.currentTarget.style.background = 'none'}>
+                ← Back to start
+              </button>
+            </div> :
+        phase === 'idle' ?
+        <div style={{ width: '100%', maxWidth: 620, textAlign: 'center', animation: 'ccFadeUp 0.5s ease-out both' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', margin: '0 auto 24px' }}>
+                <Phoenix size={84} />
+              </div>
+              <h1 style={{ fontFamily: 'EB Garamond,Georgia,serif', fontWeight: 500, fontSize: 38, color: T.ink, lineHeight: 1.12, marginBottom: 12, letterSpacing: '-0.01em' }}>
+                What can I help you map today?
+              </h1>
+              <p style={{ fontSize: 15, color: T.inkLt, lineHeight: 1.55, maxWidth: 440, margin: '0 auto 34px' }}>
+                Ask in plain language. CampusGeo finds the right campus layer, reads its data, and builds a map or print-ready sheet for you.
+              </p>
+              <div style={{ marginBottom: 20 }}>
+                <SearchBar value={query} onChange={setQuery} onSubmit={() => submit()} big />
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+                {suggestions.map((s) =>
+            <button key={s} onClick={() => submit(s)} style={{ display: 'flex', alignItems: 'center', gap: 8,
+              background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 20, padding: '8px 14px',
+              fontFamily: 'EB Garamond,serif', fontStyle: 'italic', fontSize: 14, color: T.inkMd, transition: 'all 0.12s' }}
+            onMouseEnter={(e) => {e.currentTarget.style.background = T.paperDk;e.currentTarget.style.borderColor = T.ruleDk;}}
+            onMouseLeave={(e) => {e.currentTarget.style.background = T.cream;e.currentTarget.style.borderColor = T.rule;}}>
+                    <Ic n="search" size={12} color={T.amber} />{s}
+                  </button>
+            )}
+              </div>
+              <button onClick={() => submit('When was the campus data last updated?')}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 42, background: 'none', border: 'none', padding: 0,
+            fontSize: 10.5, color: T.inkXlt, letterSpacing: '0.03em', transition: 'color 0.15s' }}
+          onMouseEnter={(e) => e.currentTarget.style.color = T.inkLt} onMouseLeave={(e) => e.currentTarget.style.color = T.inkXlt}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.green, boxShadow: `0 0 0 3px ${T.greenBg}` }} />
+                47 layers · synced from the campus ArcGIS web map · updated today 02:00 CT
+              </button>
+            </div> :
+        phase === 'provenance' ?
+        <SyncReport q={submitted} query={query} setQuery={setQuery} onSubmit={() => submit()} /> :
+
+        <ReasoningTrace sc={sc} steps={sc ? makeSteps(sc) : []} query={submitted} shown={shown} done={traceDone} />
+        }
+        </div>
+      }
+
+      {/* Print confirmation overlay */}
+      {printing &&
+      <div style={{ position: 'absolute', inset: 0, zIndex: 95, background: 'rgba(26,21,14,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'ccFade 0.3s ease-out both' }}>
+          <div style={{ background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 16, padding: '34px 44px',
+          textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', minWidth: 320, animation: 'ccPop 0.3s ease-out both' }}>
+            {printing === 'sending' ?
+          <>
+                <div style={{ width: 46, height: 46, border: `3px solid ${T.amberTint}`, borderTopColor: T.amber, borderRadius: '50%', margin: '0 auto 18px', animation: 'ccSpin 0.8s linear infinite' }} />
+                <div style={{ fontSize: 16, fontWeight: 600, color: T.ink, marginBottom: 5 }}>Preparing your map…</div>
+                <div style={{ fontSize: 12.5, color: T.inkLt }}>Rendering “{title}” at print resolution</div>
+              </> :
+
+          <>
+                <div style={{ width: 52, height: 52, borderRadius: '50%', background: T.greenBg, border: `1.5px solid ${T.greenBd}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
+                  <Ic n="check" size={26} color={T.green} />
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: T.ink, marginBottom: 5 }}>Map downloaded</div>
+                <div style={{ fontSize: 12.5, color: T.inkLt }}>“{title}” · {sc ? `${sc.matchCount.toLocaleString()} ${sc.unit}` : 'PNG'}</div>
+              </>
+          }
+          </div>
+        </div>
+      }
+
+      <TweaksPanel>
+        <TweakSection label="Example queries" />
+        <TweakSlider label="Number of chips" value={t.exampleCount} min={2} max={6} onChange={(v) => setTweak('exampleCount', v)} />
+        <TweakToggle label="Show Chinese example" value={t.showChinese} onChange={(v) => setTweak('showChinese', v)} />
+      </TweaksPanel>
+    </div>);
+
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

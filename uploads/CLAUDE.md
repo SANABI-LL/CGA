@@ -2,8 +2,6 @@
 
 This file defines the design language and engineering conventions for this project. Claude Code reads it on every session as part of the system context. When generating any UI code, treat the `<frontend_aesthetics>` block as binding, not aspirational.
 
-> **Design-system note (this project):** the interactive prototype lives at `ui_kits/campusgeo/print-flow.html` and already follows the aesthetic direction below (warm paper, serif display, maroon accents, editorial cartography). Use it as the visual reference for any new screens.
-
 ---
 
 ## Project Identity
@@ -169,8 +167,8 @@ If any answer is no, redo it.
 - React 18 + Vite
 - ArcGIS Maps SDK for JavaScript 4.x — load via ESM
 - Tailwind CSS — utility layer ONLY for layout primitives (flex, grid, spacing). Use the CSS variables above for all color, typography, and aesthetic decisions. Do not reference Tailwind's default color ramp.
-- Anthropic Claude API with tool use (function calling) for query interpretation. **LLM calls go through a single provider-agnostic interface in `src/agent/llm.ts`** — MVP uses the Anthropic API directly (faster development, better docs); Phase 4 swaps the implementation to AWS Bedrock (IAM integration, compliance, portfolio value). Server-side proxy — never expose the API key.
-- Deployment: **unified on AWS** (S3 + CloudFront for frontend, Lambda for query API, Bedrock in Phase 4). A split Vercel/AWS deployment was considered and rejected — one platform avoids CORS friction, split secret management, and fragmented monitoring, and AWS experience aligns with target GIS/AI/PropTech roles. Vercel remains acceptable as a throwaway preview environment only.
+- Anthropic Claude API with tool use (function calling) for query interpretation. Server-side proxy via Next.js API routes — never expose the API key.
+- Deployment: Vercel for MVP. AWS (S3 + CloudFront + Lambda + Bedrock) for the production / portfolio version.
 
 ## Engineering Conventions
 
@@ -234,9 +232,8 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 **Remaining:**
 - [ ] Upload GeoJSON to S3, populate DynamoDB metadata
 - [ ] Rewrite Lambda query tools: S3 + Turf.js instead of ArcGIS REST API
-  - Load + parse GeoJSON in module scope (outside the handler) and cache in `/tmp`, so warm invocations skip the S3 fetch. Cold starts add 1–2s; pre-warm before demos. p95 <2s target applies to warm Lambdas.
 - [ ] Fix Lambda handler TypeScript errors
-- [ ] Deploy frontend to S3 + CloudFront, backend to AWS Lambda
+- [ ] Deploy to Vercel (frontend) + AWS Lambda (backend)
 
 **Success metric:** Public demo URL responds to "Show me campus trees" with S3-hosted data visualization.
 
@@ -249,16 +246,14 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 - **Google Workspace OAuth** (UChicago CNetID validation)
   - Frontend: Google Sign-In button
   - Backend: verify `@uchicago.edu` domain, check DynamoDB whitelist
-  - **Scope control:** ship with a hardcoded invitation-code gate first; defer the full admin panel (add/remove users UI) to Phase 4 unless time allows. The admin panel + whitelist edge cases (rejection UX, revocation) can absorb 30–40 hours better spent on Phase 3 differentiators.
+  - Admin panel: add/remove invited users
 - **DynamoDB storage:**
   - `users` table: profile (CNetID, email, join date)
   - `query_history` table: user queries + GeoJSON results
   - `map_bookmarks` table: saved map states (zoom, center, layers)
-  - `user_profiles` table: Claude-generated memory summaries (see below)
 - **QueryHistoryPanel UI:** load previous queries, replay on map
-- **User memory (lightweight, ~10h):** a scheduled Lambda periodically summarizes each user's `query_history` via Claude into a compact profile ("frequently queries north-campus building condition; prefers tree layers in spring"). The profile seeds personalized query suggestions and change notifications. History is the record; the profile is the memory — they are distinct features.
 
-**Access control:** Internal-only. Invitation-code gate first, whitelist later. Future migration to UChicago IT CNetID SSO (SAML/Shibboleth) when scaling.
+**Access control:** Internal-only. Invitation-required whitelist. Future migration to UChicago IT CNetID SSO (SAML/Shibboleth) when scaling.
 
 **Success metric:** Returning UChicago users see query history and bookmarks. Non-UChicago accounts rejected at login.
 
@@ -291,28 +286,9 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 **Tasks:**
 - Performance: MapCanvas rendering optimization, S3 query result caching (CloudFront)
 - Monitoring: Sentry error tracking + CloudWatch Lambda metrics
-- Migrate LLM calls from Anthropic API to AWS Bedrock (swap the `src/agent/llm.ts` implementation; no call-site changes)
-- Admin panel for user whitelist (deferred from Phase 2)
+- ETL automation: Lambda-triggered geodatabase updates (when new data uploaded to S3)
 - User docs: query syntax guide, data attribution, privacy policy
 - Beta testing: feedback forms, user interviews
-
-#### Daily Data-Update Pipeline (promoted from one-liner — portfolio-worthy on its own)
-
-```
-EventBridge (daily cron, e.g. 02:00 CT)
-  → Lambda: fetch source geodatabase export / check S3 upload bucket
-  → diff against current GeoJSON (feature count, attribute hashes, geometry checksums)
-  → if changed:
-      ├─ run validation (schema, CRS, coordinate sanity — reuse verify_conversion logic)
-      ├─ optionally invoke Claude to summarize the change set & flag anomalies
-      │   (coordinate drift, missing fields, suspicious deletions)
-      ├─ write new GeoJSON to S3 + update DynamoDB layer timestamps
-      ├─ invalidate CloudFront cache
-      └─ SNS notification (email/Slack): "3 buildings updated, 12 trees added"
-  → if anomalous: hold update, notify for manual review
-```
-
-This is a self-healing data pipeline with an LLM QA step — present it as a standalone portfolio story.
 
 **Success metric:** Beta launch with <2s query response (p95), zero critical bugs over 2-week test period.
 

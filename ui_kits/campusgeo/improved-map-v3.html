@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampusGeo — Campus Map (MapLibre)</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{height:100%;width:100%;overflow:hidden;}
+body{background:#F5F0E8;font-family:'Plus Jakarta Sans',sans-serif;color:#2A2218;-webkit-font-smoothing:antialiased;}
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#C8BFB0;border-radius:3px;}
+input,textarea,button{font-family:inherit;}
+button{cursor:pointer;}
+
+/* MapLibre overrides — warm theme */
+.maplibregl-popup-content{
+  background:#FAF7F2;border:1px solid #D8CFC0;border-radius:8px;
+  padding:9px 12px;box-shadow:0 4px 20px rgba(0,0,0,0.18);
+  font-family:'Plus Jakarta Sans',sans-serif;
+}
+.maplibregl-popup-tip{border-top-color:#FAF7F2!important;border-bottom-color:#FAF7F2!important;}
+.maplibregl-popup-close-button{color:#8C8070;font-size:16px;padding:2px 6px;}
+.pop-title{font-size:12px;font-weight:600;color:#2A2218;margin-bottom:2px;}
+.pop-sub{font-size:11px;color:#5A5046;margin-bottom:3px;}
+.pop-coord{font-size:9px;color:#B5ADA0;font-family:'JetBrains Mono',monospace;}
+.pop-chip{display:inline-block;font-size:9px;background:rgba(46,125,82,0.12);color:#2E7D52;border:1px solid rgba(46,125,82,0.3);border-radius:10px;padding:1px 7px;margin-top:4px;}
+.maplibregl-ctrl-group{background:#FAF7F2!important;border:1px solid #D8CFC0!important;box-shadow:0 1px 6px rgba(0,0,0,0.1)!important;}
+.maplibregl-ctrl-group button{width:32px!important;height:32px!important;}
+.maplibregl-ctrl-group button+button{border-top:1px solid #E8E2D8!important;}
+.maplibregl-ctrl-attrib{background:rgba(250,247,242,0.8)!important;font-size:9px!important;}
+.maplibregl-ctrl-attrib a{color:#8C8070!important;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect,useMemo,useCallback}=React;
+
+/* ── Design tokens ─────────────────────────────────────────── */
+const T={
+  maroon:'#800000',maroonDk:'#5A0000',maroonLt:'#A82020',
+  maroonTint:'rgba(128,0,0,0.08)',maroonRing:'rgba(128,0,0,0.2)',
+  amber:'#B07830',amberLt:'#D4A84E',amberTint:'rgba(176,120,48,0.12)',
+  paper:'#F5F0E8',paperDk:'#EDE6D8',paperDkr:'#E2D9C8',cream:'#FAF7F2',
+  ink:'#2A2218',inkMd:'#5A5046',inkLt:'#8C8070',inkXlt:'#B5ADA0',
+  rule:'#D8CFC0',ruleLt:'#E8E2D8',ruleDk:'#C0B5A5',
+  green:'#2E7D52',greenBg:'rgba(46,125,82,0.1)',greenBd:'rgba(46,125,82,0.25)',
+  red:'#C0382B',redBg:'rgba(192,56,43,0.1)',redBd:'rgba(192,56,43,0.25)',
+  yellow:'#A07820',yellowBg:'rgba(160,120,32,0.1)',yellowBd:'rgba(160,120,32,0.25)',
+  blue:'#2060A0',blueBg:'rgba(32,96,160,0.1)',blueBd:'rgba(32,96,160,0.25)',
+  purple:'#6040A0',purpleBg:'rgba(96,64,160,0.1)',purpleBd:'rgba(96,64,160,0.25)',
+  white:'#FFFFFF',
+};
+
+/* ── Custom warm MapLibre style (OpenFreeMap vector tiles) ──── */
+const WARM_STYLE={
+  version:8,
+  glyphs:'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sources:{
+    omt:{type:'vector',url:'https://tiles.openfreemap.org/planet'}
+  },
+  layers:[
+    {id:'bg',type:'background',paint:{'background-color':'#DDD5C4'}},
+    {id:'wood',type:'fill',source:'omt','source-layer':'landcover',
+      filter:['==',['get','class'],'wood'],
+      paint:{'fill-color':'#BFCDB0','fill-opacity':0.5}},
+    {id:'grass',type:'fill',source:'omt','source-layer':'landcover',
+      filter:['in',['get','class'],['literal',['grass','meadow','park']]],
+      paint:{'fill-color':'#C9D5BA','fill-opacity':0.55}},
+    {id:'park',type:'fill',source:'omt','source-layer':'park',
+      paint:{'fill-color':'#C9D5BA','fill-opacity':0.45}},
+    {id:'residential',type:'fill',source:'omt','source-layer':'landuse',
+      filter:['in',['get','class'],['literal',['residential','suburb','neighbourhood']]],
+      paint:{'fill-color':'#D8D0BF','fill-opacity':0.3}},
+    {id:'water',type:'fill',source:'omt','source-layer':'water',
+      paint:{'fill-color':'#9FB0B5'}},
+    {id:'waterway',type:'line',source:'omt','source-layer':'waterway',
+      paint:{'line-color':'#9FB0B5','line-width':1}},
+    {id:'building',type:'fill',source:'omt','source-layer':'building',minzoom:13,
+      paint:{'fill-color':'#CDC1A6','fill-outline-color':'#B2A488','fill-opacity':['interpolate',['linear'],['zoom'],13,0,14,0.85]}},
+    {id:'road-path',type:'line',source:'omt','source-layer':'transportation',
+      filter:['in',['get','class'],['literal',['path','track','footway']]],
+      paint:{'line-color':'#BCB29F','line-width':['interpolate',['linear'],['zoom'],14,0.5,18,2],'line-dasharray':[2,2]}},
+    {id:'road-minor',type:'line',source:'omt','source-layer':'transportation',
+      filter:['in',['get','class'],['literal',['minor','service']]],
+      paint:{'line-color':'#E6DECF','line-width':['interpolate',['linear'],['zoom'],12,1,18,8]}},
+    {id:'road-secondary',type:'line',source:'omt','source-layer':'transportation',
+      filter:['in',['get','class'],['literal',['secondary','tertiary']]],
+      paint:{'line-color':'#ECE4D6','line-width':['interpolate',['linear'],['zoom'],10,1,18,12]}},
+    {id:'road-primary',type:'line',source:'omt','source-layer':'transportation',
+      filter:['in',['get','class'],['literal',['primary','trunk']]],
+      paint:{'line-color':'#EFE9DC','line-width':['interpolate',['linear'],['zoom'],8,1,18,18]}},
+    {id:'road-motorway',type:'line',source:'omt','source-layer':'transportation',
+      filter:['==',['get','class'],'motorway'],
+      paint:{'line-color':'#E9DBBC','line-width':['interpolate',['linear'],['zoom'],6,1,18,22]}},
+    {id:'rail',type:'line',source:'omt','source-layer':'transportation',
+      filter:['==',['get','class'],'rail'],
+      paint:{'line-color':'#B2A488','line-width':1,'line-dasharray':[3,3]}},
+    {id:'boundary',type:'line',source:'omt','source-layer':'boundary',
+      filter:['<=',['get','admin_level'],6],
+      paint:{'line-color':'#B2A488','line-width':0.8,'line-dasharray':[4,3],'line-opacity':0.4}},
+    {id:'road-label',type:'symbol',source:'omt','source-layer':'transportation_name',minzoom:13,
+      layout:{'symbol-placement':'line','text-field':['get','name'],'text-font':['Noto Sans Regular'],'text-size':11},
+      paint:{'text-color':'#6B6155','text-halo-color':'#F2ECE0','text-halo-width':1.4}},
+    {id:'place-label',type:'symbol',source:'omt','source-layer':'place',
+      filter:['in',['get','class'],['literal',['city','town','suburb','neighbourhood','quarter']]],
+      layout:{'text-field':['get','name'],'text-font':['Noto Sans Regular'],'text-size':['interpolate',['linear'],['zoom'],10,11,16,15],'text-transform':'uppercase','text-letter-spacing':0.1},
+      paint:{'text-color':'#8C8070','text-halo-color':'#F2ECE0','text-halo-width':1.6}},
+  ],
+};
+
+/* ── Campus landmarks (sample base data) ───────────────────── */
+const LANDMARKS={
+  type:'FeatureCollection',
+  features:[
+    {type:'Feature',properties:{fid:'reg',name:'Regenstein Library',cat:'library'},geometry:{type:'Point',coordinates:[-87.5999,41.7922]}},
+    {type:'Feature',properties:{fid:'crerar',name:'Crerar Library',cat:'library'},geometry:{type:'Point',coordinates:[-87.6020,41.7908]}},
+    {type:'Feature',properties:{fid:'hutch',name:'Hutchinson Commons',cat:'dining'},geometry:{type:'Point',coordinates:[-87.5997,41.7893]}},
+  ],
+};
+
+const FEATURES={
+  reg:{id:'reg',type:'library',name:'Joseph Regenstein Library',
+    address:'1100 E 57th St · Chicago, IL 60637',
+    hours:'Mon–Thu 8:30 am–10 pm · Fri 8:30 am–6 pm · Sat 9 am–6 pm · Sun 10 am–10 pm',
+    status:'open',statusText:'Open · Closes 10 PM',phone:'(773) 702-8740',
+    floors:8,seats:2000,
+    amenities:['Printing & Scanning','Group Study Rooms','Research Consultations','Ex Libris Café'],
+    accessibility:'Fully accessible · Elevator in main lobby · Accessible restrooms all floors',
+    coords:'41.7922° N, 87.5999° W',tags:['Library','Study','Research'],color:T.blue,
+    lng:-87.5999,lat:41.7922},
+  hutch:{id:'hutch',type:'dining',name:'Hutchinson Commons',
+    address:'5706 S University Ave · Chicago, IL 60637',
+    hours:'Mon–Fri 11 am–8 pm · Sat–Sun 11 am–4 pm',
+    status:'open',statusText:'Open · Closes 8 PM',
+    amenities:['Hot food station','Salad bar','Outdoor terrace seating','Catering'],
+    accessibility:'Step-free entrance via Reynolds Club corridor',
+    coords:'41.7893° N, 87.5997° W',tags:['Dining','Social'],color:T.maroon,capacity:450,
+    lng:-87.5997,lat:41.7893},
+  crerar:{id:'crerar',type:'library',name:'John Crerar Library',
+    address:'5730 S Ellis Ave · Chicago, IL 60637',
+    hours:'Mon–Fri 8:30 am–9 pm · Sat 10 am–6 pm · Sun 12 pm–9 pm',
+    status:'open',statusText:'Open · Closes 9 PM',phone:'(773) 702-7715',
+    floors:5,seats:600,
+    amenities:['Science & Medicine collections','Computer stations','Group study rooms','Printing'],
+    accessibility:'Fully accessible · East entrance recommended',
+    coords:'41.7908° N, 87.6020° W',tags:['Library','Science','Medicine'],color:T.blue,
+    lng:-87.6020,lat:41.7908},
+};
+
+/* ── Layer groups ───────────────────────────────────────────── */
+const LAYER_GROUPS=[
+  {id:'campus',label:'Campus Buildings',icon:'building',open:true,layers:[
+    {id:'buildings_all',label:'UChicago Properties',color:'#8B6F47',on:false,count:220,opacity:70,live:true},
+    {id:'buildings_academic',label:'Academic Buildings',color:T.blue,on:false,count:48,opacity:100},
+    {id:'buildings_residential',label:'Residential Halls',color:T.amber,on:false,count:26,opacity:100},
+  ]},
+  {id:'dining',label:'Dining & Retail',icon:'coffee',open:true,layers:[
+    {id:'dining_halls',label:'Dining Halls',color:T.maroon,on:true,count:8,opacity:100},
+    {id:'cafes',label:'Cafés & Coffee',color:T.amber,on:false,count:14,opacity:100},
+    {id:'retail',label:'Campus Retail',color:T.purple,on:false,count:22,opacity:100},
+  ]},
+  {id:'academic',label:'Academic Resources',icon:'book',open:false,layers:[
+    {id:'libraries',label:'Libraries',color:T.blue,on:true,count:11,opacity:100},
+    {id:'study_rooms',label:'Study Rooms',color:'#4080C0',on:false,count:34,opacity:100},
+    {id:'labs',label:'Research Labs',color:T.purple,on:false,count:42,opacity:100},
+  ]},
+  {id:'transport',label:'Transportation',icon:'route',open:false,layers:[
+    {id:'bike_racks',label:'Bike Racks',color:T.green,on:false,count:88,opacity:100,live:true},
+    {id:'parking_lots',label:'Parking Lots',color:T.yellow,on:false,count:18,opacity:80},
+    {id:'shuttle_stops',label:'Shuttle Stops',color:'#C06040',on:false,count:22,opacity:100},
+    {id:'cta_stops',label:'CTA Bus/Train',color:T.blue,on:false,count:15,opacity:100},
+  ]},
+  {id:'health',label:'Health & Wellness',icon:'heart',open:false,layers:[
+    {id:'health_services',label:'Health Services',color:T.red,on:false,count:6,opacity:100},
+    {id:'aed',label:'AED Locations',color:T.red,on:false,count:42,opacity:100},
+  ]},
+  {id:'infra',label:'Infrastructure',icon:'zap',open:false,layers:[
+    {id:'accessible_entrances',label:'Accessible Entrances',color:T.purple,on:false,count:88,opacity:100},
+    {id:'ev_charging',label:'EV Charging',color:T.green,on:false,count:20,opacity:100},
+    {id:'emergency_phones',label:'Emergency Phones',color:T.red,on:false,count:28,opacity:100},
+  ]},
+];
+
+const QUERY_HISTORY=[
+  {id:1,q:'Nearest bike racks to Regenstein Library',time:'Just now',count:5},
+  {id:2,q:'Libraries open after 9 pm',time:'18 min ago',count:3},
+  {id:3,q:'Accessible entrances on 57th St',time:'1 hr ago',count:8},
+  {id:4,q:'Parking near Booth School',time:'Yesterday',count:4},
+];
+
+const SUGGESTIONS=['Nearest bike racks to Regenstein','Show UChicago building footprints','Dining near the quad','Libraries open now','Bike parking near Crerar'];
+
+/* ── Live data config — swap these URLs for AWS-hosted GeoJSON ── */
+const ARCGIS_BASE='https://services.arcgis.com/ppFhFO7kjyIF441C/arcgis/rest/services';
+const LIVE_LAYERS={
+  bike_racks:{url:`${ARCGIS_BASE}/2022_06_23_Web_Map_WFL1/FeatureServer/395/query?where=1%3D1&outFields=*&f=geojson&outSR=4326`},
+  buildings:{url:`${ARCGIS_BASE}/UoC_Properties/FeatureServer/2509/query?where=1%3D1&outFields=DISCRIPT1,BLDG_NUM,BLDG_USE,GIS_AREA&f=geojson&outSR=4326&resultRecordCount=300`},
+};
+
+/* ── Helpers ────────────────────────────────────────────────── */
+function haversine(lat1,lng1,lat2,lng2){
+  const R=6371000,r=Math.PI/180;
+  const dLat=(lat2-lat1)*r,dLng=(lng2-lng1)*r;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+/* ── Live data hook → returns GeoJSON + flat point list ─────── */
+function useLiveLayer(key,active){
+  const [geojson,setGeojson]=useState(null);
+  const [points,setPoints]=useState([]);
+  const [status,setStatus]=useState('idle');
+  useEffect(()=>{
+    if(!active){setStatus(s=>s==='ok'?'ok':'idle');return;} // keep cached data
+    if(geojson){setStatus('ok');return;}
+    setStatus('loading');
+    fetch(LIVE_LAYERS[key].url)
+      .then(r=>{if(!r.ok)throw new Error(r.status);return r.json();})
+      .then(gj=>{
+        const feats=(gj.features||[]).filter(f=>f.geometry);
+        setGeojson({type:'FeatureCollection',features:feats});
+        // flat point list for AI distance reasoning
+        const pts=feats.map(f=>{
+          let lng,lat;
+          if(f.geometry.type==='Point'){[lng,lat]=f.geometry.coordinates;}
+          else{
+            const ring=f.geometry.coordinates[0]?.[0]?.[0]!==undefined?f.geometry.coordinates[0][0]:f.geometry.coordinates[0];
+            let sx=0,sy=0;(ring||[]).forEach(([x,y])=>{sx+=x;sy+=y;});
+            lng=sx/(ring?.length||1);lat=sy/(ring?.length||1);
+          }
+          return{id:f.properties?.OBJECTID,attrs:f.properties||{},lng,lat};
+        }).filter(p=>p.lng&&p.lat);
+        setPoints(pts);
+        setStatus('ok');
+      })
+      .catch(()=>setStatus('error'));
+  },[key,active,geojson]);
+  return{geojson,points,status};
+}
+
+/* ── Icons ──────────────────────────────────────────────────── */
+const IP={
+  zap:<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+  search:<><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></>,
+  mapPin:<><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></>,
+  layers:<><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
+  x:<><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
+  chevronDown:<path d="m6 9 6 6 6-6"/>,
+  chevronRight:<path d="m9 18 6-6-6-6"/>,
+  building:<><rect x="3" y="9" width="18" height="12" rx="1"/><path d="M8 9V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v4"/><line x1="12" y1="9" x2="12" y2="21"/></>,
+  coffee:<><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></>,
+  book:<><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></>,
+  route:<><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></>,
+  heart:<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>,
+  plus:<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+  zap2:<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+  map:<><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></>,
+  share:<><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></>,
+  printer:<><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></>,
+  bookmark:<path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>,
+  filter:<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>,
+  info:<><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></>,
+  clock:<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
+  phone:<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.55 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>,
+  wheelchair:<><circle cx="12" cy="4" r="2"/><path d="m9 9 1 9 4-4 3 6"/><path d="M7 12a5 5 0 0 0 9.33 2.5"/></>,
+  eye:<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+};
+const Ic=({n,size=16,color='currentColor',sw=1.5,style={}})=>(
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,...style}}>{IP[n]}</svg>
+);
+
+const Phoenix=({size=24,color=T.maroon})=>(
+  <svg width={size} height={Math.round(size*0.83)} viewBox="0 0 120 100" fill="none">
+    <g fill={color}>
+      <ellipse cx="60" cy="62" rx="14" ry="18"/>
+      <path d="M46 58 C30 45 18 50 20 65 C28 58 38 60 46 68 Z"/>
+      <path d="M74 58 C90 45 102 50 100 65 C92 58 82 60 74 68 Z"/>
+      <path d="M52 78 C48 88 44 94 40 98 C50 92 55 85 60 80 C65 85 70 92 80 98 C76 94 72 88 68 78 Z"/>
+      <ellipse cx="60" cy="48" rx="8" ry="10"/>
+      <circle cx="60" cy="36" r="9"/>
+      <path d="M56 28 C54 20 50 14 52 8 C56 16 58 22 60 26 C62 22 64 16 68 8 C70 14 66 20 64 28 Z"/>
+    </g>
+  </svg>
+);
+
+const Badge=({status,text})=>{
+  const s={
+    open:{bg:T.greenBg,c:T.green,b:T.greenBd},
+    warning:{bg:T.yellowBg,c:T.yellow,b:T.yellowBd},
+    closed:{bg:'rgba(90,80,70,0.1)',c:T.inkMd,b:T.rule},
+    info:{bg:T.blueBg,c:T.blue,b:T.blueBd},
+  }[status]||{bg:T.blueBg,c:T.blue,b:T.blueBd};
+  return(
+    <span style={{display:'inline-flex',alignItems:'center',gap:5,background:s.bg,color:s.c,border:`1px solid ${s.b}`,borderRadius:20,fontSize:11,fontWeight:500,padding:'3px 10px'}}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:s.c,flexShrink:0}}/>{text}
+    </span>
+  );
+};
+
+/* ── MapLibre Canvas ────────────────────────────────────────── */
+const MapLibreCanvas=({bikeGeo,buildingGeo,showBike,showBuildings,flyTarget,onBikeSelect,onLandmarkSelect,highlightBuildingIds})=>{
+  const containerRef=useRef(null);
+  const mapRef=useRef(null);
+  const popupRef=useRef(null);
+  const [ready,setReady]=useState(false);
+
+  // Init map once
+  useEffect(()=>{
+    if(mapRef.current)return;
+    const map=new maplibregl.Map({
+      container:containerRef.current,
+      style:WARM_STYLE,
+      center:[-87.5997,41.7905],
+      zoom:15.2,
+      attributionControl:{compact:true},
+      maxZoom:19,
+    });
+    mapRef.current=map;
+
+    map.on('load',()=>{
+      // Controls (must be added after load in this MapLibre build)
+      map.addControl(new maplibregl.NavigationControl({showCompass:true}),'top-right');
+      map.addControl(new maplibregl.ScaleControl({maxWidth:90,unit:'imperial'}),'bottom-left');
+
+      // Landmarks source + layers
+      map.addSource('landmarks',{type:'geojson',data:LANDMARKS});
+      map.addLayer({id:'landmarks-halo',type:'circle',source:'landmarks',
+        paint:{'circle-radius':14,'circle-color':'#800000','circle-opacity':0.12}});
+      map.addLayer({id:'landmarks-dot',type:'circle',source:'landmarks',
+        paint:{'circle-radius':7,'circle-color':['match',['get','cat'],'library','#2060A0','dining','#800000','#B07830'],'circle-stroke-color':'#FAF7F2','circle-stroke-width':2}});
+      map.addLayer({id:'landmarks-label',type:'symbol',source:'landmarks',
+        layout:{'text-field':['get','name'],'text-font':['Noto Sans Regular'],'text-size':11,'text-offset':[0,1.3],'text-anchor':'top'},
+        paint:{'text-color':'#2A2218','text-halo-color':'#F5F0E8','text-halo-width':1.6}});
+
+      // Empty live sources (filled when data arrives)
+      map.addSource('uc-buildings',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+      map.addLayer({id:'uc-buildings-fill',type:'fill',source:'uc-buildings',
+        paint:{'fill-color':'#8B6F47','fill-opacity':0.22},layout:{visibility:'none'}},'building');
+      map.addLayer({id:'uc-buildings-line',type:'line',source:'uc-buildings',
+        paint:{'line-color':'#7A5E36','line-width':1},layout:{visibility:'none'}});
+      // Highlight layer for AI-identified buildings (always visible when populated)
+      map.addLayer({id:'uc-buildings-highlight',type:'fill',source:'uc-buildings',
+        filter:['in',['get','OBJECTID'],['literal',[]]],
+        paint:{'fill-color':'#800000','fill-opacity':0.4}});
+      map.addLayer({id:'uc-buildings-highlight-line',type:'line',source:'uc-buildings',
+        filter:['in',['get','OBJECTID'],['literal',[]]],
+        paint:{'line-color':'#800000','line-width':2.5}});
+
+      map.addSource('bikes',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+      map.addLayer({id:'bikes-dot',type:'circle',source:'bikes',layout:{visibility:'none'},
+        paint:{
+          'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,18,8],
+          'circle-color':'#2E7D52','circle-stroke-color':'#FAF7F2','circle-stroke-width':1.5,'circle-opacity':0.9,
+        }});
+
+      // Interactions
+      const pointer=lyr=>{
+        map.on('mouseenter',lyr,()=>map.getCanvas().style.cursor='pointer');
+        map.on('mouseleave',lyr,()=>map.getCanvas().style.cursor='');
+      };
+      ['bikes-dot','landmarks-dot','uc-buildings-fill'].forEach(pointer);
+
+      map.on('click','bikes-dot',e=>{
+        const f=e.features[0];const c=f.geometry.coordinates.slice();
+        if(popupRef.current)popupRef.current.remove();
+        popupRef.current=new maplibregl.Popup({offset:12,closeButton:true})
+          .setLngLat(c)
+          .setHTML(`<div class="pop-title">${f.properties.RACK_TYPE||f.properties.TYPE||'Bike Rack'}</div><div class="pop-sub">${f.properties.LOCATION||f.properties.NEAR_BLDG||'Campus location'}</div><div class="pop-coord">${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div><span class="pop-chip">Bike parking</span>`)
+          .addTo(map);
+        onBikeSelect&&onBikeSelect(f.properties);
+      });
+
+      map.on('click','uc-buildings-fill',e=>{
+        const f=e.features[0];
+        if(popupRef.current)popupRef.current.remove();
+        popupRef.current=new maplibregl.Popup({offset:8,closeButton:true})
+          .setLngLat(e.lngLat)
+          .setHTML(`<div class="pop-title">${f.properties.DISCRIPT1||'UChicago Property'}</div><div class="pop-sub">Building #${f.properties.BLDG_NUM||'—'} · ${f.properties.BLDG_USE||'Mixed use'}</div><div class="pop-coord">${f.properties.GIS_AREA?Math.round(f.properties.GIS_AREA).toLocaleString()+' sq ft':''}</div>`)
+          .addTo(map);
+      });
+
+      map.on('click','landmarks-dot',e=>{
+        const f=e.features[0];
+        onLandmarkSelect&&onLandmarkSelect(f.properties.fid);
+      });
+
+      setReady(true);
+    });
+
+    // Resize observer (container changes when panels toggle)
+    const ro=new ResizeObserver(()=>map.resize());
+    ro.observe(containerRef.current);
+    return()=>{ro.disconnect();};
+  },[]);
+
+  // Update bike data
+  useEffect(()=>{
+    const map=mapRef.current;if(!map||!ready)return;
+    const src=map.getSource('bikes');
+    if(src&&bikeGeo)src.setData(bikeGeo);
+  },[bikeGeo,ready]);
+
+  // Update building data
+  useEffect(()=>{
+    const map=mapRef.current;if(!map||!ready)return;
+    const src=map.getSource('uc-buildings');
+    if(src&&buildingGeo)src.setData(buildingGeo);
+  },[buildingGeo,ready]);
+
+  // Toggle visibility
+  useEffect(()=>{
+    const map=mapRef.current;if(!map||!ready)return;
+    map.setLayoutProperty('bikes-dot','visibility',showBike?'visible':'none');
+  },[showBike,ready]);
+  useEffect(()=>{
+    const map=mapRef.current;if(!map||!ready)return;
+    ['uc-buildings-fill','uc-buildings-line'].forEach(l=>map.setLayoutProperty(l,'visibility',showBuildings?'visible':'none'));
+  },[showBuildings,ready]);
+
+  // Fly to target
+  useEffect(()=>{
+    const map=mapRef.current;if(!map||!ready||!flyTarget)return;
+    map.flyTo({center:[flyTarget.lng,flyTarget.lat],zoom:flyTarget.zoom||17.5,duration:1400,essential:true});
+    if(flyTarget.popup){
+      if(popupRef.current)popupRef.current.remove();
+      popupRef.current=new maplibregl.Popup({offset:12,closeButton:true})
+        .setLngLat([flyTarget.lng,flyTarget.lat])
+        .setHTML(flyTarget.popup)
+        .addTo(map);
+    }
+  },[flyTarget,ready]);
+
+  return <div ref={containerRef} style={{position:'absolute',inset:0}}/>;
+};
+
+/* ── AI Answer Panel ─────────────────────────────────────────── */
+const AIAnswerPanel=({answer,onClose,onResultClick})=>{
+  if(!answer)return null;
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+      <div style={{padding:'14px 14px 12px',borderBottom:`1px solid ${T.rule}`,flexShrink:0,background:`linear-gradient(135deg,${T.amberTint},transparent 80%)`}}>
+        <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>
+          <div style={{width:34,height:34,borderRadius:8,background:T.amberTint,border:`1px solid rgba(176,120,48,0.3)`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <Ic n="zap" size={17} color={T.amber}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:11,color:T.amber,fontWeight:600,letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:3}}>AI Analysis</div>
+            <div style={{fontSize:13,fontStyle:'italic',color:T.inkMd,fontFamily:'EB Garamond,serif',lineHeight:1.4}}>{answer.query}</div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',padding:2,display:'flex',flexShrink:0}}><Ic n="x" size={15} color={T.inkLt}/></button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'14px'}}>
+        {answer.loading?(
+          <div style={{textAlign:'center',padding:'32px 0'}}>
+            <div style={{display:'flex',justifyContent:'center',gap:5,marginBottom:12}}>
+              {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:'50%',background:T.amber,animation:`bounce 0.8s ${i*0.15}s infinite`}}/>)}
+            </div>
+            <div style={{fontSize:12,color:T.inkLt}}>Analyzing campus data…</div>
+          </div>
+        ):(
+          <>
+            <div style={{fontSize:14,color:T.ink,lineHeight:1.7,marginBottom:14,fontFamily:'EB Garamond,serif',fontStyle:'italic',borderLeft:`3px solid ${T.amber}`,paddingLeft:12}}>{answer.summary}</div>
+            {answer.results&&answer.results.length>0&&(
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:10,color:T.inkLt,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:600,marginBottom:8}}>{answer.results.length} locations · click to zoom</div>
+                {answer.results.map((r,i)=>(
+                  <div key={i} onClick={()=>onResultClick&&onResultClick(r,i)} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'9px 11px',borderRadius:6,marginBottom:5,background:i===0?'rgba(128,0,0,0.05)':T.cream,border:`1px solid ${i===0?T.maroonRing:T.rule}`,cursor:'pointer',transition:'background 0.12s'}}
+                    onMouseEnter={e=>e.currentTarget.style.background=i===0?'rgba(128,0,0,0.1)':T.paperDkr}
+                    onMouseLeave={e=>e.currentTarget.style.background=i===0?'rgba(128,0,0,0.05)':T.cream}>
+                    <div style={{width:22,height:22,borderRadius:'50%',flexShrink:0,marginTop:1,background:i===0?T.maroon:T.paperDkr,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:i===0?T.white:T.inkMd}}>{i+1}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:T.ink,marginBottom:2}}>{r.name}</div>
+                      <div style={{fontSize:11,color:T.inkMd,marginBottom:2}}>{r.detail}</div>
+                      {r.distance&&<div style={{fontSize:10,color:T.inkLt,fontFamily:'JetBrains Mono,monospace'}}>{r.distance}</div>}
+                    </div>
+                    {i===0&&<span style={{fontSize:10,background:T.maroonTint,color:T.maroon,border:`1px solid ${T.maroonRing}`,borderRadius:20,padding:'1px 8px',fontWeight:600,whiteSpace:'nowrap',flexShrink:0}}>Nearest</span>}
+                    <Ic n="mapPin" size={11} color={T.inkXlt} style={{flexShrink:0,marginTop:2,opacity:0.5}}/>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{fontSize:10,color:T.inkXlt,borderTop:`1px solid ${T.ruleLt}`,paddingTop:8,display:'flex',gap:6,alignItems:'flex-start'}}>
+              <Ic n="info" size={12} color={T.inkXlt}/>
+              <span>Based on live campus GIS data · {answer.timestamp}</span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* ── Layers panel ────────────────────────────────────────────── */
+const LayersPanel=({groups,setGroups,search,setSearch})=>{
+  const [open,setOpen]=useState(Object.fromEntries(LAYER_GROUPS.map(g=>[g.id,g.open])));
+  const [hov,setHov]=useState(null);
+  const toggleLayer=(gid,lid)=>setGroups(gs=>gs.map(g=>g.id===gid?{...g,layers:g.layers.map(l=>l.id===lid?{...l,on:!l.on}:l)}:g));
+  const setOp=(gid,lid,v)=>setGroups(gs=>gs.map(g=>g.id===gid?{...g,layers:g.layers.map(l=>l.id===lid?{...l,opacity:v}:l)}:g));
+  const filt=useMemo(()=>{
+    if(!search.trim())return groups;
+    const q=search.toLowerCase();
+    return groups.map(g=>({...g,layers:g.layers.filter(l=>l.label.toLowerCase().includes(q))})).filter(g=>g.layers.length);
+  },[groups,search]);
+  const activeN=groups.reduce((a,g)=>a+g.layers.filter(l=>l.on).length,0);
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+      <div style={{padding:'14px 14px 10px',borderBottom:`1px solid ${T.rule}`,flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:7}}>
+            <Ic n="layers" size={15} color={T.maroon}/><span style={{fontSize:13,fontWeight:600,color:T.ink}}>Map Layers</span>
+          </div>
+          <span style={{fontSize:11,color:T.maroon,fontWeight:600,background:T.maroonTint,border:`1px solid ${T.maroonRing}`,borderRadius:20,padding:'1px 9px'}}>{activeN} on</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8,background:T.cream,border:`1px solid ${T.rule}`,borderRadius:6,padding:'7px 10px'}}>
+          <Ic n="search" size={13} color={T.inkLt}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filter layers…" style={{background:'none',border:'none',outline:'none',flex:1,fontSize:12,color:search?T.ink:T.inkXlt}}/>
+          {search&&<button onClick={()=>setSearch('')} style={{background:'none',border:'none',padding:0,display:'flex'}}><Ic n="x" size={12} color={T.inkLt}/></button>}
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'4px 0 8px'}}>
+        {filt.map(g=>{
+          const isOpen=open[g.id];const activeG=g.layers.filter(l=>l.on).length;
+          return(
+            <div key={g.id}>
+              <button onClick={()=>setOpen(s=>({...s,[g.id]:!s[g.id]}))} style={{width:'100%',display:'flex',alignItems:'center',gap:8,padding:'8px 14px',background:'none',border:'none',textAlign:'left',cursor:'pointer'}}
+                onMouseEnter={e=>e.currentTarget.style.background=T.paperDkr}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <Ic n={g.icon} size={13} color={T.inkLt}/>
+                <span style={{flex:1,fontSize:12,fontWeight:600,color:T.inkMd}}>{g.label}</span>
+                {activeG>0&&<span style={{fontSize:10,color:T.maroon,fontWeight:700,background:T.maroonTint,borderRadius:20,padding:'0 7px'}}>{activeG}</span>}
+                <Ic n={isOpen?'chevronDown':'chevronRight'} size={13} color={T.inkXlt}/>
+              </button>
+              {isOpen&&g.layers.map(l=>{
+                const isHov=hov===l.id;
+                return(
+                  <div key={l.id} onMouseEnter={()=>setHov(l.id)} onMouseLeave={()=>setHov(null)} style={{paddingLeft:34,paddingRight:14,background:isHov?T.cream:'transparent',transition:'background 0.12s'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,paddingTop:6,paddingBottom:l.on&&isHov?2:6}}>
+                      <div style={{width:9,height:9,borderRadius:2,background:l.color,flexShrink:0,opacity:l.on?1:0.3}}/>
+                      <span style={{flex:1,fontSize:12,color:l.on?T.ink:T.inkLt,transition:'color 0.15s',display:'flex',alignItems:'center',gap:5}}>
+                        {l.label}
+                        {l.live&&<span title="Live data" style={{width:5,height:5,borderRadius:'50%',background:l.on?T.green:T.inkXlt}}/>}
+                      </span>
+                      <span style={{fontSize:10,color:T.inkXlt,fontFamily:'JetBrains Mono,monospace',marginRight:4}}>{l.count}</span>
+                      <div onClick={()=>toggleLayer(g.id,l.id)} style={{width:28,height:16,borderRadius:8,background:l.on?T.maroon:T.rule,position:'relative',cursor:'pointer',transition:'background 0.2s',flexShrink:0}}>
+                        <div style={{position:'absolute',top:2,left:l.on?'calc(100% - 14px)':2,width:12,height:12,borderRadius:'50%',background:T.white,transition:'left 0.2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+                      </div>
+                    </div>
+                    {l.on&&isHov&&(
+                      <div style={{display:'flex',alignItems:'center',gap:8,paddingBottom:7}}>
+                        <Ic n="eye" size={11} color={T.inkXlt}/>
+                        <input type="range" min="10" max="100" value={l.opacity} onChange={e=>setOp(g.id,l.id,+e.target.value)} style={{flex:1,height:2,accentColor:T.maroon,cursor:'pointer'}}/>
+                        <span style={{fontSize:10,color:T.inkLt,fontFamily:'JetBrains Mono,monospace',width:28,textAlign:'right'}}>{l.opacity}%</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div style={{borderBottom:`1px solid ${T.ruleLt}`,margin:'3px 0'}}/>
+            </div>
+          );
+        })}
+        {filt.length===0&&<div style={{padding:'24px 14px',textAlign:'center',color:T.inkLt,fontSize:12}}>No layers match "{search}"</div>}
+      </div>
+      <div style={{padding:'8px 14px',borderTop:`1px solid ${T.rule}`,fontSize:10,color:T.inkXlt,flexShrink:0}}>
+        <span style={{fontWeight:600,color:T.inkLt}}>Data: </span>Live GeoJSON · hosted on AWS · <span style={{color:T.green}}>● live</span> layers stream on demand
+      </div>
+    </div>
+  );
+};
+
+/* ── Feature panel ───────────────────────────────────────────── */
+const FeaturePanel=({feature,onClose,onLocate})=>{
+  if(!feature)return null;
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+      <div style={{borderBottom:`1px solid ${T.rule}`,padding:'14px 14px 12px',flexShrink:0,background:`linear-gradient(135deg, ${feature.color}0D 0%, transparent 80%)`}}>
+        <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:10}}>
+          <div style={{width:38,height:38,borderRadius:8,background:`${feature.color}14`,border:`1px solid ${feature.color}30`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <Ic n={feature.type==='library'?'book':'coffee'} size={18} color={feature.color}/>
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.ink,lineHeight:1.3,marginBottom:5}}>{feature.name}</div>
+            <Badge status={feature.status} text={feature.statusText}/>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',padding:3,color:T.inkLt,display:'flex',flexShrink:0}}><Ic n="x" size={15} color={T.inkLt}/></button>
+        </div>
+        <div style={{display:'flex',gap:5}}>
+          {[['route','Directions',true],['mapPin','Locate',false],['share','Share',false],['bookmark','Save',false]].map(([ic,lb,primary])=>(
+            <button key={lb} onClick={()=>{if(lb==='Locate')onLocate&&onLocate(feature);}} style={{flex:1,background:primary?T.maroon:T.cream,color:primary?T.white:T.inkMd,border:`1px solid ${primary?T.maroon:T.rule}`,borderRadius:6,padding:'7px 0',fontSize:11,fontWeight:500,display:'flex',flexDirection:'column',alignItems:'center',gap:3,boxShadow:primary?'0 2px 8px rgba(128,0,0,0.25)':'none'}}
+              onMouseEnter={e=>e.currentTarget.style.background=primary?T.maroonLt:T.paperDkr}
+              onMouseLeave={e=>e.currentTarget.style.background=primary?T.maroon:T.cream}>
+              <Ic n={ic} size={13} color={primary?T.white:T.inkLt}/>{lb}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'12px 14px'}}>
+        <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:12}}>
+          {[[`mapPin`,feature.address],['clock',feature.hours],...(feature.phone?[['phone',feature.phone]]:[])].map(([ic,txt])=>(
+            <div key={ic} style={{display:'flex',gap:9,alignItems:'flex-start'}}>
+              <Ic n={ic} size={13} color={T.inkLt} style={{marginTop:1}}/>
+              <span style={{fontSize:12,color:T.inkMd,lineHeight:1.55}}>{txt}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{borderTop:`1px solid ${T.ruleLt}`,margin:'10px 0'}}/>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:10,color:T.inkLt,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:600,marginBottom:7}}>Amenities</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+            {feature.amenities.map(a=><span key={a} style={{background:`${feature.color}0F`,color:feature.color,border:`1px solid ${feature.color}30`,borderRadius:4,fontSize:11,padding:'3px 8px',fontWeight:500}}>{a}</span>)}
+          </div>
+        </div>
+        <div style={{borderTop:`1px solid ${T.ruleLt}`,margin:'10px 0'}}/>
+        <div style={{marginBottom:12}}>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+            <Ic n="wheelchair" size={13} color={T.purple}/>
+            <span style={{fontSize:10,color:T.inkLt,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:600}}>Accessibility</span>
+          </div>
+          <span style={{fontSize:12,color:T.inkMd,lineHeight:1.55}}>{feature.accessibility}</span>
+        </div>
+        {(feature.floors||feature.seats||feature.capacity)&&(
+          <>
+            <div style={{borderTop:`1px solid ${T.ruleLt}`,margin:'10px 0'}}/>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:12}}>
+              {feature.floors&&<div style={{background:T.cream,border:`1px solid ${T.rule}`,borderRadius:6,padding:'9px 11px'}}><div style={{fontSize:20,color:T.ink,fontFamily:'EB Garamond,serif'}}>{feature.floors}</div><div style={{fontSize:10,color:T.inkLt}}>Floors</div></div>}
+              {feature.seats&&<div style={{background:T.cream,border:`1px solid ${T.rule}`,borderRadius:6,padding:'9px 11px'}}><div style={{fontSize:20,color:T.ink,fontFamily:'EB Garamond,serif'}}>{feature.seats.toLocaleString()}</div><div style={{fontSize:10,color:T.inkLt}}>Seats</div></div>}
+              {feature.capacity&&<div style={{background:T.cream,border:`1px solid ${T.rule}`,borderRadius:6,padding:'9px 11px',gridColumn:'1/-1'}}><div style={{fontSize:20,color:T.ink,fontFamily:'EB Garamond,serif'}}>{feature.capacity}</div><div style={{fontSize:10,color:T.inkLt}}>Seating capacity</div></div>}
+            </div>
+          </>
+        )}
+        <div style={{borderTop:`1px solid ${T.ruleLt}`,margin:'10px 0'}}/>
+        <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12}}>
+          {feature.tags.map(t=><span key={t} style={{background:T.paperDk,border:`1px solid ${T.rule}`,borderRadius:20,fontSize:10,color:T.inkMd,padding:'2px 10px'}}>{t}</span>)}
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <Ic n="mapPin" size={12} color={T.inkXlt}/>
+          <span style={{fontSize:11,color:T.inkXlt,fontFamily:'JetBrains Mono,monospace'}}>{feature.coords}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const QueryPanel=({queries,activeId,onSelect,onClose})=>(
+  <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+    <div style={{padding:'12px 14px 10px',borderBottom:`1px solid ${T.rule}`,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+      <div style={{display:'flex',alignItems:'center',gap:7}}><Ic n="clock" size={14} color={T.amber}/><span style={{fontSize:13,fontWeight:600,color:T.ink}}>Query History</span></div>
+      <button onClick={onClose} style={{background:'none',border:'none',padding:3,display:'flex'}}><Ic n="x" size={14} color={T.inkLt}/></button>
+    </div>
+    <div style={{flex:1,overflowY:'auto',padding:'6px 0'}}>
+      {queries.map(q=>(
+        <div key={q.id} onClick={()=>onSelect(q.id)} style={{padding:'9px 14px',cursor:'pointer',background:q.id===activeId?T.maroonTint:'transparent',borderLeft:q.id===activeId?`2px solid ${T.maroon}`:'2px solid transparent',transition:'background 0.12s'}}
+          onMouseEnter={e=>{if(q.id!==activeId)e.currentTarget.style.background=T.cream;}}
+          onMouseLeave={e=>{if(q.id!==activeId)e.currentTarget.style.background='transparent';}}>
+          <div style={{fontSize:13,color:T.ink,lineHeight:1.4,marginBottom:3,fontFamily:'EB Garamond,serif',fontStyle:'italic'}}>{q.q}</div>
+          <div style={{fontSize:10,color:T.inkXlt,fontFamily:'JetBrains Mono,monospace'}}>{q.time} · {q.count} results</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const SearchBar=({value,onChange,onSubmit,loading,onHistoryClick})=>{
+  const [focused,setFocused]=useState(false);
+  const [showDrop,setShowDrop]=useState(false);
+  return(
+    <div style={{position:'relative',flex:1,maxWidth:560}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,height:38,background:T.cream,border:`1px solid ${focused?T.maroon:T.rule}`,borderRadius:8,padding:'0 12px',boxShadow:focused?`0 0 0 3px ${T.maroonRing}`:'0 1px 4px rgba(0,0,0,0.07)',transition:'all 0.15s'}}>
+        <Ic n="zap" size={15} color={loading?T.amber:T.maroon}/>
+        <input value={value} onChange={e=>onChange(e.target.value)}
+          onFocus={()=>{setFocused(true);setShowDrop(true);}}
+          onBlur={()=>{setFocused(false);setTimeout(()=>setShowDrop(false),150);}}
+          onKeyDown={e=>e.key==='Enter'&&onSubmit()}
+          placeholder="Ask anything about campus…"
+          style={{flex:1,background:'none',border:'none',outline:'none',fontFamily:'EB Garamond,Georgia,serif',fontStyle:'italic',fontSize:16,color:value?T.ink:T.inkXlt}}/>
+        {value&&<button onClick={()=>onChange('')} style={{background:'none',border:'none',padding:0,display:'flex'}}><Ic n="x" size={13} color={T.inkLt}/></button>}
+        <button onClick={onHistoryClick} title="Query history" style={{background:'none',border:'none',padding:0,display:'flex'}}><Ic n="clock" size={14} color={T.inkLt}/></button>
+        <div style={{width:1,height:18,background:T.rule}}/>
+        <button onClick={onSubmit} disabled={!value.trim()} style={{background:value.trim()?T.maroon:T.paperDkr,color:value.trim()?T.white:T.inkLt,border:'none',borderRadius:6,padding:'5px 14px',fontSize:12,fontWeight:600,transition:'all 0.15s',flexShrink:0,boxShadow:value.trim()?'0 2px 6px rgba(128,0,0,0.3)':'none'}}>{loading?'…':'Ask'}</button>
+      </div>
+      {showDrop&&!value&&(
+        <div style={{position:'absolute',top:'calc(100% + 6px)',left:0,right:0,background:T.cream,border:`1px solid ${T.rule}`,borderRadius:8,padding:'6px 0',zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.12)'}}>
+          <div style={{fontSize:9,color:T.inkXlt,padding:'4px 13px 7px',letterSpacing:'0.08em',textTransform:'uppercase',fontWeight:600}}>Suggested</div>
+          {SUGGESTIONS.map(s=>(
+            <div key={s} onMouseDown={()=>{onChange(s);setShowDrop(false);}} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 13px',cursor:'pointer',fontSize:13,color:T.inkMd,fontFamily:'EB Garamond,serif',fontStyle:'italic'}}
+              onMouseEnter={e=>e.currentTarget.style.background=T.paperDk}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              <Ic n="search" size={12} color={T.inkXlt}/>{s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ── App ─────────────────────────────────────────────────────── */
+const App=()=>{
+  const [query,setQuery]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [layers,setLayers]=useState(LAYER_GROUPS);
+  const [layerSearch,setLayerSearch]=useState('');
+  const [leftPanel,setLeftPanel]=useState('layers');
+  const [rightPanel,setRightPanel]=useState(null);
+  const [activeQuery,setActiveQuery]=useState(1);
+  const [aiAnswer,setAiAnswer]=useState(null);
+  const [flyTarget,setFlyTarget]=useState(null);
+  const [featureId,setFeatureId]=useState(null);
+
+  const bikeOn=useMemo(()=>layers.find(g=>g.id==='transport')?.layers.find(l=>l.id==='bike_racks')?.on||false,[layers]);
+  const buildingsOn=useMemo(()=>layers.find(g=>g.id==='campus')?.layers.find(l=>l.id==='buildings_all')?.on||false,[layers]);
+
+  const {geojson:bikeGeo,points:bikePoints,status:bikeStatus}=useLiveLayer('bike_racks',bikeOn);
+  const {geojson:buildingGeo,points:buildingPoints,status:buildingStatus}=useLiveLayer('buildings',buildingsOn);
+
+  const autoEnableLayer=useCallback((gid,lid)=>{
+    setLayers(gs=>gs.map(g=>g.id===gid?{...g,layers:g.layers.map(l=>l.id===lid?{...l,on:true}:l)}:g));
+  },[]);
+
+  const handleResultClick=useCallback((r)=>{
+    if(!r.lat||!r.lng)return;
+    setFlyTarget({lng:r.lng,lat:r.lat,ts:Date.now(),zoom:18,
+      popup:`<div class="pop-title">${r.name}</div><div class="pop-sub">${r.detail||''}</div>${r.distance?`<div class="pop-coord">${r.distance}</div>`:''}`});
+  },[]);
+
+  const handleLandmarkSelect=useCallback(fid=>{
+    if(FEATURES[fid]){setFeatureId(fid);setRightPanel('feature');}
+  },[]);
+
+  const handleLocate=useCallback(f=>{
+    if(f.lng&&f.lat)setFlyTarget({lng:f.lng,lat:f.lat,ts:Date.now(),zoom:18});
+  },[]);
+
+  const handleSubmit=useCallback(async()=>{
+    if(!query.trim())return;
+    const q=query.trim();const ql=q.toLowerCase();
+    setLoading(true);setRightPanel('ai');setFeatureId(null);
+
+    // auto-enable relevant layers
+    if(ql.includes('bike')||ql.includes('rack')||ql.includes('cycling'))autoEnableLayer('transport','bike_racks');
+    if(ql.includes('building')||ql.includes('footprint')||ql.includes('properties'))autoEnableLayer('campus','buildings_all');
+    if(ql.includes('dining')||ql.includes('food')||ql.includes('eat'))autoEnableLayer('dining','dining_halls');
+    if(ql.includes('librar'))autoEnableLayer('academic','libraries');
+
+    setAiAnswer({query:q,loading:true,summary:'',results:[],timestamp:new Date().toLocaleTimeString()});
+    setLeftPanel('query');
+
+    const bikeCtx=bikePoints.length>0?`${bikePoints.length} bike racks loaded.`:'Bike rack layer just enabled — data loading.';
+    const bldgCtx=buildingPoints.length>0?`${buildingPoints.length} UChicago buildings loaded. Examples: ${[...new Set(buildingPoints.map(b=>b.attrs.DISCRIPT1).filter(Boolean))].slice(0,10).join(', ')}.`:'Building layer available.';
+    const landmarks=`Key locations (lat,lng): Regenstein Library 41.7922,-87.5999; Crerar Library 41.7908,-87.6020; Hutchinson Commons 41.7893,-87.5997; Booth School 41.7896,-87.5938; Bartlett Dining 41.7880,-87.5995; Harper Memorial 41.7862,-87.5998.`;
+
+    const prompt=`You are CampusGeo, a geospatial AI for the University of Chicago. Use the live GIS data context to answer.
+
+DATA:
+${bikeCtx}
+${bldgCtx}
+${landmarks}
+
+QUESTION: "${q}"
+
+Reply ONLY with JSON: {"summary":"1-2 sentence conversational answer","results":[{"name":"...","detail":"...","distance":"..."}]}
+List up to 5 results. For proximity questions compute approximate distances from the coordinates.`;
+
+    try{
+      const text=await window.claude.complete(prompt);
+      const parsed=JSON.parse(text.replace(/\`\`\`json|\`\`\`/g,'').trim());
+
+      // Spatial enrichment for bike rack proximity
+      if((ql.includes('bike')||ql.includes('rack'))&&bikePoints.length>0){
+        const refs={regenstein:{lat:41.7922,lng:-87.5999},crerar:{lat:41.7908,lng:-87.6020},hutch:{lat:41.7893,lng:-87.5997},booth:{lat:41.7896,lng:-87.5938}};
+        let ref=null;
+        if(ql.includes('regenstein')||ql.includes('reg'))ref=refs.regenstein;
+        else if(ql.includes('crerar'))ref=refs.crerar;
+        else if(ql.includes('hutch'))ref=refs.hutch;
+        else if(ql.includes('booth'))ref=refs.booth;
+        if(ref){
+          const sorted=[...bikePoints].sort((a,b)=>haversine(ref.lat,ref.lng,a.lat,a.lng)-haversine(ref.lat,ref.lng,b.lat,b.lng));
+          parsed.results=sorted.slice(0,5).map((b,i)=>({
+            name:`Bike rack #${i+1}`,
+            detail:b.attrs.RACK_TYPE||b.attrs.LOCATION||b.attrs.NEAR_BLDG||'Campus bike parking',
+            distance:`${Math.round(haversine(ref.lat,ref.lng,b.lat,b.lng))} m away`,
+            lat:b.lat,lng:b.lng,
+          }));
+          // fly to nearest
+          setFlyTarget({lng:sorted[0].lng,lat:sorted[0].lat,ts:Date.now(),zoom:17});
+        }
+      }
+      setAiAnswer({query:q,loading:false,summary:parsed.summary||'',results:parsed.results||[],timestamp:new Date().toLocaleTimeString()});
+    }catch(e){
+      setAiAnswer({query:q,loading:false,summary:'I had trouble analyzing that. Try rephrasing your question.',results:[],timestamp:new Date().toLocaleTimeString()});
+    }
+    setLoading(false);
+  },[query,bikePoints,buildingPoints,autoEnableLayer]);
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden',background:T.paper}}>
+      {/* Top bar */}
+      <div style={{height:54,display:'flex',alignItems:'center',padding:'0 16px',gap:14,flexShrink:0,background:T.paper,borderBottom:`1px solid ${T.rule}`,boxShadow:'0 1px 0 rgba(0,0,0,0.04)',zIndex:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:9,flexShrink:0}}>
+          <div style={{width:32,height:32,borderRadius:8,background:T.maroon,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(128,0,0,0.3)'}}><Phoenix size={18} color={T.white}/></div>
+          <div>
+            <div style={{fontFamily:'EB Garamond,Georgia,serif',fontSize:18,color:T.maroon,lineHeight:1.1,fontWeight:500}}>CampusGeo</div>
+            <div style={{fontSize:8.5,color:T.inkLt,letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:500}}>University of Chicago</div>
+          </div>
+        </div>
+        <div style={{width:1,height:22,background:T.rule,flexShrink:0}}/>
+        <SearchBar value={query} onChange={setQuery} onSubmit={handleSubmit} loading={loading} onHistoryClick={()=>setLeftPanel(p=>p==='query'?'layers':'query')}/>
+        <div style={{display:'flex',gap:6,alignItems:'center',marginLeft:'auto',flexShrink:0}}>
+          {[['share','Share'],['printer','Print']].map(([ic,lb])=>(
+            <button key={ic} style={{display:'flex',alignItems:'center',gap:5,background:'none',border:`1px solid ${T.rule}`,borderRadius:6,padding:'6px 10px',color:T.inkMd,fontSize:12,fontWeight:500,transition:'background 0.12s'}}
+              onMouseEnter={e=>e.currentTarget.style.background=T.paperDk}
+              onMouseLeave={e=>e.currentTarget.style.background='none'}><Ic n={ic} size={14} color={T.inkMd}/>{lb}</button>
+          ))}
+          <div style={{width:1,height:22,background:T.rule}}/>
+          <div style={{width:32,height:32,borderRadius:'50%',background:T.maroon,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,color:T.white,boxShadow:'0 2px 6px rgba(128,0,0,0.25)'}}>JS</div>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+        {/* Rail */}
+        <div style={{width:52,background:T.paperDk,borderRight:`1px solid ${T.rule}`,display:'flex',flexDirection:'column',alignItems:'center',paddingTop:6,flexShrink:0,gap:2}}>
+          {[['layers','Layers','layers'],['query','AI','zap'],['bookmarks','Saved','bookmark']].map(([id,lb,ic])=>{
+            const active=leftPanel===id;
+            return(
+              <button key={id} onClick={()=>setLeftPanel(p=>p===id?null:id)} title={lb} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'8px',background:active?T.maroonTint:'none',border:'none',borderRight:active?`2px solid ${T.maroon}`:'2px solid transparent',color:active?T.maroon:T.inkLt,cursor:'pointer',width:'100%',transition:'all 0.12s'}}>
+                <Ic n={ic} size={17} color={active?T.maroon:T.inkLt}/>
+                <span style={{fontSize:8.5,fontWeight:600,letterSpacing:'0.04em',textTransform:'uppercase'}}>{lb}</span>
+              </button>
+            );
+          })}
+          <div style={{flex:1}}/>
+        </div>
+
+        {/* Left panel */}
+        {leftPanel&&leftPanel!=='bookmarks'&&(
+          <div style={{width:272,background:T.paperDk,borderRight:`1px solid ${T.rule}`,display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0}}>
+            {leftPanel==='layers'&&<LayersPanel groups={layers} setGroups={setLayers} search={layerSearch} setSearch={setLayerSearch}/>}
+            {leftPanel==='query'&&<QueryPanel queries={QUERY_HISTORY} activeId={activeQuery} onSelect={id=>setActiveQuery(id)} onClose={()=>setLeftPanel('layers')}/>}
+          </div>
+        )}
+
+        {/* Map */}
+        <div style={{position:'relative',flex:1,overflow:'hidden'}}>
+          <MapLibreCanvas bikeGeo={bikeGeo} buildingGeo={buildingGeo} showBike={bikeOn} showBuildings={buildingsOn} flyTarget={flyTarget} onBikeSelect={()=>{}} onLandmarkSelect={handleLandmarkSelect}/>
+        </div>
+
+        {/* Right panel */}
+        {rightPanel&&(
+          <div style={{width:316,background:T.paper,borderLeft:`1px solid ${T.rule}`,display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0,animation:'slideIn 0.18s ease-out both'}}>
+            {rightPanel==='ai'&&<AIAnswerPanel answer={aiAnswer} onClose={()=>setRightPanel(null)} onResultClick={handleResultClick}/>}
+            {rightPanel==='feature'&&featureId&&<FeaturePanel feature={FEATURES[featureId]} onClose={()=>{setRightPanel(null);setFeatureId(null);}} onLocate={handleLocate}/>}
+          </div>
+        )}
+      </div>
+
+      {/* Status bar */}
+      <div style={{height:24,background:T.paperDk,borderTop:`1px solid ${T.rule}`,display:'flex',alignItems:'center',padding:'0 14px',gap:14,flexShrink:0}}>
+        <span style={{fontSize:10,color:T.inkLt,fontFamily:'JetBrains Mono,monospace'}}>41.7905° N, 87.5997° W</span>
+        <div style={{width:1,height:11,background:T.rule}}/>
+        <span style={{fontSize:10,color:T.inkLt}}>MapLibre GL · OpenFreeMap tiles</span>
+        <div style={{flex:1}}/>
+        <span style={{fontSize:10,color:T.inkMd,fontWeight:500}}>{layers.reduce((a,g)=>a+g.layers.filter(l=>l.on).length,0)} layers on</span>
+        {bikeStatus==='loading'&&<><div style={{width:1,height:11,background:T.rule}}/><span style={{fontSize:10,color:T.amber,fontWeight:500,display:'flex',alignItems:'center',gap:4}}><span style={{width:6,height:6,borderRadius:'50%',background:T.amber,animation:'pulse 1s infinite'}}/>Loading bike racks…</span></>}
+        {bikeStatus==='ok'&&bikeOn&&<><div style={{width:1,height:11,background:T.rule}}/><span style={{fontSize:10,color:T.green,fontWeight:500,display:'flex',alignItems:'center',gap:4}}><span style={{width:6,height:6,borderRadius:'50%',background:T.green}}/>{bikePoints.length} bike racks</span></>}
+        {buildingStatus==='ok'&&buildingsOn&&<><div style={{width:1,height:11,background:T.rule}}/><span style={{fontSize:10,color:T.inkMd,fontWeight:500,display:'flex',alignItems:'center',gap:4}}><span style={{width:6,height:6,borderRadius:'50%',background:'#8B6F47'}}/>{buildingPoints.length} buildings</span></>}
+        {(bikeStatus==='error'||buildingStatus==='error')&&<><div style={{width:1,height:11,background:T.rule}}/><span style={{fontSize:10,color:T.red}}>Some layers unavailable</span></>}
+      </div>
+
+      <style>{`
+        @keyframes slideIn{from{transform:translateX(-6px);opacity:0}to{transform:translateX(0);opacity:1}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+        @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+      `}</style>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

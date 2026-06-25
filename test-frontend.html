@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CampusGeo 测试 - S3 + Lambda 连通性验证</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+      background: #f4f1ea;
+      color: #1a1a1a;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      font-family: 'Fraunces', serif;
+      font-size: 36px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: #800000;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 32px;
+    }
+    .test-section {
+      margin-bottom: 32px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .test-section:last-child {
+      border-bottom: none;
+    }
+    h2 {
+      font-size: 18px;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #d0d0d0;
+      border-radius: 4px;
+      font-size: 16px;
+      font-family: inherit;
+      margin-bottom: 12px;
+    }
+    button {
+      background: #800000;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #5c0000;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .status {
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin-top: 12px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+    }
+    .status.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+      border: 1px solid #81c784;
+    }
+    .status.error {
+      background: #ffebee;
+      color: #c62828;
+      border: 1px solid #ef5350;
+    }
+    .status.loading {
+      background: #fff9c4;
+      color: #f57c00;
+      border: 1px solid #ffd54f;
+    }
+    .response {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .metric {
+      display: inline-block;
+      padding: 4px 12px;
+      background: #f0f0f0;
+      border-radius: 4px;
+      margin-right: 8px;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+    .metric strong {
+      color: #800000;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>CampusGeo 连通性测试</h1>
+    <p class="subtitle">验证 S3 → Lambda → 前端 数据流</p>
+
+    <!-- 测试 1: 健康检查 -->
+    <div class="test-section">
+      <h2>1. 后端健康检查</h2>
+      <button onclick="testHealth()">测试 /health 端点</button>
+      <div id="health-status"></div>
+    </div>
+
+    <!-- 测试 2: 树木查询 -->
+    <div class="test-section">
+      <h2>2. 树木数据查询（S3 读取测试）</h2>
+      <input type="text" id="tree-query" placeholder="输入查询，例如：How many trees?" value="How many trees on campus?">
+      <button onclick="testTreeQuery()">查询树木</button>
+      <div id="tree-status"></div>
+      <div id="tree-response"></div>
+      <div id="tree-metrics"></div>
+    </div>
+
+    <!-- 测试 3: 自定义查询 -->
+    <div class="test-section">
+      <h2>3. 自定义 AI 查询</h2>
+      <input type="text" id="custom-query" placeholder="输入任意查询" value="Show me buildings near Regenstein">
+      <button onclick="testCustomQuery()">发送查询</button>
+      <div id="custom-status"></div>
+      <div id="custom-response"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:3001'
+
+    // 测试 1: 健康检查
+    async function testHealth() {
+      const statusDiv = document.getElementById('health-status')
+      statusDiv.innerHTML = '<div class="status loading">测试中...</div>'
+
+      try {
+        const start = Date.now()
+        const response = await fetch(`${API_BASE}/health`)
+        const latency = Date.now() - start
+
+        if (response.ok) {
+          const data = await response.json()
+          statusDiv.innerHTML = `
+            <div class="status success">
+              ✓ 后端服务器运行正常
+              <div class="metric"><strong>延迟:</strong> ${latency}ms</div>
+              <div class="metric"><strong>模型:</strong> ${data.model || 'default'}</div>
+            </div>
+          `
+        } else {
+          throw new Error(`HTTP ${response.status}`)
+        }
+      } catch (error) {
+        statusDiv.innerHTML = `
+          <div class="status error">
+            ✗ 连接失败: ${error.message}
+            <br>请确保后端服务器正在运行: <code>cd backend/dev-server && pnpm dev</code>
+          </div>
+        `
+      }
+    }
+
+    // 测试 2: 树木查询
+    async function testTreeQuery() {
+      const query = document.getElementById('tree-query').value
+      const statusDiv = document.getElementById('tree-status')
+      const responseDiv = document.getElementById('tree-response')
+      const metricsDiv = document.getElementById('tree-metrics')
+
+      statusDiv.innerHTML = '<div class="status loading">查询中（SSE 流式响应）...</div>'
+      responseDiv.innerHTML = ''
+      metricsDiv.innerHTML = ''
+
+      const events = []
+      let aiText = ''
+      let featureCount = 0
+      const start = Date.now()
+
+      try {
+        const response = await fetch(`${API_BASE}/api/agent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, sessionId: `test-${Date.now()}` })
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+
+            try {
+              const event = JSON.parse(line.slice(6))
+              events.push(event)
+
+              if (event.type === 'text') {
+                aiText += event.content
+              } else if (event.type === 'tool_result' && event.toolName === 'query_trees') {
+                if (event.mapUpdate?.features?.features) {
+                  featureCount = event.mapUpdate.features.features.length
+                }
+              }
+            } catch (e) {
+              console.error('Parse error:', e)
+            }
+          }
+        }
+
+        const latency = Date.now() - start
+
+        statusDiv.innerHTML = `
+          <div class="status success">
+            ✓ 查询成功！S3 → Lambda → 前端 数据流正常
+          </div>
+        `
+
+        responseDiv.innerHTML = `
+          <div class="response">
+<strong>AI 回答:</strong>
+${aiText || '(无文本响应)'}
+
+<strong>查询到的树木特征数:</strong> ${featureCount}
+
+<strong>SSE 事件流:</strong>
+${events.map(e => `${e.type}: ${e.toolName || ''}`).join('\n')}
+          </div>
+        `
+
+        metricsDiv.innerHTML = `
+          <div class="metric"><strong>总延迟:</strong> ${latency}ms</div>
+          <div class="metric"><strong>特征数:</strong> ${featureCount}</div>
+          <div class="metric"><strong>事件数:</strong> ${events.length}</div>
+        `
+
+      } catch (error) {
+        statusDiv.innerHTML = `
+          <div class="status error">
+            ✗ 查询失败: ${error.message}
+          </div>
+        `
+      }
+    }
+
+    // 测试 3: 自定义查询
+    async function testCustomQuery() {
+      const query = document.getElementById('custom-query').value
+      const statusDiv = document.getElementById('custom-status')
+      const responseDiv = document.getElementById('custom-response')
+
+      statusDiv.innerHTML = '<div class="status loading">查询中...</div>'
+      responseDiv.innerHTML = ''
+
+      let aiText = ''
+      let toolCalls = []
+
+      try {
+        const response = await fetch(`${API_BASE}/api/agent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, sessionId: `custom-${Date.now()}` })
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+
+            try {
+              const event = JSON.parse(line.slice(6))
+
+              if (event.type === 'text') {
+                aiText += event.content
+              } else if (event.type === 'tool_call') {
+                toolCalls.push(event.toolName)
+              }
+            } catch (e) {
+              console.error('Parse error:', e)
+            }
+          }
+        }
+
+        statusDiv.innerHTML = `
+          <div class="status success">
+            ✓ 查询完成
+          </div>
+        `
+
+        responseDiv.innerHTML = `
+          <div class="response">
+<strong>调用的工具:</strong> ${toolCalls.join(', ') || '无'}
+
+<strong>AI 回答:</strong>
+${aiText || '(无响应)'}
+          </div>
+        `
+
+      } catch (error) {
+        statusDiv.innerHTML = `
+          <div class="status error">
+            ✗ 查询失败: ${error.message}
+          </div>
+        `
+      }
+    }
+
+    // 页面加载时自动测试健康
+    window.addEventListener('load', () => {
+      testHealth()
+    })
+  </script>
+</body>
+</html>

@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 
-const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' })
+const s3 = new S3Client({
+  region: 'us-east-1',
+  forcePathStyle: false
+})
 const BUCKET = process.env.GEOJSON_BUCKET || 'campusgeo-geodata-491117467175'
 
 export const QueryTreesInputSchema = z.object({

@@ -218,7 +218,7 @@
   --overline-weight:  var(--weight-semibold);
   --overline-leading: var(--leading-normal);
   --overline-tracking: var(--tracking-wider);
-  --overline-transform: uppercase;
+  --overline-transform: uppercase; /* @kind other */
 
   /* Code */
   --code-font:    var(--font-mono);

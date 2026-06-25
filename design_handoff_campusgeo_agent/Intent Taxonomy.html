@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampusGeo — Intent Taxonomy</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F5F0E8; --paper-dk:#EDE6D8; --cream:#FAF7F2;
+  --ink:#2A2218; --ink-md:#5A5046; --ink-lt:#8C8070; --ink-xlt:#B5ADA0;
+  --maroon:#800000; --maroon-dk:#5A0000; --amber:#9A6F28; --amber-bg:rgba(176,120,48,0.10);
+  --rule:#D8CFC0; --rule-lt:#E8E2D8; --rule-dk:#C0B5A5;
+  --green:#2E7D52; --green-bg:rgba(46,125,82,0.10);
+  --serif:'EB Garamond',Georgia,serif;
+  --sans:'Plus Jakarta Sans',sans-serif;
+  --mono:'JetBrains Mono',Menlo,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;}
+
+.sheet{max-width:1040px;margin:0 auto;padding:88px 72px 120px;}
+
+/* ── Masthead ─────────────────────────────────────────── */
+.mast{border-bottom:2px solid var(--ink);padding-bottom:26px;margin-bottom:18px;}
+.mast-over{display:flex;justify-content:space-between;align-items:baseline;
+  font-family:var(--mono);font-size:11px;letter-spacing:0.14em;text-transform:uppercase;
+  color:var(--ink-lt);margin-bottom:30px;}
+.mast-over .dot{color:var(--maroon);}
+.mast h1{font-family:var(--serif);font-weight:500;font-size:62px;line-height:1.02;
+  letter-spacing:-0.02em;max-width:13ch;}
+.mast h1 em{font-style:italic;color:var(--maroon);}
+.mast-sub{display:flex;justify-content:space-between;align-items:flex-end;margin-top:22px;gap:40px;}
+.mast-sub p{font-size:16px;color:var(--ink-md);max-width:52ch;line-height:1.55;}
+.mast-meta{font-family:var(--mono);font-size:10.5px;line-height:1.9;color:var(--ink-lt);
+  text-align:right;white-space:nowrap;}
+.mast-meta b{color:var(--ink-md);font-weight:500;}
+
+/* ── Section ──────────────────────────────────────────── */
+.lede{display:grid;grid-template-columns:200px 1fr;gap:48px;margin:48px 0 8px;
+  padding-bottom:40px;border-bottom:1px solid var(--rule);}
+.lede .kicker{font-family:var(--mono);font-size:11px;letter-spacing:0.1em;
+  text-transform:uppercase;color:var(--maroon);line-height:1.7;}
+.lede .kicker span{display:block;color:var(--ink-lt);}
+.lede-body p{font-size:17px;line-height:1.62;color:var(--ink);max-width:62ch;margin-bottom:14px;}
+.lede-body p:last-child{margin-bottom:0;}
+.lede-body strong{font-weight:600;}
+.lede-body .q{font-family:var(--serif);font-style:italic;color:var(--maroon-dk);}
+
+/* ── Pipeline strip ───────────────────────────────────── */
+.pipe{display:flex;align-items:stretch;gap:0;margin:40px 0 56px;
+  border:1px solid var(--rule);border-radius:10px;overflow:hidden;background:var(--cream);}
+.pipe-step{flex:1;padding:20px 22px;position:relative;}
+.pipe-step + .pipe-step{border-left:1px solid var(--rule);}
+.pipe-step .n{font-family:var(--mono);font-size:10px;color:var(--ink-xlt);letter-spacing:0.1em;}
+.pipe-step h4{font-family:var(--serif);font-size:21px;font-weight:500;margin:6px 0 5px;}
+.pipe-step p{font-size:13px;color:var(--ink-md);line-height:1.5;}
+.pipe-step.hot{background:var(--maroon);}
+.pipe-step.hot .n{color:rgba(255,255,255,0.55);}
+.pipe-step.hot h4{color:#fff;}
+.pipe-step.hot p{color:rgba(255,255,255,0.82);}
+
+/* ── Section header ───────────────────────────────────── */
+.shead{display:flex;align-items:baseline;gap:16px;margin:64px 0 6px;}
+.shead .num{font-family:var(--mono);font-size:12px;color:var(--maroon);letter-spacing:0.08em;}
+.shead h2{font-family:var(--serif);font-weight:500;font-size:34px;letter-spacing:-0.01em;}
+.shead-rule{height:1px;background:var(--rule);margin:14px 0 8px;}
+.shead-note{font-size:14.5px;color:var(--ink-md);max-width:64ch;margin-bottom:8px;}
+
+/* ── Anatomy / schema card ────────────────────────────── */
+.schema{background:var(--ink);color:#E8E2D6;border-radius:10px;padding:26px 30px;
+  font-family:var(--mono);font-size:13px;line-height:1.85;margin:24px 0 8px;overflow-x:auto;}
+.schema .k{color:#D4A84E;}
+.schema .s{color:#A8C7A0;}
+.schema .c{color:#8C8070;}
+.schema .p{color:#E08A7A;}
+.schema .b{color:#9CB8D8;}
+
+/* ── Intent catalog ───────────────────────────────────── */
+.intent{padding:42px 0;border-top:1px solid var(--rule);
+  display:grid;grid-template-columns:260px 1fr;gap:52px;}
+.intent:first-of-type{border-top:2px solid var(--ink);}
+.intent-head .idx{font-family:var(--mono);font-size:11px;letter-spacing:0.12em;
+  color:var(--maroon);text-transform:uppercase;}
+.intent-head h3{font-family:var(--serif);font-weight:500;font-size:30px;line-height:1.08;
+  margin:8px 0 12px;letter-spacing:-0.01em;}
+.intent-head .tool{display:inline-block;font-family:var(--mono);font-size:11.5px;
+  color:var(--ink-md);background:var(--paper-dk);border:1px solid var(--rule-dk);
+  border-radius:5px;padding:3px 9px;}
+.intent-head .purpose{font-size:14.5px;color:var(--ink-md);line-height:1.55;margin-top:16px;}
+.intent-head .phase{font-family:var(--mono);font-size:10px;letter-spacing:0.08em;
+  text-transform:uppercase;margin-top:16px;color:var(--ink-lt);
+  display:flex;align-items:center;gap:7px;}
+.intent-head .phase::before{content:"";width:7px;height:7px;border-radius:50%;
+  background:var(--green);display:inline-block;}
+.intent-head .phase.p3::before{background:var(--amber);}
+
+.field-block{margin-bottom:24px;}
+.field-block:last-child{margin-bottom:0;}
+.field-block .blabel{font-family:var(--mono);font-size:10.5px;letter-spacing:0.12em;
+  text-transform:uppercase;color:var(--ink-lt);margin-bottom:11px;
+  display:flex;align-items:center;gap:10px;}
+.field-block .blabel::after{content:"";flex:1;height:1px;background:var(--rule-lt);}
+
+/* asks */
+.asks{display:flex;flex-direction:column;gap:8px;}
+.ask{display:flex;gap:13px;align-items:baseline;font-size:16px;}
+.ask .glyph{font-family:var(--mono);font-size:12px;color:var(--maroon);flex:none;
+  width:14px;}
+.ask q{font-family:var(--serif);font-style:italic;font-size:18px;color:var(--ink);quotes:none;}
+.ask .zh{color:var(--ink-md);font-style:normal;font-family:var(--sans);font-size:14px;}
+
+/* params */
+.params{width:100%;border-collapse:collapse;font-size:13px;}
+.params td{padding:7px 0;border-bottom:1px solid var(--rule-lt);vertical-align:top;}
+.params tr:last-child td{border-bottom:none;}
+.params .pk{font-family:var(--mono);color:var(--maroon-dk);white-space:nowrap;
+  padding-right:18px;width:1%;font-size:12.5px;}
+.params .pt{font-family:var(--mono);color:var(--ink-lt);font-size:11.5px;white-space:nowrap;
+  padding-right:18px;}
+.params .pd{color:var(--ink-md);line-height:1.45;}
+
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:7px;}
+.chip{font-family:var(--mono);font-size:11.5px;color:var(--ink-md);
+  background:var(--cream);border:1px solid var(--rule);border-radius:5px;padding:3px 8px;}
+.chip b{color:var(--maroon-dk);font-weight:500;}
+
+/* returns */
+.returns{font-size:14.5px;color:var(--ink-md);line-height:1.55;}
+.returns .render{display:inline-block;font-family:var(--mono);font-size:11px;
+  color:var(--amber);background:var(--amber-bg);border-radius:4px;padding:2px 7px;
+  margin-right:6px;}
+
+/* ── Editorial answer example ─────────────────────────── */
+.ea{background:var(--cream);border:1px solid var(--rule);border-radius:12px;
+  padding:28px 32px;margin-top:18px;}
+.ea .ea-tag{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;
+  color:var(--ink-lt);margin-bottom:16px;}
+.ea .ea-answer{font-family:var(--serif);font-weight:500;font-size:29px;line-height:1.18;
+  letter-spacing:-0.01em;margin-bottom:18px;}
+.ea .ea-answer b{color:var(--maroon);font-weight:600;font-style:italic;}
+.ea .ea-data{display:flex;gap:34px;flex-wrap:wrap;padding:16px 0;
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-bottom:16px;}
+.ea .stat .v{font-family:var(--mono);font-size:22px;color:var(--ink);}
+.ea .stat .l{font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;
+  text-transform:uppercase;color:var(--ink-lt);margin-top:3px;}
+.ea .ea-note{font-size:13.5px;color:var(--ink-lt);line-height:1.55;max-width:70ch;}
+.ea .ea-note code{font-family:var(--mono);font-size:12px;color:var(--maroon-dk);
+  background:var(--paper-dk);border-radius:3px;padding:1px 5px;}
+
+/* ── Cross-cutting cards ──────────────────────────────── */
+.xgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:28px;}
+.xcard{border:1px solid var(--rule);border-radius:10px;padding:24px 24px 26px;background:var(--cream);}
+.xcard h4{font-family:var(--serif);font-size:22px;font-weight:500;margin-bottom:10px;}
+.xcard p{font-size:13.5px;color:var(--ink-md);line-height:1.55;margin-bottom:12px;}
+.xcard .ex{font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--ink-lt);
+  border-top:1px solid var(--rule-lt);padding-top:12px;}
+.xcard .ex b{color:var(--maroon-dk);font-weight:500;}
+
+/* ── Footer ───────────────────────────────────────────── */
+.foot{margin-top:80px;padding-top:24px;border-top:2px solid var(--ink);
+  display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;
+  letter-spacing:0.06em;color:var(--ink-lt);}
+
+@media print{
+  body{background:#fff;}
+  .sheet{padding:40px;max-width:none;}
+  .intent,.lede,.xcard,.pipe{break-inside:avoid;}
+  .schema,.ea{break-inside:avoid;}
+}
+@media(max-width:860px){
+  .sheet{padding:48px 28px 80px;}
+  .mast h1{font-size:44px;}
+  .lede,.intent{grid-template-columns:1fr;gap:22px;}
+  .pipe,.xgrid{flex-direction:column;grid-template-columns:1fr;}
+  .pipe-step + .pipe-step{border-left:none;border-top:1px solid var(--rule);}
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <!-- ── Masthead ── -->
+  <header class="mast">
+    <div class="mast-over">
+      <span>CampusGeo &middot; UChicago AI Geospatial Agent</span>
+      <span><span class="dot">&#9670;</span>&nbsp; Specification 01 &middot; Intent Model</span>
+    </div>
+    <h1>The Query<br>Intent <em>Taxonomy</em></h1>
+    <div class="mast-sub">
+      <p>The catalog of what a person can <em>ask</em> the campus, and how each kind of question becomes a tool call, a spatial operation, and an editorial answer.</p>
+      <div class="mast-meta">
+        <b>VERSION</b> &nbsp;0.1 &middot; draft<br>
+        <b>SCOPE</b> &nbsp;&nbsp;&nbsp;&nbsp;Phase 1&ndash;3 intents<br>
+        <b>SOURCE</b> &nbsp;&nbsp;Building_Information_2026<br>
+        <b>FEATURES</b> 308 buildings &middot; tree inventory
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Lede ── -->
+  <section class="lede">
+    <div class="kicker">What this is<span>&amp; why first</span></div>
+    <div class="lede-body">
+      <p>An <strong>intent</strong> is the kind of question being asked &mdash; not its wording. <span class="q">&ldquo;Where is the Reg?&rdquo;</span>, <span class="q">&ldquo;Reg &#22312;&#21738;&#65311;&rdquo;</span> and <span class="q">&ldquo;point me to Regenstein&rdquo;</span> are one intent: <strong>locate</strong>. This document fixes the small, closed set of intents the agent recognizes, and the parameters each one extracts.</p>
+      <p>It comes before the prototype because the interpretation layer can only show what it can name. Each entry below maps one-to-one to a Claude tool definition in <strong>src/agent/tools/</strong> &mdash; its <strong>name</strong>, <strong>description</strong>, and <strong>input&nbsp;schema</strong> &mdash; and to a spatial operation over the self-hosted GeoJSON via Turf.js.</p>
+      <p>Seven intents cover Phases 1 through 3. Five are direct retrieval over building attributes; two are multi-step analyses that return <strong>ranked candidates, never a single &ldquo;optimal&rdquo; answer.</strong></p>
+    </div>
+  </section>
+
+  <!-- ── Pipeline ── -->
+  <div class="pipe">
+    <div class="pipe-step">
+      <div class="n">01 / UTTERANCE</div>
+      <h4>Natural language</h4>
+      <p>English or Chinese, free-form. &ldquo;Which buildings lack elevators?&rdquo;</p>
+    </div>
+    <div class="pipe-step hot">
+      <div class="n">02 / CLASSIFY</div>
+      <h4>Intent + parameters</h4>
+      <p>Claude tool use selects one intent and fills its input schema.</p>
+    </div>
+    <div class="pipe-step">
+      <div class="n">03 / EXECUTE</div>
+      <h4>Spatial query</h4>
+      <p>Turf.js filters / buffers / ranks the GeoJSON in the Lambda.</p>
+    </div>
+    <div class="pipe-step">
+      <div class="n">04 / COMPOSE</div>
+      <h4>Editorial answer</h4>
+      <p>Plain-English line, structured data, sourced footnote &mdash; mapped.</p>
+    </div>
+  </div>
+
+  <!-- ── Anatomy ── -->
+  <div class="shead">
+    <span class="num">00</span>
+    <h2>Anatomy of an intent</h2>
+  </div>
+  <div class="shead-rule"></div>
+  <p class="shead-note">Every intent is one file in <code style="font-family:var(--mono);font-size:13px;color:var(--maroon-dk)">src/agent/tools/</code>. The shape below is the contract between the classifier, the query engine, and the answer composer.</p>
+  <div class="schema">
+<span class="c">// src/agent/tools/locate_feature.ts</span><br>
+<span class="b">export const</span> tool = {<br>
+&nbsp;&nbsp;<span class="k">name</span>: <span class="s">"locate_feature"</span>,<br>
+&nbsp;&nbsp;<span class="k">intent</span>: <span class="s">"locate"</span>,<br>
+&nbsp;&nbsp;<span class="k">description</span>: <span class="s">"Find one named place and center the map on it."</span>,<br>
+&nbsp;&nbsp;<span class="k">input_schema</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">type</span>: <span class="s">"object"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">properties</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="p">name</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{ type: <span class="s">"string"</span>, description: <span class="s">"Building or place, any known alias"</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="p">layer</span>:&nbsp;&nbsp;&nbsp;&nbsp;{ type: <span class="s">"string"</span>, enum: [<span class="s">"buildings"</span>, <span class="s">"trees"</span>] }<br>
+&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">required</span>: [<span class="s">"name"</span>]<br>
+&nbsp;&nbsp;},<br>
+&nbsp;&nbsp;<span class="k">answer</span>: <span class="s">"single_feature"</span>&nbsp;&nbsp;<span class="c">// which Editorial Answer template to render</span><br>
+};
+  </div>
+
+  <!-- ── The catalog ── -->
+  <div class="shead">
+    <span class="num">01</span>
+    <h2>The intent catalog</h2>
+  </div>
+  <div class="shead-rule"></div>
+  <p class="shead-note">Seven intents. <b style="color:var(--green)">&#9679;</b> direct retrieval (Phase&nbsp;1&ndash;2) &middot; <b style="color:var(--amber)">&#9679;</b> multi-step analysis (Phase&nbsp;3, returns ranked candidates).</p>
+
+  <!-- INTENT 01 — LOCATE -->
+  <article class="intent">
+    <div class="intent-head">
+      <div class="idx">Intent 01</div>
+      <h3>Locate</h3>
+      <span class="tool">locate_feature</span>
+      <p class="purpose">Resolve a named place and recenter the map on it. The simplest, highest-frequency ask.</p>
+      <div class="phase">Phase 1 &middot; direct</div>
+    </div>
+    <div class="intent-body">
+      <div class="field-block">
+        <div class="blabel">Asks like</div>
+        <div class="asks">
+          <div class="ask"><span class="glyph">&rarr;</span><q>Where is the Regenstein Library?</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q>Take me to Crerar.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q><span class="zh">&#26031;&#22612;&#24503;&#36842;&#21830;&#23398;&#38498;&#22312;&#21738;&#37324;&#65311;</span></q></div>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Parameters</div>
+        <table class="params">
+          <tr><td class="pk">name</td><td class="pt">string &middot; req</td><td class="pd">Building or place, matched across DISCRIPT1, Facility_Name, OtherNames, Building_Code.</td></tr>
+          <tr><td class="pk">layer</td><td class="pt">enum</td><td class="pd">buildings &#124; trees &mdash; defaults to buildings.</td></tr>
+        </table>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Touches fields</div>
+        <div class="chips">
+          <span class="chip"><b>DISCRIPT1</b></span><span class="chip">Facility_Name</span><span class="chip">OtherNames</span><span class="chip">ADDRESS</span><span class="chip">Lat</span><span class="chip">Lon</span><span class="chip">geometry</span>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Returns</div>
+        <p class="returns"><span class="render">single_feature</span> One footprint, centered and pinned, with its address and an open-feature-card affordance.</p>
+      </div>
+    </div>
+  </article>
+
+  <!-- INTENT 02 — FILTER -->
+  <article class="intent">
+    <div class="intent-head">
+      <div class="idx">Intent 02</div>
+      <h3>Filter</h3>
+      <span class="tool">filter_features</span>
+      <p class="purpose">Return every feature matching one or more attribute predicates. The workhorse of attribute queries.</p>
+      <div class="phase">Phase 1 &middot; direct</div>
+    </div>
+    <div class="intent-body">
+      <div class="field-block">
+        <div class="blabel">Asks like</div>
+        <div class="asks">
+          <div class="ask"><span class="glyph">&rarr;</span><q>Buildings completed before 1920.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q>Show every leased property.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q><span class="zh">&#21015;&#20986;&#25152;&#26377;&#19982;&#27599;&#23383;&#30456;&#20851;&#30340;&#24314;&#31569;&#12290;</span></q></div>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Parameters</div>
+        <table class="params">
+          <tr><td class="pk">layer</td><td class="pt">enum &middot; req</td><td class="pd">Feature collection to filter.</td></tr>
+          <tr><td class="pk">filters[]</td><td class="pt">predicate[]</td><td class="pd">Each: { field, op &#8712; eq&#124;neq&#124;gt&#124;lt&#124;between&#124;contains, value }.</td></tr>
+          <tr><td class="pk">match</td><td class="pt">enum</td><td class="pd">all &#124; any &mdash; how predicates combine. Defaults to all.</td></tr>
+        </table>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Touches fields</div>
+        <div class="chips">
+          <span class="chip"><b>Year_Completed</b></span><span class="chip">Architects</span><span class="chip">PROPERTY_S</span><span class="chip">Status</span><span class="chip">BLDG_HGT</span><span class="chip">Gross_Area__s_f__</span><span class="chip">Heritage</span><span class="chip">DATA_CLASS</span>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Returns</div>
+        <p class="returns"><span class="render">feature_set</span> Matched footprints highlighted in maroon, plus a sortable attribute table in the sidebar.</p>
+      </div>
+    </div>
+  </article>
+
+  <!-- INTENT 03 — PROXIMITY -->
+  <article class="intent">
+    <div class="intent-head">
+      <div class="idx">Intent 03</div>
+      <h3>Proximity</h3>
+      <span class="tool">features_within</span>
+      <p class="purpose">Buffer, distance, and nearest-neighbour queries &mdash; the first genuinely spatial intent.</p>
+      <div class="phase">Phase 1 &middot; direct</div>
+    </div>
+    <div class="intent-body">
+      <div class="field-block">
+        <div class="blabel">Asks like</div>
+        <div class="asks">
+          <div class="ask"><span class="glyph">&rarr;</span><q>Buildings within 100m of Crerar.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q>Nearest three dining options to the Quad.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q><span class="zh">&#22270;&#20070;&#39302;&#21608;&#22260;&#20004;&#30334;&#31859;&#20869;&#26377;&#21738;&#20123;&#27004;&#65311;</span></q></div>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Parameters</div>
+        <table class="params">
+          <tr><td class="pk">anchor</td><td class="pt">feature&#124;point &middot; req</td><td class="pd">Resolved via locate, or a clicked map point.</td></tr>
+          <tr><td class="pk">distance_m</td><td class="pt">number</td><td class="pd">Buffer radius in metres. Required for mode=within.</td></tr>
+          <tr><td class="pk">mode</td><td class="pt">enum</td><td class="pd">within &#124; nearest_k.</td></tr>
+          <tr><td class="pk">target</td><td class="pt">enum</td><td class="pd">Layer to test against the buffer.</td></tr>
+        </table>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Touches fields</div>
+        <div class="chips">
+          <span class="chip"><b>geometry</b></span><span class="chip">Lat</span><span class="chip">Lon</span><span class="chip">turf.buffer</span><span class="chip">turf.distance</span>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Returns</div>
+        <p class="returns"><span class="render">buffer_set</span> A dashed maroon buffer ring with faint fill, plus the matched features ranked by distance.</p>
+      </div>
+    </div>
+  </article>
+
+  <!-- INTENT 04 — AGGREGATE -->
+  <article class="intent">
+    <div class="intent-head">
+      <div class="idx">Intent 04</div>
+      <h3>Aggregate</h3>
+      <span class="tool">aggregate_features</span>
+      <p class="purpose">Count, sum, and average &mdash; with optional grouping. Answers &ldquo;how many&rdquo; and &ldquo;how much&rdquo;.</p>
+      <div class="phase">Phase 1 &middot; direct</div>
+    </div>
+    <div class="intent-body">
+      <div class="field-block">
+        <div class="blabel">Asks like</div>
+        <div class="asks">
+          <div class="ask"><span class="glyph">&rarr;</span><q>How many buildings does the university own?</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q>Average condition index by decade built.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q><span class="zh">&#26657;&#22253;&#24314;&#31569;&#24635;&#38754;&#31215;&#26159;&#22810;&#23569;&#65311;</span></q></div>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Parameters</div>
+        <table class="params">
+          <tr><td class="pk">metric</td><td class="pt">enum &middot; req</td><td class="pd">count &#124; sum &#124; avg &#124; min &#124; max.</td></tr>
+          <tr><td class="pk">field</td><td class="pt">string</td><td class="pd">Numeric field to aggregate (omit for count).</td></tr>
+          <tr><td class="pk">group_by</td><td class="pt">string</td><td class="pd">Optional dimension &mdash; PROPERTY_S, decade, CHRS.</td></tr>
+          <tr><td class="pk">filters[]</td><td class="pt">predicate[]</td><td class="pd">Optional pre-filter, same shape as Filter.</td></tr>
+        </table>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Touches fields</div>
+        <div class="chips">
+          <span class="chip"><b>Gross_Area__s_f__</b></span><span class="chip">FCI__</span><span class="chip">Replacement</span><span class="chip">Year_Completed</span><span class="chip">PROPERTY_S</span>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Returns</div>
+        <p class="returns"><span class="render">scalar_or_grouped</span> A single figure, or a grouped table with an inline bar chart &mdash; never a map alone.</p>
+      </div>
+    </div>
+  </article>
+
+  <!-- INTENT 05 — RANK -->
+  <article class="intent">
+    <div class="intent-head">
+      <div class="idx">Intent 05</div>
+      <h3>Rank</h3>
+      <span class="tool">rank_features</span>
+      <p class="purpose">Superlatives and top-N. Sort a collection by one field and surface the extremes.</p>
+      <div class="phase">Phase 1 &middot; direct</div>
+    </div>
+    <div class="intent-body">
+      <div class="field-block">
+        <div class="blabel">Asks like</div>
+        <div class="asks">
+          <div class="ask"><span class="glyph">&rarr;</span><q>The five tallest buildings on campus.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q>Oldest building still in use.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q><span class="zh">&#26368;&#39640;&#30340;&#20116;&#26635;&#27004;&#26159;&#21738;&#20123;&#65311;</span></q></div>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Parameters</div>
+        <table class="params">
+          <tr><td class="pk">sort_field</td><td class="pt">string &middot; req</td><td class="pd">Field to order by.</td></tr>
+          <tr><td class="pk">direction</td><td class="pt">enum</td><td class="pd">desc (largest) &#124; asc (smallest / oldest).</td></tr>
+          <tr><td class="pk">limit</td><td class="pt">int</td><td class="pd">Top-N to return. Defaults to 5.</td></tr>
+          <tr><td class="pk">filters[]</td><td class="pt">predicate[]</td><td class="pd">Optional pre-filter.</td></tr>
+        </table>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Touches fields</div>
+        <div class="chips">
+          <span class="chip"><b>BLDG_HGT</b></span><span class="chip">Year_Completed</span><span class="chip">Gross_Area__s_f__</span><span class="chip">FCI__</span><span class="chip">RICOST</span>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Returns</div>
+        <p class="returns"><span class="render">ranked_list</span> An ordered, numbered list with the ranked value called out, features highlighted in sequence on the map.</p>
+      </div>
+    </div>
+  </article>
+
+  <!-- INTENT 06 — ASSESS -->
+  <article class="intent">
+    <div class="intent-head">
+      <div class="idx">Intent 06</div>
+      <h3>Assess<br>condition</h3>
+      <span class="tool">assess_condition</span>
+      <p class="purpose">Domain queries over facility health, accessibility, and heritage &mdash; the questions only this dataset can answer.</p>
+      <div class="phase p3">Phase 2&ndash;3 &middot; direct</div>
+    </div>
+    <div class="intent-body">
+      <div class="field-block">
+        <div class="blabel">Asks like</div>
+        <div class="asks">
+          <div class="ask"><span class="glyph">&rarr;</span><q>Which buildings are in poor condition?</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q>Buildings without elevators.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q><span class="zh">&#21738;&#20123;&#21382;&#21490;&#24314;&#31569;&#24310;&#26399;&#32500;&#25252;&#25104;&#26412;&#26368;&#39640;&#65311;</span></q></div>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Sub-facets</div>
+        <table class="params">
+          <tr><td class="pk">condition</td><td class="pt">FCI__ threshold</td><td class="pd">Facility Condition Index bands &mdash; good &lt; 0.10, fair, poor &gt; 0.30.</td></tr>
+          <tr><td class="pk">accessibility</td><td class="pt">Elevator</td><td class="pd">ADA proxy &mdash; presence and count of elevators.</td></tr>
+          <tr><td class="pk">deferred</td><td class="pt">RICOST &middot; F2026&ndash;35</td><td class="pd">Renewal cost and year-by-year deferred maintenance.</td></tr>
+          <tr><td class="pk">heritage</td><td class="pt">Heritage flag</td><td class="pd">Designated historic structures.</td></tr>
+        </table>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Touches fields</div>
+        <div class="chips">
+          <span class="chip"><b>FCI__</b></span><span class="chip">CHRS</span><span class="chip">Elevator</span><span class="chip">RICOST</span><span class="chip">RI_COST_Total</span><span class="chip">Heritage</span>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Returns</div>
+        <p class="returns"><span class="render">scored_set</span> A filtered set with a condition-scoring table and a sequential warm choropleth on the map.</p>
+      </div>
+    </div>
+  </article>
+
+  <!-- INTENT 07 — SUITABILITY -->
+  <article class="intent">
+    <div class="intent-head">
+      <div class="idx">Intent 07</div>
+      <h3>Suitability</h3>
+      <span class="tool">analyze_suitability</span>
+      <p class="purpose">Multi-step composite scoring. Weighs several criteria to <em>rank candidates</em> &mdash; explicitly not to name one optimal answer.</p>
+      <div class="phase p3">Phase 3 &middot; multi-step</div>
+    </div>
+    <div class="intent-body">
+      <div class="field-block">
+        <div class="blabel">Asks like</div>
+        <div class="asks">
+          <div class="ask"><span class="glyph">&rarr;</span><q>Suggest five sites for a new Divvy station.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q>Evaluate parking feasibility in Block&nbsp;G.</q></div>
+          <div class="ask"><span class="glyph">&rarr;</span><q><span class="zh">&#25512;&#33616;&#20116;&#22788;&#26032;&#33258;&#34892;&#36710;&#31449;&#36873;&#22336;&#12290;</span></q></div>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Parameters</div>
+        <table class="params">
+          <tr><td class="pk">objective</td><td class="pt">string &middot; req</td><td class="pd">What is being sited or evaluated.</td></tr>
+          <tr><td class="pk">criteria[]</td><td class="pt">weighted[]</td><td class="pd">Each: { measure, weight, direction } &mdash; e.g. transit proximity, foot-traffic proxy.</td></tr>
+          <tr><td class="pk">candidates</td><td class="pt">set&#124;grid</td><td class="pd">Candidate locations to score, or a generated grid.</td></tr>
+          <tr><td class="pk">limit</td><td class="pt">int</td><td class="pd">How many ranked candidates to surface.</td></tr>
+        </table>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Touches</div>
+        <div class="chips">
+          <span class="chip">turf.buffer</span><span class="chip">turf.distance</span><span class="chip">transit layer</span><span class="chip">foot-traffic proxy</span><span class="chip">composite score</span>
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="blabel">Returns</div>
+        <p class="returns"><span class="render">ranked_candidates</span> A scored candidate table with per-criterion breakdown, and a caveat footnote: these are options to weigh, not a decision.</p>
+      </div>
+    </div>
+  </article>
+
+  <!-- ── Editorial answer worked example ── -->
+  <div class="shead">
+    <span class="num">02</span>
+    <h2>The answer, composed</h2>
+  </div>
+  <div class="shead-rule"></div>
+  <p class="shead-note">Every intent resolves into the same three-part Editorial Answer &mdash; a plain-English line, the structured data, then a sourced footnote. Here, intent <b>04 / aggregate</b> answering <i>&ldquo;How many buildings does the university own?&rdquo;</i></p>
+  <div class="ea">
+    <div class="ea-tag">Editorial answer &middot; aggregate_features</div>
+    <div class="ea-answer">The University <b>owns 241</b> of the 308 buildings on the Hyde Park campus.</div>
+    <div class="ea-data">
+      <div class="stat"><div class="v">241</div><div class="l">Owned</div></div>
+      <div class="stat"><div class="v">52</div><div class="l">Leased</div></div>
+      <div class="stat"><div class="v">15</div><div class="l">Other / unset</div></div>
+      <div class="stat"><div class="v">18.4M&nbsp;sf</div><div class="l">Gross area, owned</div></div>
+    </div>
+    <p class="ea-note">Counted from <code>Building_Information_2026</code> on field <code>PROPERTY_S</code>, grouped by ownership class. Fifteen records carry no ownership value and are reported separately rather than assumed. Gross area sums <code>Gross_Area__s_f__</code> over owned features.</p>
+  </div>
+
+  <!-- ── Cross-cutting ── -->
+  <div class="shead">
+    <span class="num">03</span>
+    <h2>Cross-cutting behaviour</h2>
+  </div>
+  <div class="shead-rule"></div>
+  <p class="shead-note">Three rules sit above the catalog and apply to every intent.</p>
+  <div class="xgrid">
+    <div class="xcard">
+      <h4>Bilingual by default</h4>
+      <p>Intent and parameters are language-agnostic. A Chinese utterance resolves to the same tool call and the same Editorial Answer, composed back in the language asked.</p>
+      <div class="ex"><b>&ldquo;Reg &#22312;&#21738;&#65311;&rdquo;</b><br>&rarr; locate_feature &middot; name:&nbsp;Regenstein</div>
+    </div>
+    <div class="xcard">
+      <h4>Clarify, don&rsquo;t guess</h4>
+      <p>When a name is ambiguous or a required parameter is missing, the agent asks one precise question rather than returning a wrong feature. No silent assumptions.</p>
+      <div class="ex"><b>&ldquo;the science building&rdquo;</b><br>&rarr; <span style="color:var(--ink-md)">&ldquo;Which &mdash; Kersten, Crerar, or Eckhardt?&rdquo;</span></div>
+    </div>
+    <div class="xcard">
+      <h4>Name the boundary</h4>
+      <p>Off-dataset asks &mdash; live transit times, room booking, anything not in the campus layers &mdash; get one honest sentence stating what is out of scope. Never a fabricated answer.</p>
+      <div class="ex"><b>&ldquo;is room 122 free now?&rdquo;</b><br>&rarr; <span style="color:var(--ink-md)">out_of_scope &middot; no live booking layer</span></div>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span>CampusGeo &middot; Intent Model v0.1</span>
+    <span>Specification 01 &middot; of the editorial-cartography series</span>
+    <span>Next &rarr; interpretation-to-map prototype</span>
+  </footer>
+
+</div>
+</body>
+</html>
