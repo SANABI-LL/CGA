@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "learning-coach": {
+      "command": "node",
+      "args": [
+        "h:/Dropbox/Academy/Claude Code/GIS Agent/learning-coach/dist/index.js"
+      ]
+    }
+  }
+}
