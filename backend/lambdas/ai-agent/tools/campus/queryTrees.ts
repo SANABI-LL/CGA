@@ -13,6 +13,7 @@ export const QueryTreesInputSchema = z.object({
   condition: z.string().optional().describe('Tree condition: "Good", "Fair", "Poor"'),
   minDiameter: z.number().optional().describe('Minimum diameter in cm'),
   location: z.string().optional().describe('Location description (e.g., "Main Quad")'),
+  year: z.number().optional().describe('Year planted or last updated (e.g., 2024, 2025, 2026)'),
 })
 
 export type QueryTreesInput = z.infer<typeof QueryTreesInputSchema>
@@ -114,6 +115,30 @@ export async function queryTrees(input: QueryTreesInput) {
         const location = f.properties.locationRa
         return location && typeof location === 'string' &&
                location.toLowerCase().includes(loc)
+      })
+    }
+
+    // 过滤：年份（种植年份或最后更新年份）
+    if (input.year) {
+      filtered = filtered.filter(f => {
+        // 检查 Dateinvent 或 LastUpda 字段
+        const dateInvent = f.properties.Dateinvent
+        const lastUpdate = f.properties.LastUpda
+
+        // 尝试从日期字符串中提取年份
+        const extractYear = (dateStr: any): number | null => {
+          if (!dateStr || typeof dateStr !== 'string') return null
+
+          // 匹配 "MM/DD/YYYY" 或 "YYYY-MM-DD" 格式
+          const match = dateStr.match(/(\d{4})/)
+          return match ? parseInt(match[1]) : null
+        }
+
+        const inventYear = extractYear(dateInvent)
+        const updateYear = extractYear(lastUpdate)
+
+        // 如果任一年份匹配，返回 true
+        return inventYear === input.year || updateYear === input.year
       })
     }
 
