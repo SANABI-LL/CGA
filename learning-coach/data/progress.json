@@ -12,15 +12,20 @@
         "成功启动开发服务器 (http://localhost:3001)",
         "AI Agent 成功查询树木数据 (539 features)",
         "SSE 流式响应正常工作",
-        "前端通过 JavaScript 客户端成功连接后端"
+        "前端通过 JavaScript 客户端成功连接后端",
+        "Dropbox 优化：忽略 6 个 node_modules 目录",
+        "上传新数据到 S3：all-gender-restrooms.geojson (96 features)",
+        "上传新数据到 S3：leed-buildings.geojson (21 features)",
+        "learning-coach 改造：基于 Git 提交自动追踪进度",
+        "解决 Git 合并冲突，成功 push 到 GitHub"
       ],
-      "hoursSpent": 6.5,
+      "hoursSpent": 7.5,
       "notes": [
         {
           "date": "2026-06-25",
           "timestamp": "2026-06-25T20:00:00.000Z",
           "content": "Phase 1 完成: 前后端集成与开发服务器。完成了开发服务器启动、Bedrock 模型更新、S3 数据读取、前端 SSE 客户端集成等核心功能。成功从 S3 读取 539 棵树的数据并返回给前端。",
-          "learnings": "- 实现了 query_trees 工具，支持从 S3 读取 GeoJSON\n- 更新 Bedrock 模型到 us.anthropic.claude-sonnet-4-5-20250929-v1:0\n- 修复了工具的 outFields 参数缺失问题\n- 成功测试端到端查询流程\n- 学会了 SSE (Server-Sent Events) 流式响应\n- 实现了前端 JavaScript 客户端连接后端 API\n- Git 提交: 21 files changed, 3541 insertions(+), 125 deletions(-)"
+          "learnings": "- 实现了 query_trees 工具，支持从 S3 读取 GeoJSON\n- 更新 Bedrock 模型到 us.anthropic.claude-sonnet-4-5-20250929-v1:0\n- 修复了工具的 outFields 参数缺失问题\n- 成功测试端到端查询流程\n- 学会了 SSE (Server-Sent Events) 流式响应\n- 实现了前端 JavaScript 客户端连接后端 API\n- Git 提交: 21 files changed, 3541 insertions(+), 125 deletions(-)\n- Dropbox Selective Sync: 使用 com.dropbox.ignored stream 排除 node_modules\n- S3 数据扩展: 96 all-gender restrooms + 21 LEED buildings\n- learning-coach 工具改造: 从元工具变为真实的 git-based 追踪器\n- Git merge 冲突解决: 手动保留本地改造版本"
         }
       ],
       "practiceCompleted": true

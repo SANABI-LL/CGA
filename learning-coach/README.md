@@ -23,7 +23,22 @@ Week 1: in_progress
 
 ## 🚀 快速使用
 
-双击 `show-progress.bat` 查看进度。
+**查看进度（支持中文）**：
+
+- **彩色版本**（推荐）：右键 `show-progress.ps1` → "使用 PowerShell 运行"
+- **简化版本**：双击 `show-progress.bat`
+
+**命令行使用**：
+```bash
+# 详细统计（含 Git 分析）
+npm run track:stats
+
+# 记录今日工作
+npm run track:log
+
+# 检查提醒
+npm run track:remind
+```
 
 ## 💡 核心原则
 
