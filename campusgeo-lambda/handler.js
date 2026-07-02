@@ -92,15 +92,29 @@ const TOOLS = [
   {
     toolSpec: {
       name: 'features_within',
-      description: 'Find features within a distance of an anchor building. Use for proximity queries.',
+      description: 'Find features within a distance of an anchor location. Optionally filter the results by attributes (species, condition, year, ownership) at the same time. Use this for ANY query that combines a place ("near X", "within Nm of X") with a feature description ("green ash trees", "owned buildings").',
       inputSchema: {
         json: {
           type: 'object',
-          required: ['anchor_name', 'distance_m'],
+          required: ['anchor_name'],
           properties: {
             anchor_name:  { type: 'string' },
-            distance_m:   { type: 'number', description: 'Buffer radius in metres' },
+            distance_m:   { type: 'number', description: 'Buffer radius in metres. Default 150 if unspecified.' },
             target_layer: { type: 'string', enum: ['buildings', 'trees'] },
+            filters: {
+              type: 'array',
+              description: 'Optional attribute filters applied to results',
+              items: {
+                type: 'object',
+                required: ['field', 'op', 'value'],
+                properties: {
+                  field: { type: 'string' },
+                  op:    { type: 'string', enum: ['eq', 'neq', 'gt', 'lt', 'between', 'contains'] },
+                  value: {}
+                }
+              }
+            },
+            match: { type: 'string', enum: ['all', 'any'], description: 'How to combine filters. Default all.' },
             mode:         { type: 'string', enum: ['within', 'nearest_k'] },
             k:            { type: 'number' }
           }
@@ -165,7 +179,32 @@ Rules:
 - Respond in the same language as the user (English or Chinese).
 - Never invent data not in the layers.
 - For queries outside scope, use filter_features with empty filters array and set the answer to explain the limitation.
-- For species queries, use filter_features with op:"contains" on field "CommonName".`;
+- For species queries, use filter_features with op:"contains" on field "CommonName".
+
+When a query combines a LOCATION ("near X", "within N metres of X", "around X")
+with a feature description ("green ash trees", "owned buildings", "trees in poor
+condition"), you MUST call features_within with BOTH distance and the filters array.
+Do not call filter_features for these — it ignores location and returns the whole campus.
+Species live in CommonName as "Type-Variety" (e.g. green ash = "Ash-Green",
+use op "contains" with value "Ash-Green"). Default distance_m to 150 if unstated.`;
+
+// ── Shared filter predicate (hoist to module scope; used by both tools) ──
+function matchesFilters(props, filters, match) {
+  if (!filters || !filters.length) return true;
+  const results = filters.map((flt) => {
+    const v = props[flt.field];
+    switch (flt.op) {
+      case 'eq':      return String(v || '').toLowerCase() === String(flt.value).toLowerCase();
+      case 'neq':     return String(v || '').toLowerCase() !== String(flt.value).toLowerCase();
+      case 'gt':      return Number(v) > Number(flt.value);
+      case 'lt':      return Number(v) < Number(flt.value);
+      case 'contains':return String(v || '').toLowerCase().includes(String(flt.value).toLowerCase());
+      case 'between': return Number(v) >= flt.value[0] && Number(v) <= flt.value[1];
+      default:        return true;
+    }
+  });
+  return match === 'any' ? results.some(Boolean) : results.every(Boolean);
+}
 
 // ── Main handler ─────────────────────────────────────────────────────────
 exports.handler = async (event) => {
@@ -250,21 +289,7 @@ async function executeIntent(tool, input, buildings, trees) {
 
     case 'filter_features': {
       const feats = getLayer().features;
-      const hits = feats.filter(f => {
-        const results = (input.filters || []).map(flt => {
-          const v = f.properties[flt.field];
-          switch (flt.op) {
-            case 'eq':      return String(v || '').toLowerCase() === String(flt.value).toLowerCase();
-            case 'neq':     return String(v || '').toLowerCase() !== String(flt.value).toLowerCase();
-            case 'gt':      return Number(v) > Number(flt.value);
-            case 'lt':      return Number(v) < Number(flt.value);
-            case 'contains':return String(v || '').toLowerCase().includes(String(flt.value).toLowerCase());
-            case 'between': return Number(v) >= flt.value[0] && Number(v) <= flt.value[1];
-            default:        return true;
-          }
-        });
-        return input.match === 'any' ? results.some(Boolean) : results.every(Boolean);
-      });
+      const hits = feats.filter(f => matchesFilters(f.properties, input.filters, input.match));
       return {
         answer: `Found ${hits.length} ${input.layer} matching your criteria.`,
         features: { type: 'FeatureCollection', features: hits },
@@ -279,19 +304,28 @@ async function executeIntent(tool, input, buildings, trees) {
         features: null, mapAction: null
       };
       const pt  = centroid(anchor);
-      const buf = buffer(pt, input.distance_m / 1000, { units: 'kilometers' });
+      const radius = input.distance_m || 150;  // sensible default
+      const buf = buffer(pt, radius / 1000, { units: 'kilometers' });
       const tgt = input.target_layer === 'trees' ? trees : buildings;
-      const hits = tgt.features.filter(f => {
-        try { return booleanPointInPolygon(centroid(f), buf); }
-        catch { return false; }
-      });
+
+      const hits = tgt.features
+        .filter(f => {
+          try { return booleanPointInPolygon(centroid(f), buf); }
+          catch { return false; }
+        })  // spatial
+        .filter(f => matchesFilters(f.properties, input.filters, input.match));  // attribute
+
+      const desc = (input.filters && input.filters.length)
+        ? input.filters.map(f => `${f.field} ${f.op} ${f.value}`).join(', ')
+        : (input.target_layer || 'features');
+
       return {
-        answer: `${hits.length} ${input.target_layer || 'features'} found within ${input.distance_m}m of ${nameOf(anchor)}.`,
+        answer: `${hits.length} ${input.target_layer || 'features'} within ${radius}m of ${nameOf(anchor)}${(input.filters && input.filters.length) ? ` matching ${desc}` : ''}.`,
         features: { type: 'FeatureCollection', features: hits },
         mapAction: {
           type: 'buffer',
           center: pt.geometry.coordinates,
-          radiusM: input.distance_m
+          radiusM: radius
         }
       };
     }
