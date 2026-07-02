@@ -8,6 +8,8 @@
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>window.CAMPUSGEO_CDN_URL = 'https://du0vacooj41k3.cloudfront.net';</script>
+<script>window.CAMPUSGEO_API_URL = 'https://blfi6fqdnc.execute-api.us-east-1.amazonaws.com';</script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
@@ -90,30 +92,43 @@ const WARM_STYLE = {
 
 };
 
-/* ── Sample campus tree inventory (with attribute table) ────── */
+/* ── Tree inventory — real S3 fields: TreeID, CommonName, Condition
+   TODO:year_planted — add year_planted to trees.geojson in S3, then search
+   this file for TODO:year_planted to re-enable the time filter.             ── */
+function normalizeTrees(gj) {
+  return { ...gj, features: gj.features.map((f, i) => ({
+    ...f,
+    properties: {
+      OBJECTID:    f.properties.TreeID     ?? (i + 1001),
+      species:     f.properties.CommonName  ?? 'Unknown',
+      condition:   f.properties.Condition   ?? '',
+      year_planted: f.properties.year_planted ?? null, // TODO:year_planted
+    }
+  })) };
+}
+// Fallback: procedural data used when CDN is not configured
 function mulberry32(a) {return function () {a |= 0;a = a + 0x6D2B79F5 | 0;let t = Math.imul(a ^ a >>> 15, 1 | a);t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;return ((t ^ t >>> 14) >>> 0) / 4294967296;};}
 const SPECIES = ['Honey Locust', 'Northern Red Oak', 'American Elm', 'Ginkgo', 'Littleleaf Linden', 'Hackberry', 'Kentucky Coffeetree', 'Swamp White Oak', 'River Birch', 'Norway Maple'];
 const COND = ['Excellent', 'Good', 'Good', 'Good', 'Fair', 'Fair', 'Poor'];
 function genTrees() {
   const rnd = mulberry32(20260606);
-  // [lng, lat, spreadLng, spreadLat, count] — planting zones across Hyde Park campus
   const zones = [
-  [-87.5990, 41.7896, 0.0042, 0.0026, 46], // Main Quadrangles
-  [-87.5999, 41.7921, 0.0026, 0.0016, 22], // Regenstein lawn
-  [-87.5978, 41.7903, 0.0018, 0.0014, 18], // Hull Court / Botany Pond
-  [-87.5986, 41.7876, 0.0090, 0.0011, 52], // Midway Plaisance corridor
-  [-87.6016, 41.7906, 0.0016, 0.0040, 26], // Ellis Ave
-  [-87.5968, 41.7905, 0.0016, 0.0042, 24], // University Ave
-  [-87.5950, 41.7888, 0.0034, 0.0024, 22], // East campus
-  [-87.5912, 41.7859, 0.0032, 0.0022, 24], // 58th & Dorchester / CTS block
-  [-87.5925, 41.7878, 0.0024, 0.0020, 16] // Woodlawn Ave corridor
+  [-87.5990, 41.7896, 0.0042, 0.0026, 46],
+  [-87.5999, 41.7921, 0.0026, 0.0016, 22],
+  [-87.5978, 41.7903, 0.0018, 0.0014, 18],
+  [-87.5986, 41.7876, 0.0090, 0.0011, 52],
+  [-87.6016, 41.7906, 0.0016, 0.0040, 26],
+  [-87.5968, 41.7905, 0.0016, 0.0042, 24],
+  [-87.5950, 41.7888, 0.0034, 0.0024, 22],
+  [-87.5912, 41.7859, 0.0032, 0.0022, 24],
+  [-87.5925, 41.7878, 0.0024, 0.0020, 16]
   ];
   const feats = [];let id = 1001;
   zones.forEach(([clng, clat, sx, sy, n]) => {
     for (let i = 0; i < n; i++) {
       const lng = clng + (rnd() - 0.5) * sx,lat = clat + (rnd() - 0.5) * sy;
       const recent = rnd() < 0.31;
-      const year = recent ? 2025 : 2015 + Math.floor(rnd() * 9); // last year = 2025
+      const year = recent ? 2025 : 2015 + Math.floor(rnd() * 9);
       const dbh = recent ? 2 + rnd() * 3 : 5 + rnd() * 22;
       feats.push({ type: 'Feature',
         properties: { OBJECTID: id++, species: SPECIES[Math.floor(rnd() * SPECIES.length)],
@@ -123,10 +138,55 @@ function genTrees() {
   });
   return { type: 'FeatureCollection', features: feats };
 }
-const TREES = genTrees();
-const TREES_TOTAL = TREES.features.length;
-const TREES_2025 = TREES.features.filter((f) => f.properties.year_planted === 2025);
-const TREES_2025_GJ = { type: 'FeatureCollection', features: TREES_2025 };
+// let so real S3 data can replace them when loaded
+let TREES = genTrees();
+let TREES_TOTAL = TREES.features.length;
+let TREES_2025 = TREES.features.filter((f) => f.properties.year_planted === 2025);
+let TREES_2025_GJ = { type: 'FeatureCollection', features: TREES_2025 };
+
+/* ── Species resolver ──────────────────────────────────────────── */
+// CommonName field format: 'Type-Variety' (e.g. 'Linden-Littleleaf', 'Maple-Norway')
+// Each entry: { terms: string[], match: string } where match is a case-insensitive
+// substring of p.species (normalized CommonName). Longest terms checked first.
+const SPECIES_ALIASES = [
+  { terms: ['norway maple'],              match: 'Maple-Norway' },
+  { terms: ['littleleaf linden', 'linden', 'basswood'], match: 'Linden' },
+  { terms: ['honey locust'],              match: 'Locust-Honey' },
+  { terms: ['northern red oak', 'red oak'], match: 'Oak-Northern' },
+  { terms: ['swamp white oak', 'white oak'], match: 'Oak-Swamp' },
+  { terms: ['kentucky coffeetree', 'coffeetree', 'coffee tree'], match: 'Coffeetree' },
+  { terms: ['river birch'],               match: 'Birch-River' },
+  { terms: ['american elm'],              match: 'Elm-American' },
+  { terms: ['ginkgo', 'gingko'],          match: 'Ginkgo' },
+  { terms: ['hackberry'],                 match: 'Hackberry' },
+  { terms: ['maple'],                     match: 'Maple' },
+  { terms: ['locust'],                    match: 'Locust' },
+  { terms: ['oak'],                       match: 'Oak' },
+  { terms: ['elm'],                       match: 'Elm' },
+  { terms: ['birch'],                     match: 'Birch' },
+  { terms: ['cherry'],                    match: 'Cherry' },
+  { terms: ['crabapple', 'apple'],        match: 'Crabapple' },
+  { terms: ['serviceberry'],              match: 'Serviceberry' },
+  { terms: ['hawthorn'],                  match: 'Hawthorn' },
+  { terms: ['dogwood'],                   match: 'Dogwood' },
+  { terms: ['redbud'],                    match: 'Redbud' },
+  { terms: ['ash'],                       match: 'Ash' },
+  { terms: ['spruce'],                    match: 'Spruce' },
+  { terms: ['pine'],                      match: 'Pine' },
+];
+function detectSpecies(q) {
+  const s = q.toLowerCase();
+  const flat = SPECIES_ALIASES.flatMap(e => e.terms.map(t => ({ t, match: e.match })))
+    .sort((a, b) => b.t.length - a.t.length);
+  for (const { t, match } of flat) { if (s.includes(t)) return match; }
+  return null;
+}
+function speciesDisplayName(key) {
+  // 'Linden-Littleleaf' → 'Littleleaf Linden', 'Maple-Norway' → 'Norway Maple'
+  if (!key.includes('-')) return key;
+  const [type, variety] = key.split('-');
+  return `${variety} ${type}`;
+}
 
 /* ── Icons ──────────────────────────────────────────────────── */
 const IP = {
@@ -167,6 +227,14 @@ style={{ height: size, width: 'auto', display: 'block' }} draggable={false} />;
 /* ── Gotham-family stack for the search input ──────────────── */
 const GOTHAM = "'Gotham Book','Gotham','Plus Jakarta Sans','Helvetica Neue',sans-serif";
 
+// ── Data source config ──────────────────────────────────────────────────────
+// Set window.CAMPUSGEO_CDN_URL to your CloudFront domain before this script
+// to load layers from S3 via manifest.json. Falls back to local data/ folder.
+const CAMPUSGEO_CDN = (window.CAMPUSGEO_CDN_URL || '').replace(/\/$/, '');
+// Set window.CAMPUSGEO_API_URL to your API Gateway endpoint to enable real Bedrock queries
+// e.g. 'https://abc123.execute-api.us-east-1.amazonaws.com'
+const CAMPUSGEO_API = (window.CAMPUSGEO_API_URL || '').replace(/\/$/, '');
+
 /* ── Suggestions (one per scenario the agent can resolve) ───── */
 const SUGGESTIONS_EN = [
 'Show me buildings with an RI value higher than 0.52',
@@ -177,9 +245,9 @@ const SUGGESTIONS_EN = [
 
 const SUGGESTIONS_ZH = '帮我打印一张去年种植的树木位置地图';
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "exampleCount": 4,
+  "exampleCount": 3,
   "showChinese": false
-} /*EDITMODE-END*/;
+}/*EDITMODE-END*/;
 
 /* ── Data provenance — the source web map + nightly sync log ── */
 const SYNC_SOURCE = {
@@ -201,7 +269,7 @@ const SYNC_LOG = [
 
 const SYNC_PIPELINE = ['ArcGIS REST', 'Diff', 'Validate', 'LLM QA', 'S3 + DynamoDB', 'CloudFront', 'Notify'];
 
-/* ── Changes pulled from the source web map at the latest nightly sync ── */
+/* ── Changes pulled from the ArcGIS Feature Service at the latest nightly sync ── */
 const DIGEST_DATE = 'Jun 15, 2026';
 const SOURCE_UPDATES = [
 { bd: 'L31', field: 'DISCRIPT1', from: '5460 S University Ave', to: 'Lorraine and Yuji Suzuki Center' }];
@@ -301,8 +369,9 @@ function applyFollowUp(q, sc) {
     let m = s.match(/(\d+(?:\.\d+)?)\s*(?:m\b|meters?|米)/);
     if (m) {radiusM = parseFloat(m[1]);radiusLabel = `${m[1]} m`;} else
     {m = s.match(/(\d+(?:\.\d+)?)\s*(?:ft|feet|英尺|′|')/);if (m) {radiusM = parseFloat(m[1]) * M_PER_FT;radiusLabel = `${m[1]} ft`;}}
-    const onlyRecent = /2025|last year|去年/.test(s);
-    const pool = onlyRecent ? TREES_2025 : TREES.features;
+    // TODO:year_planted — restore: const onlyRecent = /2025|last year|去年/.test(s);
+    const onlyRecent = false; // year_planted not yet in trees.geojson
+    const pool = TREES.features;
     const boxes = sc.data.features.map((f) => fcBounds({ features: [f] }));
     const hits = pool.filter((t) => boxes.some((b) => distToBBox(t.geometry.coordinates, b) <= radiusM));
     if (!hits.length) {
@@ -442,6 +511,52 @@ function buildScenario(q, buildings) {
   }
   return sc;
 }
+
+/* ── Map a real Lambda response to the prototype’s scenario format ───── */
+function buildScenarioFromApi(res, q) {
+  const features = res.features || { type: 'FeatureCollection', features: [] };
+  const count = features.features.length;
+  // infer layer from intent name or feature properties
+  const looksLikeTrees = (res.intent || '').includes('tree') ||
+    (features.features[0] && features.features[0].properties && features.features[0].properties.CommonName);
+  const kindStr = looksLikeTrees ? 'trees' : 'buildings';
+  let center = [-87.5955, 41.7935], zoom = 14.5;
+  if (res.mapAction && res.mapAction.center) { center = res.mapAction.center; zoom = 16; }
+  const tableRows = features.features.slice(0, 5).map(f => {
+    const p = f.properties;
+    return {
+      cells: kindStr === 'buildings'
+        ? [(p.BD_ID || '').trim() || '—', (p.DISCRIPT1 || '').trim() || '—', p.Year_Completed ? String(Math.round(p.Year_Completed)) : '—']
+        : [String(p.TreeID || p.OBJECTID || '—'), p.CommonName || p.species || '—', p.Condition || p.condition || '—'],
+      hit: true
+    };
+  });
+  return {
+    kind: kindStr, unit: kindStr,
+    title: res.answer || 'Query results',
+    center, zoom,
+    data: features, allData: null,
+    matchCount: count, recordCount: count, fieldCount: 3,
+    chip: kindStr === 'buildings' ? 'Campus Buildings' : 'Campus Trees',
+    chipIcon: kindStr === 'buildings' ? 'building' : 'leaf',
+    fieldName: kindStr === 'buildings' ? 'DISCRIPT1' : 'CommonName',
+    apiAnswer: res.answer,
+    intentDetail: <span>Intent <b>{res.intent || 'query'}</b> · via <b style={{ color: T.amber }}>AWS Bedrock</b></span>,
+    scanDetail: <span>Claude 3.5 Sonnet classified the query · executed <b>{res.intent}</b></span>,
+    filterDetail: <span style={{ color: T.green }}>{res.answer}</span>,
+    plotDetail: <span>Placing <b>{count}</b> feature{count !== 1 ? 's' : ''} on the map</span>,
+    table: {
+      grid: kindStr === 'buildings' ? '70px 1fr 70px' : '80px 1fr 100px',
+      head: kindStr === 'buildings' ? ['BD_ID', 'Building', 'Year'] : ['TreeID', 'CommonName', 'Condition'],
+      hi: -1, rows: tableRows, more: Math.max(0, count - 5)
+    },
+    legend: [{ color: kindStr === 'buildings' ? T.maroon : T.green,
+      label: <b style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}>{count} result{count !== 1 ? 's' : ''}</b> }],
+    legendSquare: kindStr === 'buildings',
+    mapAction: res.mapAction
+  };
+}
+
 function buildScenarioInner(q, buildings) {
   // data-freshness / sync intent — answered without touching the map
   if (detectSyncIntent(q)) return makeSyncScenario(q);
@@ -517,23 +632,51 @@ function buildScenarioInner(q, buildings) {
       legendSquare: true
     };
   }
+  // species filter: 'show me linden trees' → filter TREES by CommonName substring
+  const speciesKey = detectSpecies(q);
+  if (speciesKey) {
+    const hits = TREES.features.filter(f =>
+      (f.properties.species || '').toLowerCase().includes(speciesKey.split('-')[0].toLowerCase()));
+    const others = TREES.features.filter(f =>
+      !(f.properties.species || '').toLowerCase().includes(speciesKey.split('-')[0].toLowerCase()));
+    const dname = speciesDisplayName(speciesKey);
+    if (hits.length > 0) return {
+      kind: 'trees', unit: 'trees', title: `${dname} Trees`,
+      center: [-87.5955, 41.7935], zoom: 14.5,
+      data: { type: 'FeatureCollection', features: hits },
+      allData: { type: 'FeatureCollection', features: others },
+      matchCount: hits.length, recordCount: TREES_TOTAL, fieldCount: 3,
+      chip: 'Campus Trees', chipIcon: 'leaf', fieldName: 'CommonName',
+      intentDetail: <span>Intent <b>filter</b> · field <b>CommonName</b> · match <b>{speciesKey}</b></span>,
+      scanDetail: <span>Matched <b>Campus Trees</b> layer · filtering by <b>CommonName</b></span>,
+      filterDetail: <span>CommonName ⊃ <b>{speciesKey}</b> → <b style={{ color: T.green }}>{hits.length} match{hits.length !== 1 ? 'es' : ''}</b> of {TREES_TOTAL}</span>,
+      plotDetail: <span>Placing {hits.length} matched tree{hits.length !== 1 ? 's' : ''} · {others.length} context trees faded</span>,
+      table: { grid: '80px 1fr 100px', head: ['TreeID', 'CommonName', 'Condition'], hi: 1,
+        rows: hits.slice(0, 5).map((f) => { const p = f.properties; return {
+            cells: [String(p.OBJECTID), p.species, p.condition], hit: true }; }),
+        more: Math.max(0, hits.length - 5) },
+      legend: [{ color: T.green, label: <>{dname} <b style={{ fontFamily: 'JetBrains Mono,monospace' }}>({hits.length})</b></> },
+        { color: '#A89B86', label: 'Other trees', sub: true }],
+      legendSquare: false
+    };
+  }
   return {
-    kind: 'trees', unit: 'trees', title: 'Trees Planted in 2025',
+    // TODO:year_planted — restore: title 'Trees Planted in 2025', data: TREES_2025_GJ, matchCount: TREES_2025.length
+    kind: 'trees', unit: 'trees', title: 'Campus Tree Inventory',
     center: [-87.5955, 41.7935], zoom: 14.5,
-    data: TREES_2025_GJ,
-    allData: { type: 'FeatureCollection', features: TREES.features.filter((f) => f.properties.year_planted < 2025) },
-    matchCount: TREES_2025.length, recordCount: TREES_TOTAL, fieldCount: 6,
-    chip: 'Campus Trees', chipIcon: 'leaf', fieldName: 'year_planted',
-    intentDetail: <span>Intent <b>print map</b> · subject <b>trees</b> · time filter <b>last year (2025)</b></span>,
-    scanDetail: <span>Scanned 47 layers · matched the <b>Campus Trees</b> point layer</span>,
-    filterDetail: <span>Applying filter <b>year_planted = 2025</b> → <b style={{ color: T.green }}>{TREES_2025.length} matches</b></span>,
-    plotDetail: <span>Placing {TREES_2025.length} markers · generating title, legend, scale bar &amp; north arrow</span>,
-    table: { grid: '58px 1fr 116px 80px', head: ['OBJECTID', 'species', 'year_planted', 'condition'], hi: 2,
+    data: { type: 'FeatureCollection', features: TREES.features },
+    allData: null,
+    matchCount: TREES_TOTAL, recordCount: TREES_TOTAL, fieldCount: 3,
+    chip: 'Campus Trees', chipIcon: 'leaf', fieldName: 'CommonName',
+    intentDetail: <span>Intent <b>print map</b> · subject <b>trees</b> · layer <b>Campus Trees</b></span>,
+    scanDetail: <span>Matched the <b>Campus Trees</b> point layer · {TREES_TOTAL} features</span>,
+    filterDetail: <span>Fields <b>CommonName</b> · <b>Condition</b> · <b>TreeID</b> · <b style={{ color: T.amber }}>year_planted not yet available</b></span>,
+    plotDetail: <span>Placing {TREES_TOTAL} markers · generating title, legend, scale bar &amp; north arrow</span>,
+    table: { grid: '80px 1fr 100px', head: ['TreeID', 'CommonName', 'Condition'], hi: 1,
       rows: TREES.features.slice(0, 5).map((f) => {const p = f.properties;return {
-          cells: [String(p.OBJECTID), p.species, String(p.year_planted), p.condition], hit: p.year_planted === 2025 };}),
+          cells: [String(p.OBJECTID), p.species, p.condition], hit: false };}),
       more: TREES_TOTAL - 5 },
-    legend: [{ color: T.green, label: <>Planted 2025 <b style={{ fontFamily: 'JetBrains Mono,monospace' }}>({TREES_2025.length})</b></> },
-    { color: '#A89B86', label: 'Earlier plantings', sub: true }],
+    legend: [{ color: T.green, label: <>All trees <b style={{ fontFamily: 'JetBrains Mono,monospace' }}>({TREES_TOTAL})</b></> }],
     legendSquare: false
   };
 }
@@ -555,6 +698,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
     map.on('load', () => {
       const pop = new maplibregl.Popup({ offset: 12, closeButton: false });
       if (sc.kind === 'trees') {
+        if (sc.allData) {
         map.addSource('trees-old', { type: 'geojson', data: sc.allData });
         map.addLayer({ id: 'trees-old', type: 'circle', source: 'trees-old',
           paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 4.5],
@@ -573,6 +717,22 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
           const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
           pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">Planted ${p.year_planted} · ${p.dbh_in}" DBH · ${p.condition}</div><div class="pop-coord">OBJECTID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
         });
+        } else {
+          // all trees — no year-filter split, single green layer from sc.data
+          map.addSource('trees-all', { type: 'geojson', data: sc.data });
+          map.addLayer({ id: 'trees-all-halo', type: 'circle', source: 'trees-all',
+            paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 8, 17, 15],
+              'circle-color': T.green, 'circle-opacity': 0.14 } });
+          map.addLayer({ id: 'trees-all', type: 'circle', source: 'trees-all',
+            paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 3.5, 17, 7],
+              'circle-color': T.green, 'circle-stroke-color': '#FAF7F2', 'circle-stroke-width': 1.8 } });
+          map.on('mouseenter', 'trees-all', () => map.getCanvas().style.cursor = 'pointer');
+          map.on('mouseleave', 'trees-all', () => {map.getCanvas().style.cursor = '';pop.remove();});
+          map.on('click', 'trees-all', (e) => {
+            const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
+            pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">${p.condition}</div><div class="pop-coord">TreeID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+          });
+        }
       } else {
         map.addSource('bldg-all', { type: 'geojson', data: sc.allData });
         map.addLayer({ id: 'bldg-all-fill', type: 'fill', source: 'bldg-all',
@@ -861,7 +1021,7 @@ function makeSteps(sc) {
   if (sc.kind === 'sync') return [
   { icon: 'search', label: 'Interpreting your request', detail: sc.intentDetail },
   { icon: 'refresh', label: 'Checking the data pipeline', detail: <span>EventBridge daily trigger · <b>02:00 America/Chicago</b></span> },
-  { icon: 'cloud', label: 'Querying the source ArcGIS web map', chip: 'ArcGIS Online', chipIcon: 'cloud', detail: <span>webmap <b style={{ fontFamily: 'JetBrains Mono,monospace' }}>012f41f0…b66e</b> · 47 feature layers</span> },
+  { icon: 'cloud', label: 'Querying ArcGIS Feature Service', chip: 'ArcGIS Online', chipIcon: 'cloud', detail: <span>org <b style={{ fontFamily: 'JetBrains Mono,monospace' }}>ppFhFO7kjyIF441C</b> · 4 layers</span> },
   { icon: 'diff', label: 'Comparing against published GeoJSON', detail: <span>feature counts · attribute hashes · geometry checksums</span> },
   { icon: 'table', label: 'Reading the sync log', detail: <span>last <b>30</b> runs · 5 shown</span> }];
 
@@ -1082,7 +1242,7 @@ const SyncReport = ({ q, query, setQuery, onSubmit }) => {
         )}
       </div>
       <p style={{ fontSize: 12, color: T.inkLt, lineHeight: 1.6, borderTop: `1px solid ${T.ruleLt}`, paddingTop: 14, marginBottom: 18 }}>
-        Each night the agent pulls the source web map’s feature layers through the ArcGIS REST API, diffs them against the published GeoJSON on S3, and republishes only what changed — refreshing the CloudFront cache and logging a change summary. Suspected anomalies (coordinate drift, dropped fields, mass deletions) are <b style={{ color: T.amber }}>held for manual review</b> rather than published automatically. The web map stays your editing surface; nothing here writes back to it.
+        Each night the agent queries the ArcGIS Feature Service REST API, diffs the response against the published GeoJSON on S3, and republishes only what changed — refreshing the CloudFront cache and logging a change summary. Suspected anomalies (coordinate drift, dropped fields, mass deletions) are <b style={{ color: T.amber }}>held for manual review</b> rather than published automatically. The Feature Service remains the authoritative source; nothing here writes back to it.
       </p>
       <div style={{ position: 'relative', background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24, overflow: 'hidden' }}>
         {running && <div style={{ position: 'absolute', top: 0, left: 0, height: 2, background: T.maroon, animation: 'ccProgress 1.7s cubic-bezier(0.4,0,0.2,1) forwards' }} />}
@@ -1208,10 +1368,23 @@ const App = () => {
   const [digestSeen, setDigestSeen] = useState(false);
   const [toast, setToast] = useState(false);
 
-  // load building footprint GeoJSON once
+  // load building footprint GeoJSON — from S3 via manifest if CDN is set, else local
   useEffect(() => {
-    fetch('data/campus-buildings.geojson').then((r) => r.json()).then((gj) => {
-      // apply changes pulled from the source ArcGIS web map at the nightly sync
+    const loadBuildings = async () => {
+      let url = 'data/campus-buildings.geojson';
+      if (CAMPUSGEO_CDN) {
+        try {
+          const manifest = await fetch(`${CAMPUSGEO_CDN}/layers/manifest.json`).then(r => r.json());
+          const layer = manifest.layers.find(l => l.id === 'buildings');
+          if (layer) url = `${CAMPUSGEO_CDN}/${layer.file}`;
+        } catch (e) {
+          console.warn('CampusGeo: manifest fetch failed, falling back to local data', e);
+        }
+      }
+      return fetch(url).then(r => r.json());
+    };
+    loadBuildings().then((gj) => {
+      // apply changes pulled from the ArcGIS Feature Service at the nightly sync
       for (const u of SOURCE_UPDATES) {
         const f = gj.features.find((f) => (f.properties.BD_ID || '').trim() === u.bd);
         if (f) f.properties[u.field] = u.to;
@@ -1226,6 +1399,26 @@ const App = () => {
       } catch (err) {}
       setBuildings(gj);
     }).catch(() => {});
+    // load real trees from S3 via manifest; fall back silently to generated data
+    if (CAMPUSGEO_CDN) {
+      (async () => {
+        try {
+          const manifest = await fetch(`${CAMPUSGEO_CDN}/layers/manifest.json`).then(r => r.json());
+          const layer = manifest.layers.find(l => l.id === 'trees');
+          if (layer) {
+            const gj = await fetch(`${CAMPUSGEO_CDN}/${layer.file}`).then(r => r.json());
+            TREES = normalizeTrees(gj);
+            TREES_TOTAL = TREES.features.length;
+            // TODO:year_planted — restore filter once field is added to trees.geojson
+            TREES_2025 = TREES.features.filter(f =>
+              f.properties.year_planted != null ? f.properties.year_planted === 2025 : false);
+            TREES_2025_GJ = { type: 'FeatureCollection', features: TREES_2025 };
+          }
+        } catch (e) {
+          console.warn('CampusGeo: trees.geojson failed to load, using generated fallback', e);
+        }
+      })();
+    }
   }, []);
 
   // daily digest — greet with the latest sync's headline change on load
@@ -1248,10 +1441,41 @@ const App = () => {
   '抱歉，我无法识别您的请求。可以试试具体地点（如 "Keller Center"）、图层（如"去年种植的树木"）或属性筛选（如 "RI 大于 0.52"）。新的 GeoJSON 数据发布后将支持更多图层。'];
 
 
-  const submit = useCallback((override) => {
+  const submit = useCallback(async (override) => {
     const q = (typeof override === 'string' ? override : query).trim();
     if (!q) return;
     clearTimers();
+
+    // ── Real AWS Bedrock path ────────────────────────────────────────
+    if (CAMPUSGEO_API) {
+      setSubmitted(q); setQuery(''); setShown(0); setTraceDone(false); setPhase('thinking');
+      // animate reasoning steps while API processes
+      const cadence = [700, 1150, 1500, 1250, 1100];
+      let t = 400;
+      [0,1,2,3,4].forEach((i) => { timers.current.push(setTimeout(() => setShown(i + 1), t)); t += cadence[i]; });
+      try {
+        const res = await fetch(`${CAMPUSGEO_API}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q })
+        }).then(r => r.json());
+        const scenario = buildScenarioFromApi(res, q);
+        setSc(scenario); setTitle(scenario.title);
+        scaleAppliedRef.current = false; setScaleCmd(null);
+        timers.current.push(setTimeout(() => setTraceDone(true), 300));
+        timers.current.push(setTimeout(() => {
+          setPhase('composing');
+          timers.current.push(setTimeout(() => setFitCmd({ ts: Date.now() }), 350));
+        }, 750));
+      } catch (e) {
+        console.error('CampusGeo API error:', e);
+        setUnrecMsg('API request failed — check that your Lambda is deployed and CORS is configured on API Gateway.');
+        setPhase('unrecognized');
+      }
+      return;
+    }
+
+    // ── Client-side fallback (no API URL configured) ───────────────
     const scenario = buildScenario(q, buildings);
     if (!scenario || scenario.unrec) {
       setUnrecMsg(scenario && scenario.msg ? scenario.msg : null);

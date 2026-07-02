@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampusGeo — Fix Spec: Compound Queries</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F5F0E8;--paper-dk:#EDE6D8;--cream:#FAF7F2;
+  --ink:#2A2218;--ink-md:#5A5046;--ink-lt:#8C8070;--ink-xlt:#B5ADA0;
+  --maroon:#800000;--maroon-dk:#5A0000;--amber:#9A6F28;--amber-bg:rgba(176,120,48,0.10);
+  --green:#2E7D52;--green-bg:rgba(46,125,82,0.10);--red:#A03020;--red-bg:rgba(160,48,32,0.08);
+  --rule:#D8CFC0;--rule-lt:#E8E2D8;
+  --serif:'EB Garamond',Georgia,serif;
+  --sans:'Plus Jakarta Sans',sans-serif;
+  --mono:'JetBrains Mono',Menlo,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{-webkit-font-smoothing:antialiased;}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;}
+.sheet{max-width:1020px;margin:0 auto;padding:72px 64px 120px;}
+.mast{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:16px;}
+.mast-over{font-family:var(--mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-lt);margin-bottom:24px;display:flex;justify-content:space-between;}
+.mast h1{font-family:var(--serif);font-size:54px;font-weight:500;line-height:1.06;letter-spacing:-0.02em;}
+.mast h1 em{color:var(--maroon);font-style:italic;}
+.mast-sub{display:flex;justify-content:space-between;align-items:flex-end;margin-top:18px;gap:40px;}
+.mast-sub p{font-size:15.5px;color:var(--ink-md);max-width:56ch;line-height:1.55;}
+.mast-meta{font-family:var(--mono);font-size:10.5px;line-height:2;color:var(--ink-lt);text-align:right;white-space:nowrap;}
+.mast-meta b{color:var(--ink-md);font-weight:500;}
+.section{margin:56px 0 0;}
+.shead{display:flex;align-items:baseline;gap:14px;margin-bottom:6px;}
+.shead .num{font-family:var(--mono);font-size:12px;color:var(--maroon);}
+.shead h2{font-family:var(--serif);font-size:32px;font-weight:500;letter-spacing:-0.01em;}
+.rule{height:1px;background:var(--rule);margin:12px 0 20px;}
+.note{font-size:14.5px;color:var(--ink-md);max-width:70ch;margin-bottom:20px;line-height:1.62;}
+.note b{color:var(--ink);}
+.code{background:var(--ink);color:#E8E2D6;border-radius:10px;padding:24px 28px;font-family:var(--mono);font-size:12.5px;line-height:1.85;overflow-x:auto;margin:16px 0;}
+.code .k{color:#D4A84E;}.code .s{color:#A8C7A0;}.code .c{color:#6A7A68;}.code .t{color:#9CB8D8;}.code .p{color:#E08A7A;}.code .fn{color:#C8A8E8;}.code .r{color:#F0A060;}
+ic{display:inline;font-family:var(--mono);font-size:12.5px;color:var(--maroon-dk);background:var(--paper-dk);border-radius:3px;padding:1px 5px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0;}
+.diag{border:1px solid var(--rule);border-radius:10px;padding:22px 24px;background:var(--cream);}
+.diag.bad{border-color:rgba(160,48,32,0.3);background:var(--red-bg);}
+.diag.good{border-color:rgba(46,125,82,0.3);background:var(--green-bg);}
+.diag .lbl{font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;}
+.diag.bad .lbl{color:var(--red);}
+.diag.good .lbl{color:var(--green);}
+.diag p{font-size:13px;color:var(--ink-md);line-height:1.5;margin-bottom:7px;}
+.diag .q{font-family:var(--serif);font-style:italic;font-size:16px;color:var(--ink);margin-bottom:12px;}
+.diag code{font-family:var(--mono);font-size:11.5px;color:var(--ink);}
+.steps{counter-reset:step;margin:16px 0;}
+.step{position:relative;padding:0 0 22px 44px;border-left:1.5px solid var(--rule);margin-left:14px;}
+.step:last-child{border-left:1.5px solid transparent;}
+.step::before{counter-increment:step;content:counter(step);position:absolute;left:-14px;top:-2px;width:28px;height:28px;border-radius:50%;background:var(--maroon);color:#fff;font-family:var(--mono);font-size:12px;display:flex;align-items:center;justify-content:center;}
+.step h4{font-family:var(--serif);font-size:20px;font-weight:500;margin-bottom:5px;}
+.step p{font-size:13.5px;color:var(--ink-md);line-height:1.55;margin-bottom:8px;max-width:66ch;}
+.tag{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:0.06em;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:var(--paper-dk);color:var(--ink-md);margin-bottom:8px;}
+.tag.file{background:var(--amber-bg);color:var(--amber);}
+.foot{margin-top:72px;padding-top:20px;border-top:2px solid var(--ink);display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--ink-lt);}
+@media(max-width:800px){.sheet{padding:40px 24px 80px;}.grid2{grid-template-columns:1fr;}.mast-sub{flex-direction:column;}.mast h1{font-size:40px;}}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="mast">
+  <div class="mast-over">
+    <span>CampusGeo &middot; Backend Fix Spec</span>
+    <span>Spec 03 &middot; Compound Queries</span>
+  </div>
+  <h1>Compound<br><em>Filter + Proximity</em></h1>
+  <div class="mast-sub">
+    <p>&ldquo;Green ash trees near Regenstein&rdquo; needs a species filter <b>and</b> a spatial buffer in one query. Today the agent picks one tool and drops the other. This spec adds compound-query support to <ic>handler.js</ic>.</p>
+    <div class="mast-meta">
+      <b>ENVIRONMENT</b> &nbsp;Claude Code<br>
+      <b>FILE</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;campusgeo-lambda/handler.js<br>
+      <b>DEPLOY</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;update-function-code<br>
+      <b>SCOPE</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1 tool + 1 executor
+    </div>
+  </div>
+</header>
+
+<!-- The bug -->
+<section class="section">
+  <div class="shead"><span class="num">01</span><h2>The bug</h2></div>
+  <div class="rule"></div>
+  <div class="grid2">
+    <div class="diag bad">
+      <div class="lbl">&times; Today</div>
+      <div class="q">&ldquo;show me all green ash trees near Regenstein library&rdquo;</div>
+      <p>Bedrock sees two candidate tools &mdash; <code>filter_features</code> (species) and <code>features_within</code> (proximity) &mdash; and can only call <b>one</b>.</p>
+      <p>It picks <code>filter_features</code> &rarr; returns <b>every</b> green ash on campus. The &ldquo;near Regenstein&rdquo; half is silently dropped.</p>
+    </div>
+    <div class="diag good">
+      <div class="lbl">&check; Expected</div>
+      <div class="q">&ldquo;show me all green ash trees near Regenstein library&rdquo;</div>
+      <p>One tool runs <b>both</b> constraints: filter trees where <code>CommonName ⊃ "Ash-Green"</code>, then keep only those inside a buffer around Regenstein.</p>
+      <p>Result: the handful of green ash within ~150m of the Reg &mdash; not the whole campus.</p>
+    </div>
+  </div>
+  <p class="note">This is the general class of <b>compound spatial query</b>: attribute filter &times; spatial constraint. It recurs constantly (&ldquo;owned buildings near the Midway&rdquo;, &ldquo;poor-condition trees within 100m of Ellis&rdquo;), so fix it structurally, not case by case.</p>
+</section>
+
+<!-- Approach -->
+<section class="section">
+  <div class="shead"><span class="num">02</span><h2>Approach: extend features_within</h2></div>
+  <div class="rule"></div>
+  <p class="note">Two ways to solve this: (a) let the agent chain tools across turns, or (b) give <ic>features_within</ic> an optional <ic>filters</ic> parameter so one call does both. <b>Choose (b)</b> &mdash; it is one tool call, one round-trip, cheaper and more reliable than multi-turn tool chaining. The filter logic already exists in the <ic>filter_features</ic> executor; we reuse it.</p>
+</section>
+
+<!-- Change 1: tool schema -->
+<section class="section">
+  <div class="shead"><span class="num">03</span><h2>Change 1 &middot; Tool schema</h2></div>
+  <div class="rule"></div>
+  <span class="tag file">campusgeo-lambda/handler.js</span>
+  <p class="note">Add an optional <ic>filters</ic> array to the <ic>features_within</ic> tool spec. Same filter shape as <ic>filter_features</ic>, so Bedrock already knows how to fill it.</p>
+  <div class="code">
+{ toolSpec: { name: <span class="s">'features_within'</span>,<br>
+&nbsp;&nbsp;description: <span class="s">'Find features within a distance of an anchor location. Optionally filter</span><br>
+&nbsp;&nbsp;<span class="s">the results by attributes (species, condition, year, ownership) at the same time.</span><br>
+&nbsp;&nbsp;<span class="s">Use this for ANY query that combines a place ("near X", "within Nm of X") with a</span><br>
+&nbsp;&nbsp;<span class="s">feature description ("green ash trees", "owned buildings").'</span>,<br>
+&nbsp;&nbsp;inputSchema: { json: { type: <span class="s">'object'</span>, required: [<span class="s">'anchor_name'</span>,<span class="s">'distance_m'</span>], properties: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;anchor_name:  { type: <span class="s">'string'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;distance_m:   { type: <span class="s">'number'</span>, description: <span class="s">'Buffer radius in metres. Default 150 if unspecified.'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;target_layer: { type: <span class="s">'string'</span>, enum: [<span class="s">'buildings'</span>, <span class="s">'trees'</span>] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="r">filters:</span> { type: <span class="s">'array'</span>, description: <span class="s">'Optional attribute filters applied to results'</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;items: { type: <span class="s">'object'</span>, required: [<span class="s">'field'</span>,<span class="s">'op'</span>,<span class="s">'value'</span>], properties: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;field: {type:<span class="s">'string'</span>}, op: {type:<span class="s">'string'</span>, enum:[<span class="s">'eq'</span>,<span class="s">'neq'</span>,<span class="s">'gt'</span>,<span class="s">'lt'</span>,<span class="s">'between'</span>,<span class="s">'contains'</span>]}, value: {} }}},<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="r">match:</span> { type: <span class="s">'string'</span>, enum: [<span class="s">'all'</span>, <span class="s">'any'</span>], description: <span class="s">'How to combine filters. Default all.'</span> }<br>
+&nbsp;&nbsp;}}}}},
+  </div>
+</section>
+
+<!-- Change 2: executor -->
+<section class="section">
+  <div class="shead"><span class="num">04</span><h2>Change 2 &middot; Executor</h2></div>
+  <div class="rule"></div>
+  <span class="tag file">campusgeo-lambda/handler.js &middot; executeIntent()</span>
+  <p class="note">In the <ic>case 'features_within'</ic> branch, after building the buffer and collecting features inside it, apply the same filter predicate used by <ic>filter_features</ic>. Extract that predicate into a shared helper so both tools call it.</p>
+  <div class="code">
+<span class="c">// ── Shared filter predicate (hoist to module scope; used by both tools) ──</span><br>
+<span class="k">function</span> <span class="fn">matchesFilters</span>(<span class="p">props</span>, <span class="p">filters</span>, <span class="p">match</span>) {<br>
+&nbsp;&nbsp;<span class="k">if</span> (!<span class="p">filters</span> || !<span class="p">filters</span>.length) <span class="k">return</span> <span class="k">true</span>;<br>
+&nbsp;&nbsp;<span class="k">const</span> results = <span class="p">filters</span>.map((flt) =&gt; {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> v = <span class="p">props</span>[flt.field];<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">switch</span> (flt.op) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'eq'</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> String(v).toLowerCase() === String(flt.value).toLowerCase();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'neq'</span>:&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> String(v).toLowerCase() !== String(flt.value).toLowerCase();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'gt'</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> +v &gt; +flt.value;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'lt'</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> +v &lt; +flt.value;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'contains'</span>: <span class="k">return</span> String(v||<span class="s">''</span>).toLowerCase().includes(String(flt.value).toLowerCase());<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'between'</span>:&nbsp;&nbsp;<span class="k">return</span> +v &gt;= flt.value[<span class="t">0</span>] &amp;&amp; +v &lt;= flt.value[<span class="t">1</span>];<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">default</span>:&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> <span class="k">true</span>;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;});<br>
+&nbsp;&nbsp;<span class="k">return</span> <span class="p">match</span> === <span class="s">'any'</span> ? results.some(Boolean) : results.every(Boolean);<br>
+}<br>
+<br>
+<span class="c">// ── In case 'features_within': ──────────────────────────────────────────</span><br>
+<span class="k">case</span> <span class="s">'features_within'</span>: {<br>
+&nbsp;&nbsp;<span class="k">const</span> anchor = <span class="fn">findByName</span>(buildings.features, input.anchor_name);<br>
+&nbsp;&nbsp;<span class="k">if</span> (!anchor) <span class="k">return</span> { answer: <span class="s">`Could not find "${input.anchor_name}".`</span>, features: <span class="k">null</span>, mapAction: <span class="k">null</span> };<br>
+&nbsp;&nbsp;<span class="k">const</span> pt&nbsp;&nbsp;= turf.<span class="fn">centroid</span>(anchor);<br>
+&nbsp;&nbsp;<span class="k">const</span> radius = input.distance_m || <span class="t">150</span>;&nbsp;&nbsp;<span class="c">// sensible default</span><br>
+&nbsp;&nbsp;<span class="k">const</span> buf = turf.<span class="fn">buffer</span>(pt, radius / <span class="t">1000</span>, { units: <span class="s">'kilometers'</span> });<br>
+&nbsp;&nbsp;<span class="k">const</span> tgt = input.target_layer === <span class="s">'trees'</span> ? trees : buildings;<br>
+<br>
+&nbsp;&nbsp;<span class="k">const</span> hits = tgt.features<br>
+&nbsp;&nbsp;&nbsp;&nbsp;.filter((f) =&gt; turf.<span class="fn">booleanPointInPolygon</span>(turf.<span class="fn">centroid</span>(f), buf))&nbsp;&nbsp;<span class="c">// spatial</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;.filter((f) =&gt; <span class="fn">matchesFilters</span>(f.properties, input.filters, input.match));&nbsp;<span class="c">// attribute</span><br>
+<br>
+&nbsp;&nbsp;<span class="k">const</span> desc = (input.filters &amp;&amp; input.filters.length)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;? input.filters.map((f) =&gt; <span class="s">`${f.field} ${f.op} ${f.value}`</span>).join(<span class="s">', '</span>)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;: (input.target_layer || <span class="s">'features'</span>);<br>
+<br>
+&nbsp;&nbsp;<span class="k">return</span> {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;answer: <span class="s">`${hits.length} ${input.target_layer||'features'} within ${radius}m of ${nameOf(anchor)}${(input.filters&amp;&amp;input.filters.length)?` matching ${desc}`:''}.`</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;features: { type: <span class="s">'FeatureCollection'</span>, features: hits },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;mapAction: { type: <span class="s">'buffer'</span>, center: pt.geometry.coordinates, radiusM: radius }<br>
+&nbsp;&nbsp;};<br>
+}
+  </div>
+  <p class="note"><b>Refactor note:</b> the existing <ic>case 'filter_features'</ic> branch has this same switch inline &mdash; replace it with a call to <ic>matchesFilters(f.properties, input.filters, input.match)</ic> so there is one source of truth.</p>
+</section>
+
+<!-- Change 3: system prompt -->
+<section class="section">
+  <div class="shead"><span class="num">05</span><h2>Change 3 &middot; System prompt</h2></div>
+  <div class="rule"></div>
+  <span class="tag file">campusgeo-lambda/handler.js &middot; SYSTEM</span>
+  <p class="note">Add one line so Bedrock reliably reaches for the compound tool. Append to the existing system prompt:</p>
+  <div class="code">
+<span class="c">// append to SYSTEM string:</span><br>
+<span class="s">`<br>
+When a query combines a LOCATION ("near X", "within N metres of X", "around X")<br>
+with a feature description ("green ash trees", "owned buildings", "trees in poor<br>
+condition"), you MUST call features_within with BOTH distance and the filters array.<br>
+Do not call filter_features for these — it ignores location and returns the whole campus.<br>
+Species live in CommonName as "Type-Variety" (e.g. green ash = "Ash-Green",<br>
+use op "contains" with value "Ash-Green"). Default distance_m to 150 if unstated.`</span>
+  </div>
+</section>
+
+<!-- Species reference -->
+<section class="section">
+  <div class="shead"><span class="num">06</span><h2>Species naming reference</h2></div>
+  <div class="rule"></div>
+  <p class="note">The <ic>CommonName</ic> field stores species as <ic>Type-Variety</ic>. Users say them the other way round. Bedrock handles most of this, but if matching is unreliable, embed this mapping in the system prompt or a lookup. Confirm exact strings against your real <ic>trees.geojson</ic>.</p>
+  <div class="code">
+<span class="c">// user phrase           → CommonName contains</span><br>
+<span class="s">"green ash"</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr; <span class="s">"Ash-Green"</span><br>
+<span class="s">"norway maple"</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr; <span class="s">"Maple-Norway"</span><br>
+<span class="s">"littleleaf linden"</span>&nbsp;&rarr; <span class="s">"Linden-Littleleaf"</span><br>
+<span class="s">"honey locust"</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr; <span class="s">"Locust-Honey"</span><br>
+<span class="s">"red oak"</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr; <span class="s">"Oak-"</span> (Red / Northern)<br>
+<span class="c">// Verify: pull unique CommonName values from trees.geojson before shipping.</span>
+  </div>
+</section>
+
+<!-- Test + deploy -->
+<section class="section">
+  <div class="shead"><span class="num">07</span><h2>Test &amp; deploy</h2></div>
+  <div class="rule"></div>
+  <div class="steps">
+    <div class="step">
+      <h4>Repackage &amp; deploy</h4>
+      <p>From <ic>campusgeo-lambda/</ic>, rezip with node_modules and push:</p>
+      <div class="code" style="margin-top:6px;">
+Compress-Archive -Path handler.js,node_modules -DestinationPath campusgeo-lambda.zip -Force<br>
+<br>
+aws lambda update-function-code `<br>
+&nbsp;&nbsp;--function-name campusgeo-query `<br>
+&nbsp;&nbsp;--zip-file fileb://campusgeo-lambda.zip `<br>
+&nbsp;&nbsp;--region us-east-1 --profile campusgeo-deployer
+      </div>
+    </div>
+    <div class="step">
+      <h4>Verify the compound case</h4>
+      <p>The query that was broken should now scope to the buffer:</p>
+      <div class="code" style="margin-top:6px;">
+Invoke-RestMethod -Uri <span class="s">"https://blfi6fqdnc.execute-api.us-east-1.amazonaws.com/query"</span> `<br>
+&nbsp;&nbsp;-Method Post -ContentType <span class="s">"application/json"</span> `<br>
+&nbsp;&nbsp;-Body <span class="s">'{"q":"show me all green ash trees near Regenstein library"}'</span><br>
+<br>
+<span class="c"># Expect: intent = features_within, a small count (not all campus green ash),</span><br>
+<span class="c"># mapAction.type = "buffer" with a center + radiusM.</span>
+      </div>
+    </div>
+    <div class="step">
+      <h4>Regression check</h4>
+      <p>Confirm the simple cases still work: <ic>"show me all linden trees"</ic> (pure filter, no buffer) and <ic>"buildings near the Midway"</ic> (pure proximity, no filter). Both should behave exactly as before.</p>
+    </div>
+    <div class="step">
+      <h4>Commit</h4>
+      <p>This is backend code &mdash; it lives in Git. Commit in Claude Code, don&rsquo;t just deploy:</p>
+      <div class="code" style="margin-top:6px;">
+git add campusgeo-lambda/handler.js<br>
+git commit -m <span class="s">"Support compound filter+proximity queries in features_within"</span><br>
+git push origin master
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <span>CampusGeo &middot; Fix Spec 03</span>
+  <span>Compound queries &middot; filter &times; proximity</span>
+  <span>Home: Claude Code &middot; handler.js</span>
+</footer>
+</div>
+</body>
+</html>

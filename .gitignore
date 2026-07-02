@@ -53,3 +53,6 @@ gis_output/
 # Python
 __pycache__/
 *.pyc
+*.zip
+response.json
+test-event.json

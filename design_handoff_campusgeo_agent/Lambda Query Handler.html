@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampusGeo — Lambda Query Handler Spec</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F5F0E8;--paper-dk:#EDE6D8;--cream:#FAF7F2;
+  --ink:#2A2218;--ink-md:#5A5046;--ink-lt:#8C8070;--ink-xlt:#B5ADA0;
+  --maroon:#800000;--maroon-dk:#5A0000;--amber:#9A6F28;--amber-bg:rgba(176,120,48,0.10);
+  --green:#2E7D52;--green-bg:rgba(46,125,82,0.10);
+  --rule:#D8CFC0;--rule-lt:#E8E2D8;
+  --serif:'EB Garamond',Georgia,serif;
+  --sans:'Plus Jakarta Sans',sans-serif;
+  --mono:'JetBrains Mono',Menlo,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{-webkit-font-smoothing:antialiased;}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;}
+.sheet{max-width:1020px;margin:0 auto;padding:72px 64px 120px;}
+.mast{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:16px;}
+.mast-over{font-family:var(--mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-lt);margin-bottom:24px;display:flex;justify-content:space-between;}
+.mast h1{font-family:var(--serif);font-size:54px;font-weight:500;line-height:1.06;letter-spacing:-0.02em;}
+.mast h1 em{color:var(--maroon);font-style:italic;}
+.mast-sub{display:flex;justify-content:space-between;align-items:flex-end;margin-top:18px;gap:40px;}
+.mast-sub p{font-size:15.5px;color:var(--ink-md);max-width:54ch;line-height:1.55;}
+.mast-meta{font-family:var(--mono);font-size:10.5px;line-height:2;color:var(--ink-lt);text-align:right;}
+.mast-meta b{color:var(--ink-md);font-weight:500;}
+.section{margin:56px 0 0;}
+.shead{display:flex;align-items:baseline;gap:14px;margin-bottom:6px;}
+.shead .num{font-family:var(--mono);font-size:12px;color:var(--maroon);}
+.shead h2{font-family:var(--serif);font-size:32px;font-weight:500;letter-spacing:-0.01em;}
+.rule{height:1px;background:var(--rule);margin:12px 0 20px;}
+.note{font-size:14.5px;color:var(--ink-md);max-width:68ch;margin-bottom:24px;line-height:1.6;}
+/* code blocks */
+.code{background:var(--ink);color:#E8E2D6;border-radius:10px;padding:24px 28px;font-family:var(--mono);font-size:12.5px;line-height:1.85;overflow-x:auto;margin:16px 0;}
+.code .k{color:#D4A84E;}     /* keyword / property name */
+.code .s{color:#A8C7A0;}     /* string */
+.code .c{color:#6A7A68;}     /* comment */
+.code .t{color:#9CB8D8;}     /* type / number */
+.code .p{color:#E08A7A;}     /* param / variable */
+.code .fn{color:#C8A8E8;}    /* function name */
+.code .r{color:#F0A060;}     /* return / important */
+/* inline code */
+ic{display:inline;font-family:var(--mono);font-size:12.5px;color:var(--maroon-dk);background:var(--paper-dk);border-radius:3px;padding:1px 5px;}
+/* two-col grid */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:20px;}
+.card{background:var(--cream);border:1px solid var(--rule);border-radius:10px;padding:22px 24px;}
+.card h4{font-family:var(--serif);font-size:21px;font-weight:500;margin-bottom:10px;}
+.card p{font-size:13.5px;color:var(--ink-md);line-height:1.55;}
+.card .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-lt);margin-bottom:8px;}
+/* flow strip */
+.flow{display:flex;align-items:stretch;border:1px solid var(--rule);border-radius:10px;overflow:hidden;margin:20px 0;}
+.flow-step{flex:1;padding:18px 20px;border-left:1px solid var(--rule);background:var(--cream);}
+.flow-step:first-child{border-left:none;}
+.flow-step .n{font-family:var(--mono);font-size:10px;color:var(--ink-xlt);letter-spacing:0.1em;}
+.flow-step h4{font-family:var(--serif);font-size:19px;font-weight:500;margin:5px 0 4px;}
+.flow-step p{font-size:12.5px;color:var(--ink-md);line-height:1.45;}
+.flow-step.hot{background:var(--maroon);}
+.flow-step.hot .n,.flow-step.hot h4,.flow-step.hot p{color:rgba(255,255,255,0.9);}
+.flow-step.hot h4{color:#fff;}
+/* table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;}
+.tbl th{font-family:var(--mono);font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-lt);padding:8px 12px;border-bottom:2px solid var(--rule);text-align:left;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--rule-lt);vertical-align:top;}
+.tbl td:first-child{font-family:var(--mono);font-size:12px;color:var(--maroon-dk);}
+.tbl tr:last-child td{border-bottom:none;}
+/* phase badge */
+.badge{display:inline-block;font-family:var(--mono);font-size:10.5px;border-radius:4px;padding:2px 7px;}
+.badge.p1{background:var(--green-bg);color:var(--green);}
+.badge.p3{background:var(--amber-bg);color:var(--amber);}
+.foot{margin-top:72px;padding-top:20px;border-top:2px solid var(--ink);display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--ink-lt);}
+@media(max-width:800px){.sheet{padding:40px 24px 80px;}.grid2{grid-template-columns:1fr;}.flow{flex-direction:column;}.flow-step{border-left:none;border-top:1px solid var(--rule);}.mast-sub{flex-direction:column;}.mast h1{font-size:40px;}}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="mast">
+  <div class="mast-over">
+    <span>CampusGeo &middot; Developer Handoff</span>
+    <span>Specification 02 &middot; Lambda Query Handler</span>
+  </div>
+  <h1>The <em>Real</em> Query<br>Handler</h1>
+  <div class="mast-sub">
+    <p>A complete AWS Lambda function that replaces the prototype&rsquo;s client-side <ic>buildScenario()</ic> with genuine intent classification via AWS Bedrock + Claude, spatial queries via Turf.js over S3-hosted GeoJSON.</p>
+    <div class="mast-meta">
+      <b>RUNTIME</b> &nbsp;&nbsp;Node 20.x (Lambda)<br>
+      <b>LLM</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;AWS Bedrock · Claude 3.5 Sonnet<br>
+      <b>SPATIAL</b> &nbsp;&nbsp;@turf/turf &middot; S3 GeoJSON<br>
+      <b>TRIGGER</b> &nbsp;&nbsp;API Gateway HTTP API (POST /query)
+    </div>
+  </div>
+</header>
+
+<!-- Flow -->
+<section class="section">
+  <div class="shead"><span class="num">00</span><h2>Request flow</h2></div>
+  <div class="rule"></div>
+  <div class="flow">
+    <div class="flow-step"><div class="n">01 / BROWSER</div><h4>fetch POST /query</h4><p><ic>{ q: "linden trees near Crerar" }</ic> from print-flow.html</p></div>
+    <div class="flow-step hot"><div class="n">02 / LAMBDA</div><h4>Bedrock tool use</h4><p>Claude classifies intent &rarr; selects tool &rarr; fills input_schema</p></div>
+    <div class="flow-step"><div class="n">03 / LAMBDA</div><h4>S3 + Turf.js</h4><p>Load GeoJSON (/tmp cache) &rarr; filter / buffer / rank</p></div>
+    <div class="flow-step"><div class="n">04 / BROWSER</div><h4>Editorial answer</h4><p><ic>{ answer, features, mapAction, intent }</ic> drives the UI</p></div>
+  </div>
+</section>
+
+<!-- API contract -->
+<section class="section">
+  <div class="shead"><span class="num">01</span><h2>API contract</h2></div>
+  <div class="rule"></div>
+  <p class="note">The frontend sends one field. The Lambda returns four. Keep this shape stable — the frontend maps it to the scenario format.</p>
+  <div class="grid2">
+    <div>
+      <div class="code">
+<span class="c">// POST /query — request</span><br>
+{<br>
+&nbsp;&nbsp;<span class="k">"q"</span>: <span class="s">"linden trees near Crerar"</span><br>
+}
+      </div>
+    </div>
+    <div>
+      <div class="code">
+<span class="c">// 200 OK — response</span><br>
+{<br>
+&nbsp;&nbsp;<span class="k">"answer"</span>:&nbsp;&nbsp;&nbsp;<span class="s">"14 Littleleaf Linden trees within 150m of Crerar."</span>,<br>
+&nbsp;&nbsp;<span class="k">"intent"</span>:&nbsp;&nbsp;&nbsp;<span class="s">"features_within"</span>,<br>
+&nbsp;&nbsp;<span class="k">"features"</span>: <span class="t">FeatureCollection</span> <span class="c">| null</span>,<br>
+&nbsp;&nbsp;<span class="k">"mapAction"</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"type"</span>: <span class="s">"buffer"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"center"</span>: [<span class="t">-87.6014</span>, <span class="t">41.7922</span>],<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"radiusM"</span>: <span class="t">150</span><br>
+&nbsp;&nbsp;},<br>
+&nbsp;&nbsp;<span class="k">"meta"</span>: { <span class="k">"count"</span>: <span class="t">14</span> }<br>
+}
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Handler code -->
+<section class="section">
+  <div class="shead"><span class="num">02</span><h2>Lambda handler</h2></div>
+  <div class="rule"></div>
+  <p class="note">File: <ic>backend/lambdas/query/handler.ts</ic>. Deploy with AWS SAM or CDK. Set env var <ic>GEODATA_BUCKET=campusgeo-geodata-491117467175</ic>.</p>
+
+  <div class="code">
+<span class="c">// backend/lambdas/query/handler.ts</span><br>
+<span class="k">import</span> { BedrockRuntimeClient, ConverseCommand } <span class="k">from</span> <span class="s">'@aws-sdk/client-bedrock-runtime'</span>;<br>
+<span class="k">import</span> { S3Client, GetObjectCommand } <span class="k">from</span> <span class="s">'@aws-sdk/client-s3'</span>;<br>
+<span class="k">import</span> * <span class="k">as</span> turf <span class="k">from</span> <span class="s">'@turf/turf'</span>;<br>
+<span class="k">import</span> * <span class="k">as</span> fs <span class="k">from</span> <span class="s">'fs'</span>;<br>
+<br>
+<span class="k">const</span> bedrock = <span class="k">new</span> <span class="fn">BedrockRuntimeClient</span>({ region: <span class="s">'us-east-1'</span> });<br>
+<span class="k">const</span> s3 = <span class="k">new</span> <span class="fn">S3Client</span>({ region: <span class="s">'us-east-1'</span> });<br>
+<span class="k">const</span> BUCKET = process.env.GEODATA_BUCKET ?? <span class="s">'campusgeo-geodata-491117467175'</span>;<br>
+<span class="k">const</span> MODEL  = <span class="s">'anthropic.claude-3-5-sonnet-20241022-v2:0'</span>;<br>
+<br>
+<span class="c">// ── GeoJSON cache (warm Lambda reuses /tmp) ──────────────────────</span><br>
+<span class="k">const</span> memCache: Record&lt;string, <span class="k">any</span>&gt; = {};<br>
+<span class="k">async function</span> <span class="fn">loadLayer</span>(<span class="p">key</span>: string): Promise&lt;<span class="k">any</span>&gt; {<br>
+&nbsp;&nbsp;<span class="k">if</span> (memCache[<span class="p">key</span>]) <span class="k">return</span> memCache[<span class="p">key</span>];<br>
+&nbsp;&nbsp;<span class="k">const</span> tmp = <span class="s">`/tmp/${</span><span class="p">key</span>.replace(/\//g, <span class="s">'_'</span>)<span class="s">}`</span>;<br>
+&nbsp;&nbsp;<span class="k">if</span> (fs.existsSync(tmp)) { memCache[<span class="p">key</span>] = JSON.parse(fs.readFileSync(tmp, <span class="s">'utf8'</span>)); <span class="k">return</span> memCache[<span class="p">key</span>]; }<br>
+&nbsp;&nbsp;<span class="k">const</span> res = <span class="k">await</span> s3.send(<span class="k">new</span> <span class="fn">GetObjectCommand</span>({ Bucket: BUCKET, Key: <span class="p">key</span> }));<br>
+&nbsp;&nbsp;<span class="k">const</span> body = <span class="k">await</span> res.Body!.<span class="fn">transformToString</span>();<br>
+&nbsp;&nbsp;fs.<span class="fn">writeFileSync</span>(tmp, body); memCache[<span class="p">key</span>] = JSON.<span class="fn">parse</span>(body);<br>
+&nbsp;&nbsp;<span class="k">return</span> memCache[<span class="p">key</span>];<br>
+}<br>
+<br>
+<span class="c">// ── Tool definitions (from Intent Taxonomy spec) ──────────────────</span><br>
+<span class="k">const</span> TOOLS = [<br>
+&nbsp;&nbsp;{ toolSpec: { name: <span class="s">'locate_feature'</span>, description: <span class="s">'Find one named building or place and center the map on it.'</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inputSchema: { json: { type: <span class="s">'object'</span>, required: [<span class="s">'name'</span>], properties: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;name:  { type: <span class="s">'string'</span>, description: <span class="s">'Building name or known alias'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;layer: { type: <span class="s">'string'</span>, enum: [<span class="s">'buildings'</span>, <span class="s">'trees'</span>] } }}}}},<br>
+<br>
+&nbsp;&nbsp;{ toolSpec: { name: <span class="s">'filter_features'</span>, description: <span class="s">'Return features matching attribute predicates (year, architect, ownership, species, condition).'</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inputSchema: { json: { type: <span class="s">'object'</span>, required: [<span class="s">'layer'</span>, <span class="s">'filters'</span>], properties: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;layer:   { type: <span class="s">'string'</span>, enum: [<span class="s">'buildings'</span>, <span class="s">'trees'</span>] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;filters: { type: <span class="s">'array'</span>, items: { type: <span class="s">'object'</span>, required: [<span class="s">'field'</span>,<span class="s">'op'</span>,<span class="s">'value'</span>],<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;properties: { field: {type:<span class="s">'string'</span>}, op: {type:<span class="s">'string'</span>, enum:[<span class="s">'eq'</span>,<span class="s">'neq'</span>,<span class="s">'gt'</span>,<span class="s">'lt'</span>,<span class="s">'between'</span>,<span class="s">'contains'</span>]}, value: {} }}},<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;match: { type: <span class="s">'string'</span>, enum: [<span class="s">'all'</span>, <span class="s">'any'</span>] } }}}}},<br>
+<br>
+&nbsp;&nbsp;{ toolSpec: { name: <span class="s">'features_within'</span>, description: <span class="s">'Find features within a distance of an anchor location. Use for proximity queries.'</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inputSchema: { json: { type: <span class="s">'object'</span>, required: [<span class="s">'anchor_name'</span>,<span class="s">'distance_m'</span>], properties: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;anchor_name:  { type: <span class="s">'string'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;distance_m:   { type: <span class="s">'number'</span>, description: <span class="s">'Buffer radius in metres'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;target_layer: { type: <span class="s">'string'</span>, enum: [<span class="s">'buildings'</span>, <span class="s">'trees'</span>] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;mode:         { type: <span class="s">'string'</span>, enum: [<span class="s">'within'</span>, <span class="s">'nearest_k'</span>] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;k:            { type: <span class="s">'number'</span> } }}}}},<br>
+<br>
+&nbsp;&nbsp;{ toolSpec: { name: <span class="s">'aggregate_features'</span>, description: <span class="s">'Count, sum, or average a numeric field. Optionally group by a dimension.'</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inputSchema: { json: { type: <span class="s">'object'</span>, required: [<span class="s">'metric'</span>,<span class="s">'layer'</span>], properties: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;metric:   { type: <span class="s">'string'</span>, enum: [<span class="s">'count'</span>,<span class="s">'sum'</span>,<span class="s">'avg'</span>,<span class="s">'min'</span>,<span class="s">'max'</span>] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;field:    { type: <span class="s">'string'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;group_by: { type: <span class="s">'string'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;layer:    { type: <span class="s">'string'</span>, enum: [<span class="s">'buildings'</span>, <span class="s">'trees'</span>] } }}}}},<br>
+<br>
+&nbsp;&nbsp;{ toolSpec: { name: <span class="s">'rank_features'</span>, description: <span class="s">'Return top-N features sorted by a field (tallest, oldest, largest, highest FCI).'</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inputSchema: { json: { type: <span class="s">'object'</span>, required: [<span class="s">'sort_field'</span>,<span class="s">'layer'</span>], properties: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;sort_field: { type: <span class="s">'string'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;direction:  { type: <span class="s">'string'</span>, enum: [<span class="s">'desc'</span>,<span class="s">'asc'</span>] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;limit:      { type: <span class="s">'number'</span> },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;layer:      { type: <span class="s">'string'</span>, enum: [<span class="s">'buildings'</span>,<span class="s">'trees'</span>] } }}}}}];<br>
+<br>
+<span class="c">// ── System prompt ─────────────────────────────────────────────────</span><br>
+<span class="k">const</span> SYSTEM = <span class="s">`You are CampusGeo, a spatial intelligence assistant for the University of Chicago campus.<br>
+You have access to two layers:<br>
+- buildings: 308 footprints. Key fields: DISCRIPT1 (name), BD_ID, Year_Completed, BLDG_HGT,<br>
+&nbsp;&nbsp;Gross_Area__s_f__, PROPERTY_S (Owned/Leased), FCI__ (0=good, &gt;0.30=poor), Elevator, Architects, ADDRESS.<br>
+- trees: Campus tree inventory. Fields: TreeID, CommonName (format "Type-Variety", e.g. "Linden-Littleleaf"),<br>
+&nbsp;&nbsp;Condition. NOTE: year_planted field not yet populated — do not filter by it.<br>
+Always call a tool. Respond in the same language as the user (English or Chinese).<br>
+Never invent data. If a query is out of scope, call filter_features with an empty filters array<br>
+and set layer to "buildings" — the answer field will explain the limitation.`</span>;<br>
+<br>
+<span class="c">// ── Main handler ──────────────────────────────────────────────────</span><br>
+<span class="k">export const</span> <span class="fn">handler</span> = <span class="k">async</span> (event: <span class="k">any</span>) =&gt; {<br>
+&nbsp;&nbsp;<span class="k">const</span> { q = <span class="s">''</span> } = JSON.<span class="fn">parse</span>(event.body || <span class="s">'{}'</span>);<br>
+&nbsp;&nbsp;<span class="k">if</span> (!q.trim()) <span class="k">return</span> respond(<span class="t">400</span>, { error: <span class="s">'q is required'</span> });<br>
+<br>
+&nbsp;&nbsp;<span class="c">// Load layers (parallel, cached in /tmp on warm invocations)</span><br>
+&nbsp;&nbsp;<span class="k">const</span> [buildings, trees] = <span class="k">await</span> Promise.<span class="fn">all</span>([<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">loadLayer</span>(<span class="s">'layers/buildings.geojson'</span>),<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">loadLayer</span>(<span class="s">'layers/trees.geojson'</span>),<br>
+&nbsp;&nbsp;]);<br>
+<br>
+&nbsp;&nbsp;<span class="c">// Ask Bedrock to classify intent and extract parameters</span><br>
+&nbsp;&nbsp;<span class="k">const</span> converse = <span class="k">await</span> bedrock.<span class="fn">send</span>(<span class="k">new</span> <span class="fn">ConverseCommand</span>({<br>
+&nbsp;&nbsp;&nbsp;&nbsp;modelId: MODEL,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;system: [{ text: SYSTEM }],<br>
+&nbsp;&nbsp;&nbsp;&nbsp;messages: [{ role: <span class="s">'user'</span>, content: [{ text: q }] }],<br>
+&nbsp;&nbsp;&nbsp;&nbsp;toolConfig: { tools: TOOLS, toolChoice: { auto: {} } },<br>
+&nbsp;&nbsp;}));<br>
+<br>
+&nbsp;&nbsp;<span class="k">const</span> toolUse = converse.output?.message?.content?.find((c: <span class="k">any</span>) =&gt; c.toolUse)?.toolUse;<br>
+&nbsp;&nbsp;<span class="k">if</span> (!toolUse) <span class="k">return</span> respond(<span class="t">200</span>, { answer: <span class="s">'I could not understand that query.'</span>, features: <span class="k">null</span>, mapAction: <span class="k">null</span> });<br>
+<br>
+&nbsp;&nbsp;<span class="k">const</span> result = <span class="k">await</span> <span class="fn">executeIntent</span>(toolUse.name, toolUse.input, buildings, trees);<br>
+&nbsp;&nbsp;<span class="k">return</span> respond(<span class="t">200</span>, { ...result, intent: toolUse.name });<br>
+};<br>
+<br>
+<span class="c">// ── Intent executors ──────────────────────────────────────────────</span><br>
+<span class="k">async function</span> <span class="fn">executeIntent</span>(<span class="p">tool</span>: string, <span class="p">input</span>: <span class="k">any</span>, <span class="p">buildings</span>: <span class="k">any</span>, <span class="p">trees</span>: <span class="k">any</span>) {<br>
+&nbsp;&nbsp;<span class="k">const</span> <span class="fn">layer</span> = () =&gt; <span class="p">input</span>.layer === <span class="s">'trees'</span> ? <span class="p">trees</span> : <span class="p">buildings</span>;<br>
+&nbsp;&nbsp;<span class="k">const</span> <span class="fn">nameOf</span> = (f: <span class="k">any</span>) =&gt; (f.properties.DISCRIPT1 || f.properties.CommonName || <span class="s">''</span>).trim();<br>
+&nbsp;&nbsp;<span class="k">const</span> <span class="fn">findByName</span> = (feats: <span class="k">any</span>[], q: string) =&gt; feats.find(f =&gt;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;[f.properties.DISCRIPT1, f.properties.CommonName, f.properties.OtherNames, f.properties.ADDRESS]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;.some(v =&gt; v &amp;&amp; v.toLowerCase().includes(q.toLowerCase())));<br>
+<br>
+&nbsp;&nbsp;<span class="k">switch</span> (<span class="p">tool</span>) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'locate_feature'</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> hit = <span class="fn">findByName</span>(<span class="fn">layer</span>().features, <span class="p">input</span>.name);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">if</span> (!hit) <span class="k">return</span> { answer: <span class="s">`No feature named "${</span><span class="p">input</span>.name<span class="s">}" found.`</span>, features: <span class="k">null</span>, mapAction: <span class="k">null</span> };<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> { answer: <span class="s">`${</span><span class="fn">nameOf</span>(hit)<span class="s">} is at ${hit.properties.ADDRESS || 'campus'}.`</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;features: { type: <span class="s">'FeatureCollection'</span>, features: [hit] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;mapAction: { type: <span class="s">'locate'</span>, center: [hit.properties.Lon, hit.properties.Lat], zoom: <span class="t">17</span> } };<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'filter_features'</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> hits = <span class="fn">layer</span>().features.filter((f: <span class="k">any</span>) =&gt; {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> results = (<span class="p">input</span>.filters || []).map((flt: <span class="k">any</span>) =&gt; {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> v = f.properties[flt.field];<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">switch</span> (flt.op) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'eq'</span>:      <span class="k">return</span> String(v).toLowerCase() === String(flt.value).toLowerCase();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'neq'</span>:     <span class="k">return</span> String(v).toLowerCase() !== String(flt.value).toLowerCase();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'gt'</span>:      <span class="k">return</span> +v &gt; +flt.value;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'lt'</span>:      <span class="k">return</span> +v &lt; +flt.value;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'contains'</span>: <span class="k">return</span> String(v||<span class="s">''</span>).toLowerCase().includes(String(flt.value).toLowerCase());<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'between'</span>:  <span class="k">return</span> +v &gt;= flt.value[<span class="t">0</span>] &amp;&amp; +v &lt;= flt.value[<span class="t">1</span>];<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">default</span>: <span class="k">return</span> <span class="k">true</span>;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;});<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> <span class="p">input</span>.match === <span class="s">'any'</span> ? results.some(Boolean) : results.every(Boolean);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;});<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> { answer: <span class="s">`Found ${hits.length} ${</span><span class="p">input</span>.layer<span class="s">} matching your criteria.`</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;features: { type: <span class="s">'FeatureCollection'</span>, features: hits },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;mapAction: { type: <span class="s">'highlight'</span> } };<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'features_within'</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> anchor = <span class="fn">findByName</span>(<span class="p">buildings</span>.features, <span class="p">input</span>.anchor_name);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">if</span> (!anchor) <span class="k">return</span> { answer: <span class="s">`Could not find "${</span><span class="p">input</span>.anchor_name<span class="s">}".`</span>, features: <span class="k">null</span>, mapAction: <span class="k">null</span> };<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> pt = turf.<span class="fn">centroid</span>(anchor);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> buf = turf.<span class="fn">buffer</span>(pt, <span class="p">input</span>.distance_m / <span class="t">1000</span>, { units: <span class="s">'kilometers'</span> });<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> tgt = <span class="p">input</span>.target_layer === <span class="s">'trees'</span> ? <span class="p">trees</span> : <span class="p">buildings</span>;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> hits = tgt.features.filter((f: <span class="k">any</span>) =&gt; turf.<span class="fn">booleanPointInPolygon</span>(turf.<span class="fn">centroid</span>(f), buf));<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> { answer: <span class="s">`${hits.length} ${</span><span class="p">input</span>.target_layer || <span class="s">'features'</span><span class="s">} within ${</span><span class="p">input</span>.distance_m<span class="s">}m of ${</span><span class="fn">nameOf</span>(anchor)<span class="s">}.`</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;features: { type: <span class="s">'FeatureCollection'</span>, features: hits },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;mapAction: { type: <span class="s">'buffer'</span>, center: pt.geometry.coordinates, radiusM: <span class="p">input</span>.distance_m } };<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'aggregate_features'</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> feats = <span class="fn">layer</span>().features;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">let</span> answer = <span class="s">''</span>;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">if</span> (<span class="p">input</span>.metric === <span class="s">'count'</span> &amp;&amp; !<span class="p">input</span>.field) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">if</span> (<span class="p">input</span>.group_by) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> g: Record&lt;string,number&gt; = {};<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;feats.forEach((f: <span class="k">any</span>) =&gt; { <span class="k">const</span> k = String(f.properties[<span class="p">input</span>.group_by]||<span class="s">'Unknown'</span>).trim(); g[k]=(g[k]||<span class="t">0</span>)+<span class="t">1</span>; });<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;answer = Object.entries(g).sort((a,b)=&gt;b[<span class="t">1</span>]-a[<span class="t">1</span>]).map(([k,v])=&gt;<span class="s">`${k}: ${v}`</span>).join(<span class="s">', '</span>);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;} <span class="k">else</span> { answer = <span class="s">`There are ${feats.length} ${</span><span class="p">input</span>.layer<span class="s">} on campus.`</span>; }<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;} <span class="k">else</span> <span class="k">if</span> (<span class="p">input</span>.field) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> vals = feats.map((f:<span class="k">any</span>)=&gt;+f.properties[<span class="p">input</span>.field]).filter(n=&gt;!isNaN(n));<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> r = <span class="p">input</span>.metric===<span class="s">'sum'</span>?vals.reduce((a,b)=&gt;a+b,<span class="t">0</span>):p<span class="p">input</span>.metric===<span class="s">'avg'</span>?vals.reduce((a,b)=&gt;a+b,<span class="t">0</span>)/vals.length:p<span class="p">input</span>.metric===<span class="s">'min'</span>?Math.min(...vals):Math.max(...vals);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;answer = <span class="s">`${</span><span class="p">input</span>.metric<span class="s">} of ${</span><span class="p">input</span>.field<span class="s">}: ${r.toFixed(2)}.`</span>;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> { answer, features: <span class="k">null</span>, mapAction: <span class="k">null</span>, meta: { metric: <span class="p">input</span>.metric } };<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">case</span> <span class="s">'rank_features'</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> sorted = [...<span class="fn">layer</span>().features]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.filter((f:<span class="k">any</span>) =&gt; f.properties[<span class="p">input</span>.sort_field] != <span class="k">null</span>)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.sort((a:<span class="k">any</span>,b:<span class="k">any</span>) =&gt; <span class="p">input</span>.direction===<span class="s">'asc'</span> ? a.properties[<span class="p">input</span>.sort_field]-b.properties[<span class="p">input</span>.sort_field] : b.properties[<span class="p">input</span>.sort_field]-a.properties[<span class="p">input</span>.sort_field]);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">const</span> hits = sorted.slice(<span class="t">0</span>, <span class="p">input</span>.limit || <span class="t">5</span>);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> { answer: <span class="s">`Top ${hits.length} ${</span><span class="p">input</span>.layer<span class="s">} by ${</span><span class="p">input</span>.sort_field<span class="s">}: ${</span><span class="fn">nameOf</span>(hits[<span class="t">0</span>])<span class="s">} is #1.`</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;features: { type: <span class="s">'FeatureCollection'</span>, features: hits },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;mapAction: { type: <span class="s">'highlight'</span> } };<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">default</span>: <span class="k">return</span> { answer: <span class="s">'Intent not supported yet.'</span>, features: <span class="k">null</span>, mapAction: <span class="k">null</span> };<br>
+&nbsp;&nbsp;}<br>
+}<br>
+<br>
+<span class="k">const</span> <span class="fn">respond</span> = (<span class="p">status</span>: number, <span class="p">body</span>: <span class="k">any</span>) =&gt; ({<br>
+&nbsp;&nbsp;statusCode: <span class="p">status</span>,<br>
+&nbsp;&nbsp;headers: { <span class="s">'Content-Type'</span>: <span class="s">'application/json'</span>, <span class="s">'Access-Control-Allow-Origin'</span>: <span class="s">'*'</span> },<br>
+&nbsp;&nbsp;body: JSON.<span class="fn">stringify</span>(<span class="p">body</span>),<br>
+});
+  </div>
+</section>
+
+<!-- SAM template -->
+<section class="section">
+  <div class="shead"><span class="num">03</span><h2>SAM template</h2></div>
+  <div class="rule"></div>
+  <p class="note">File: <ic>backend/template.yaml</ic>. Deploy with <ic>sam build &amp;&amp; sam deploy --guided</ic>.</p>
+  <div class="code">
+<span class="c"># backend/template.yaml</span><br>
+AWSTemplateFormatVersion: <span class="s">'2010-09-09'</span><br>
+Transform: AWS::Serverless-2016-10-31<br>
+<br>
+Globals:<br>
+&nbsp;&nbsp;Function:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Runtime: nodejs20.x<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Timeout: <span class="t">30</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;MemorySize: <span class="t">512</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;Environment:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Variables:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;GEODATA_BUCKET: campusgeo-geodata-491117467175<br>
+<br>
+Resources:<br>
+&nbsp;&nbsp;QueryFunction:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Type: AWS::Serverless::Function<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Properties:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Handler: dist/handler.handler<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;CodeUri: lambdas/query/<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Policies:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- S3ReadPolicy:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;BucketName: campusgeo-geodata-491117467175<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- Statement:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- Effect: Allow<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Action: bedrock:InvokeModel<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Resource: <span class="s">'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0'</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Events:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;QueryApi:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Type: HttpApi<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Properties:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Method: POST<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Path: /query<br>
+<br>
+Outputs:<br>
+&nbsp;&nbsp;QueryApiUrl:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Value: !Sub <span class="s">'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com'</span>
+  </div>
+</section>
+
+<!-- Env vars + dependencies -->
+<section class="section">
+  <div class="shead"><span class="num">04</span><h2>Setup checklist</h2></div>
+  <div class="rule"></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="tag">Dependencies</div>
+      <h4>package.json</h4>
+      <div class="code" style="font-size:12px;padding:16px 18px;">
+<span class="s">"dependencies"</span>: {<br>
+&nbsp;&nbsp;<span class="s">"@aws-sdk/client-bedrock-runtime"</span>: <span class="s">"^3"</span>,<br>
+&nbsp;&nbsp;<span class="s">"@aws-sdk/client-s3"</span>: <span class="s">"^3"</span>,<br>
+&nbsp;&nbsp;<span class="s">"@turf/turf"</span>: <span class="s">"^7"</span><br>
+}
+      </div>
+    </div>
+    <div class="card">
+      <div class="tag">Frontend config</div>
+      <h4>After sam deploy</h4>
+      <p>Copy the <ic>QueryApiUrl</ic> output and add one line to <ic>print-flow.html</ic>:</p>
+      <div class="code" style="font-size:12px;padding:16px 18px;margin-top:12px;">
+window.CAMPUSGEO_API_URL =<br>
+&nbsp;<span class="s">'https://abc.execute-api<br>
+&nbsp;.us-east-1.amazonaws.com'</span>;
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- IAM note -->
+<section class="section">
+  <div class="shead"><span class="num">05</span><h2>Bedrock access</h2></div>
+  <div class="rule"></div>
+  <p class="note">Bedrock model access must be enabled in the AWS Console before the Lambda can invoke it. This is a one-time manual step per region.</p>
+  <div class="code" style="font-size:12.5px;padding:20px 24px;">
+<span class="c"># AWS Console → Bedrock → Model access → Request access</span><br>
+<span class="c"># Model: Anthropic Claude 3.5 Sonnet v2 · Region: us-east-1</span><br>
+<br>
+<span class="c"># Verify access (AWS CLI):</span><br>
+aws bedrock list-foundation-models --region us-east-1 \<br>
+&nbsp;&nbsp;--query <span class="s">"modelSummaries[?modelId=='anthropic.claude-3-5-sonnet-20241022-v2:0']"</span>
+  </div>
+</section>
+
+<footer class="foot">
+  <span>CampusGeo &middot; Lambda Spec v0.1</span>
+  <span>Specification 02 &middot; Backend query handler</span>
+  <span>Next &rarr; wire frontend to API endpoint</span>
+</footer>
+</div>
+</body>
+</html>
