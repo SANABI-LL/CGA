@@ -1,12 +1,15 @@
 // CampusGeo 后端注入脚本
-// 将此脚本注入到 CampusGeo Print-a-Map.html 中以连接 localhost:3001 后端
+// DEPRECATED: 此脚本用于本地开发测试,已被 AWS Lambda + API Gateway 取代
+// 生产环境使用: https://blfi6fqdnc.execute-api.us-east-1.amazonaws.com
+// 保留此文件仅供历史参考,不应在生产环境中使用
 
 (function() {
   'use strict';
 
-  console.log('[CampusGeo Backend] Injection script loaded');
+  console.warn('[CampusGeo Backend] DEPRECATED: 此注入脚本仅用于本地开发');
+  console.warn('[CampusGeo Backend] 生产环境请使用 AWS Lambda 端点');
 
-  const API_BASE = 'http://localhost:3001';
+  const API_BASE = 'http://localhost:3001';  // 仅用于本地开发
 
   // 等待页面加载完成
   function waitForElement(selector, callback) {

@@ -116,9 +116,10 @@ window.CAMPUSGEO_API_URL = 'https://blfi6fqdnc.execute-api.us-east-1.amazonaws.c
 
 | 文件 | 用途 | 状态 |
 |------|------|------|
-| `CampusGeo Print-a-Map.html` | 原始设计稿（6月25日） | 静态原型 |
-| `CampusGeo-with-Backend.html` | 本地测试版 | 连接 localhost:3001 |
-| `test-frontend.html` | 简单测试页面 | 开发工具 |
+| `print-flow.html` | **生产前端** | ✅ 连接 AWS Lambda (blfi6fqdnc) |
+| `CampusGeo Print-a-Map.html` | 原始设计稿（6月25日） | 静态原型（已弃用） |
+| `test-frontend.html` | 本地开发测试 | 仅限 localhost:3001 |
+| `inject-backend.js` | 本地开发注入脚本 | 已弃用（见生产 API） |
 
 ---
 
@@ -167,14 +168,14 @@ Untracked files:
   test-event.json             # Lambda 测试事件
 ```
 
-### 📊 代码库分歧
+### 📊 代码库状态（已统一）
 
-| 内容 | Claude Design | Claude Code (Git) |
-|------|---------------|-------------------|
-| **Lambda Handler** | `campusgeo-lambda/handler.js` | `backend/lambdas/ai-agent/agent.ts` |
-| **前端** | `print-flow.html` (生产) | `CampusGeo-with-Backend.html` (开发) |
-| **API 端点** | `blfi6fqdnc.execute-api...` | `localhost:3001` |
-| **部署方式** | 直接 AWS Console/CLI | 本地开发服务器 |
+| 内容 | 当前生产版本 | 历史开发版本（已弃用） |
+|------|-------------|----------------------|
+| **Lambda Handler** | `campusgeo-lambda/handler.js` (✅ 已提交) | `backend/lambdas/ai-agent/agent.ts` |
+| **前端** | `print-flow.html` (生产) | `test-frontend.html` (仅限本地) |
+| **API 端点** | `blfi6fqdnc.execute-api...` (生产) | `localhost:3001` (仅限开发) |
+| **部署方式** | AWS Lambda + API Gateway | ~~本地开发服务器~~ |
 
 ---
 
@@ -200,24 +201,24 @@ Bedrock (us-east-2, Claude 4.5 Sonnet)
 API Gateway → CloudFront → 用户
 ```
 
-### Claude Code 架构（开发环境）
+### 历史本地开发架构（已弃用）
 
 ```
+⚠️ 此架构已被 AWS Lambda 生产环境取代，仅供历史参考
+
 用户浏览器
     ↓ 访问
-file:// (CampusGeo-with-Backend.html)
+file:// (test-frontend.html)
     ↓ 查询请求
-开发服务器 (localhost:3001)
+开发服务器 (localhost:3001)  ← 已停用
     ↓ 调用
-backend/dev-server/server.ts
+backend/dev-server/server.ts  ← 已弃用
     ↓ 工具执行
 backend/lambdas/ai-agent/tools/campus/queryTrees.ts
     ↓ 读取数据
 S3 (campusgeo-geodata-491117467175)
     ↓ AI 推理
 Bedrock (us-east-1, 推理配置文件)
-    ↓ 返回结果
-开发服务器 → 用户
 ```
 
 ---
