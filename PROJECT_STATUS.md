@@ -43,7 +43,8 @@
 **函数名**: `campusgeo-query`  
 **Runtime**: Node.js 20.x  
 **Region**: us-east-1  
-**部署包**: `campusgeo-lambda.zip` (7.88 MB)
+**部署包**: `campusgeo-lambda.zip` — 不入库。改动 `handler.js` 后运行 `campusgeo-lambda/build.sh` 重新构建,并按脚本输出的 `aws lambda update-function-code` 命令部署。
+> ⚠️ 复合查询修复(2026-07-02)提交后尚未重新部署——线上 Lambda 在重新构建部署前仍运行旧版 handler。
 
 ### 功能
 - 读取 S3 GeoJSON 数据（带缓存）
@@ -130,10 +131,10 @@ window.CAMPUSGEO_API_URL = 'https://blfi6fqdnc.execute-api.us-east-1.amazonaws.c
 #### ✅ 在 Claude Design 中创建（未提交到 Git）
 
 1. **`campusgeo-lambda/`** - Lambda 部署包
-   - `handler.js` (14.7 KB) - 7月1日
-   - `campusgeo-lambda.zip` (7.88 MB)
-   - `package.json`, `bedrock-policy.json`
-   - **状态**: ⚠️ 未纳入 Git（Untracked files）
+   - `handler.js` - 已提交,权威来源
+   - `campusgeo-lambda.zip` - 不入库,用 `build.sh` 重新构建
+   - `package.json`, `bedrock-policy.json`, `build.sh`
+   - **状态**: ✅ 已纳入 Git（zip 除外）
 
 2. **`print-flow.html`** - 最新前端
    - 7月1日创建

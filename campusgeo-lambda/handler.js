@@ -27,6 +27,10 @@ const BUCKET = process.env.GEODATA_BUCKET || 'campusgeo-geodata-491117467175';
 // The ARN region MUST match the Bedrock client region above.
 const MODEL  = process.env.BEDROCK_MODEL_ID || 'arn:aws:bedrock:us-east-2:491117467175:application-inference-profile/3tn0yx57dsmx';
 
+// Single source of truth for the default buffer radius — interpolated into the
+// tool schema and the system prompt so the three copies can never drift.
+const DEFAULT_RADIUS_M = 150;
+
 // ── GeoJSON cache — warm Lambda reuses /tmp ──────────────────────────────
 const memCache = {};
 async function loadLayer(key) {
@@ -99,8 +103,8 @@ const TOOLS = [
           required: ['anchor_name'],
           properties: {
             anchor_name:  { type: 'string' },
-            distance_m:   { type: 'number', description: 'Buffer radius in metres. Default 150 if unspecified.' },
-            target_layer: { type: 'string', enum: ['buildings', 'trees'] },
+            distance_m:   { type: 'number', description: `Buffer radius in metres. Default ${DEFAULT_RADIUS_M} if unspecified.` },
+            target_layer: { type: 'string', enum: ['buildings', 'trees'], description: 'Layer to search. Always set this; use "trees" for tree/species queries.' },
             filters: {
               type: 'array',
               description: 'Optional attribute filters applied to results',
@@ -115,8 +119,8 @@ const TOOLS = [
               }
             },
             match: { type: 'string', enum: ['all', 'any'], description: 'How to combine filters. Default all.' },
-            mode:         { type: 'string', enum: ['within', 'nearest_k'] },
-            k:            { type: 'number' }
+            mode:         { type: 'string', enum: ['within', 'nearest_k'], description: 'within (default): everything inside distance_m. nearest_k: the k nearest features, ignoring distance_m.' },
+            k:            { type: 'number', description: 'Number of features to return when mode is nearest_k. Default 5.' }
           }
         }
       }
@@ -178,32 +182,46 @@ Rules:
 - Always call exactly one tool. Never respond without using a tool.
 - Respond in the same language as the user (English or Chinese).
 - Never invent data not in the layers.
-- For queries outside scope, use filter_features with empty filters array and set the answer to explain the limitation.
-- For species queries, use filter_features with op:"contains" on field "CommonName".
+- For queries outside scope, use filter_features with an empty filters array — the
+  system will respond that the query is outside the campus data layers.
+- For species queries WITHOUT a location, use filter_features with op:"contains" on field "CommonName".
 
 When a query combines a LOCATION ("near X", "within N metres of X", "around X")
 with a feature description ("green ash trees", "owned buildings", "trees in poor
-condition"), you MUST call features_within with BOTH distance and the filters array.
-Do not call filter_features for these — it ignores location and returns the whole campus.
+condition"), you MUST call features_within with the filters array, and always set
+target_layer. Do not call filter_features for these — it ignores location and
+returns the whole campus.
+For "the N nearest/closest ..." queries, call features_within with mode:"nearest_k" and k:N.
 Species live in CommonName as "Type-Variety" (e.g. green ash = "Ash-Green",
-use op "contains" with value "Ash-Green"). Default distance_m to 150 if unstated.`;
+use op "contains" with value "Ash-Green"). Omit distance_m if the user gave no
+distance (it defaults to ${DEFAULT_RADIUS_M}m).`;
 
 // ── Shared filter predicate (hoist to module scope; used by both tools) ──
 function matchesFilters(props, filters, match) {
   if (!filters || !filters.length) return true;
-  const results = filters.map((flt) => {
+  // ?? (not ||): 0 is a legitimate value for fields like Elevator and FCI__
+  const pred = (flt) => {
     const v = props[flt.field];
     switch (flt.op) {
-      case 'eq':      return String(v || '').toLowerCase() === String(flt.value).toLowerCase();
-      case 'neq':     return String(v || '').toLowerCase() !== String(flt.value).toLowerCase();
+      case 'eq':      return String(v ?? '').toLowerCase() === String(flt.value).toLowerCase();
+      case 'neq':     return String(v ?? '').toLowerCase() !== String(flt.value).toLowerCase();
       case 'gt':      return Number(v) > Number(flt.value);
       case 'lt':      return Number(v) < Number(flt.value);
-      case 'contains':return String(v || '').toLowerCase().includes(String(flt.value).toLowerCase());
-      case 'between': return Number(v) >= flt.value[0] && Number(v) <= flt.value[1];
+      case 'contains':return String(v ?? '').toLowerCase().includes(String(flt.value).toLowerCase());
+      case 'between': return Array.isArray(flt.value) && flt.value.length === 2 &&
+                             Number(v) >= Number(flt.value[0]) && Number(v) <= Number(flt.value[1]);
       default:        return true;
     }
-  });
-  return match === 'any' ? results.some(Boolean) : results.every(Boolean);
+  };
+  return match === 'any' ? filters.some(pred) : filters.every(pred);
+}
+
+// ── Great-circle distance in metres (nearest_k ranking) ─────────────────
+function haversineM([lon1, lat1], [lon2, lat2]) {
+  const R = 6371000, d = Math.PI / 180;
+  const a = Math.sin((lat2 - lat1) * d / 2) ** 2 +
+            Math.cos(lat1 * d) * Math.cos(lat2 * d) * Math.sin((lon2 - lon1) * d / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────
@@ -274,7 +292,7 @@ async function executeIntent(tool, input, buildings, trees) {
       const hit = findByName(getLayer().features, input.name);
       if (!hit) return {
         answer: `No feature named "${input.name}" found on campus.`,
-        features: null, mapAction: null
+        features: null, mapAction: null, layer: input.layer || 'buildings'
       };
       return {
         answer: `${nameOf(hit)} is located at ${hit.properties.ADDRESS || 'campus'}.`,
@@ -283,17 +301,29 @@ async function executeIntent(tool, input, buildings, trees) {
           type: 'locate',
           center: [parseFloat(hit.properties.Lon), parseFloat(hit.properties.Lat)],
           zoom: 17
-        }
+        },
+        layer: input.layer || 'buildings'
       };
     }
 
     case 'filter_features': {
+      // Empty filters is the SYSTEM-prompt signal for an out-of-scope query —
+      // answer with the limitation instead of dumping the entire layer.
+      if (!input.filters || !input.filters.length) {
+        return {
+          answer: 'This query is outside the campus data layers (buildings and trees).',
+          features: { type: 'FeatureCollection', features: [] },
+          mapAction: null,
+          layer: input.layer || 'buildings'
+        };
+      }
       const feats = getLayer().features;
       const hits = feats.filter(f => matchesFilters(f.properties, input.filters, input.match));
       return {
         answer: `Found ${hits.length} ${input.layer} matching your criteria.`,
         features: { type: 'FeatureCollection', features: hits },
-        mapAction: { type: 'highlight' }
+        mapAction: { type: 'highlight' },
+        layer: input.layer || 'buildings'
       };
     }
 
@@ -304,29 +334,67 @@ async function executeIntent(tool, input, buildings, trees) {
         features: null, mapAction: null
       };
       const pt  = centroid(anchor);
-      const radius = input.distance_m || 150;  // sensible default
-      const buf = buffer(pt, radius / 1000, { units: 'kilometers' });
-      const tgt = input.target_layer === 'trees' ? trees : buildings;
+      const radius = input.distance_m ?? DEFAULT_RADIUS_M;  // ?? — an explicit 0 must stay 0
 
-      const hits = tgt.features
-        .filter(f => {
+      // If target_layer is missing, infer it from the filter fields instead of
+      // silently defaulting to buildings (a CommonName filter on buildings
+      // matches nothing and would return a confident empty result).
+      let tgt;
+      if (input.target_layer) {
+        tgt = input.target_layer === 'trees' ? trees : buildings;
+      } else {
+        const hasField = (layer, fld) =>
+          layer.features[0] && fld in layer.features[0].properties;
+        const flds = (input.filters || []).map(fl => fl.field);
+        const treeScore = flds.filter(fld => hasField(trees, fld)).length;
+        const bldgScore = flds.filter(fld => hasField(buildings, fld)).length;
+        tgt = treeScore > bldgScore ? trees : buildings;
+      }
+      const layerName = tgt === trees ? 'trees' : 'buildings';
+
+      // Attribute filter first — it is far cheaper than per-feature geometry.
+      const candidates = tgt.features
+        .filter(f => matchesFilters(f.properties, input.filters, input.match));
+
+      let hits, radiusM = radius;
+      if (input.mode === 'nearest_k') {
+        const k = input.k || 5;
+        hits = candidates
+          .map(f => {
+            try { return { f, d: haversineM(pt.geometry.coordinates, centroid(f).geometry.coordinates) }; }
+            catch { return null; }
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.d - b.d)
+          .slice(0, k);
+        // ring radius = distance to the farthest of the k hits, so the map shows them all
+        radiusM = hits.length ? Math.ceil(hits[hits.length - 1].d) : radius;
+        hits = hits.map(h => h.f);
+      } else {
+        const buf = buffer(pt, radius / 1000, { units: 'kilometers' });
+        hits = candidates.filter(f => {
           try { return booleanPointInPolygon(centroid(f), buf); }
           catch { return false; }
-        })  // spatial
-        .filter(f => matchesFilters(f.properties, input.filters, input.match));  // attribute
+        });
+      }
 
-      const desc = (input.filters && input.filters.length)
-        ? input.filters.map(f => `${f.field} ${f.op} ${f.value}`).join(', ')
-        : (input.target_layer || 'features');
+      const hasFilters = !!(input.filters && input.filters.length);
+      const filterSuffix = hasFilters
+        ? ` matching ${input.filters.map(fl => `${fl.field} ${fl.op} ${fl.value}`).join(', ')}`
+        : '';
+      const answer = input.mode === 'nearest_k'
+        ? `The ${hits.length} nearest ${layerName} to ${nameOf(anchor)}${filterSuffix} (all within ${radiusM}m).`
+        : `${hits.length} ${layerName} within ${radius}m of ${nameOf(anchor)}${filterSuffix}.`;
 
       return {
-        answer: `${hits.length} ${input.target_layer || 'features'} within ${radius}m of ${nameOf(anchor)}${(input.filters && input.filters.length) ? ` matching ${desc}` : ''}.`,
+        answer,
         features: { type: 'FeatureCollection', features: hits },
         mapAction: {
           type: 'buffer',
           center: pt.geometry.coordinates,
-          radiusM: radius
-        }
+          radiusM
+        },
+        layer: layerName
       };
     }
 
@@ -357,7 +425,7 @@ async function executeIntent(tool, input, buildings, trees) {
         }
         answer = `The ${input.metric} of ${input.field} across ${vals.length} ${input.layer} is ${Number(r).toFixed(2)}.`;
       }
-      return { answer, features: null, mapAction: null, meta: { metric: input.metric } };
+      return { answer, features: null, mapAction: null, meta: { metric: input.metric }, layer: input.layer || 'buildings' };
     }
 
     case 'rank_features': {
@@ -373,7 +441,8 @@ async function executeIntent(tool, input, buildings, trees) {
       return {
         answer: `Top ${hits.length} ${input.layer} by ${input.sort_field}: ${top} is #1.`,
         features: { type: 'FeatureCollection', features: hits },
-        mapAction: { type: 'highlight' }
+        mapAction: { type: 'highlight' },
+        layer: input.layer || 'buildings'
       };
     }
 
@@ -381,6 +450,9 @@ async function executeIntent(tool, input, buildings, trees) {
       return { answer: 'Intent not yet implemented.', features: null, mapAction: null };
   }
 }
+
+// Exposed for local tests only — not part of the Lambda contract.
+exports._internal = { executeIntent, matchesFilters };
 
 // ── Response helper ──────────────────────────────────────────────────────
 function respond(status, body) {

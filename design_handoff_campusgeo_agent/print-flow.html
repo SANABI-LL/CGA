@@ -516,12 +516,22 @@ function buildScenario(q, buildings) {
 function buildScenarioFromApi(res, q) {
   const features = res.features || { type: 'FeatureCollection', features: [] };
   const count = features.features.length;
-  // infer layer from intent name or feature properties
-  const looksLikeTrees = (res.intent || '').includes('tree') ||
-    (features.features[0] && features.features[0].properties && features.features[0].properties.CommonName);
+  // Prefer the layer the Lambda reports; fall back to feature sniffing for
+  // older backend versions that don't send res.layer.
+  const looksLikeTrees = res.layer === 'trees' ||
+    (!res.layer &&
+      (features.features[0] && features.features[0].properties && features.features[0].properties.CommonName));
   const kindStr = looksLikeTrees ? 'trees' : 'buildings';
   let center = [-87.5955, 41.7935], zoom = 14.5;
   if (res.mapAction && res.mapAction.center) { center = res.mapAction.center; zoom = 16; }
+  // Draw the buffer ring the answer text promises (mapAction {type:'buffer', radiusM})
+  let overlay = null, fitData = null;
+  if (res.mapAction && res.mapAction.type === 'buffer' && res.mapAction.center && res.mapAction.radiusM > 0) {
+    const ring = circleGJ(res.mapAction.center, res.mapAction.radiusM);
+    overlay = { data: { type: 'FeatureCollection', features: [] }, ring,
+      radiusM: res.mapAction.radiusM, count, label: `${res.mapAction.radiusM} m` };
+    fitData = { type: 'FeatureCollection', features: [...features.features, ...ring.features] };
+  }
   const tableRows = features.features.slice(0, 5).map(f => {
     const p = f.properties;
     return {
@@ -553,7 +563,8 @@ function buildScenarioFromApi(res, q) {
     legend: [{ color: kindStr === 'buildings' ? T.maroon : T.green,
       label: <b style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}>{count} result{count !== 1 ? 's' : ''}</b> }],
     legendSquare: kindStr === 'buildings',
-    mapAction: res.mapAction
+    mapAction: res.mapAction,
+    ...(overlay ? { overlay, fitData } : {})
   };
 }
 
