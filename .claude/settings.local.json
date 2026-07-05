@@ -5,7 +5,8 @@
       "Bash(pnpm --filter web dev)",
       "Bash(uv --version)",
       "Bash(git --version)",
-      "Bash(uv tool *)"
+      "Bash(uv tool *)",
+      "PowerShell(Get-ChildItem packages\\\\shared-types -Recurse -File | Where-Object { $_.FullName -notmatch 'node_modules' } | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\('H:\\\\dropbox\\\\academy\\\\Claude Code\\\\GIS Agent\\\\',''\\) } | Out-String)"
     ]
   }
 }

@@ -164,20 +164,74 @@ If any answer is no, redo it.
 
 ---
 
+## Commands
+
+pnpm monorepo (`pnpm@9`, Node ≥20). Workspaces: `apps/*`, `packages/*`, `backend/lambdas/*`, `backend/dev-server`.
+
+```bash
+pnpm install          # all workspaces
+pnpm dev              # frontend (Vite, http://localhost:5173)
+pnpm dev:server       # local agent API (SSE) at http://localhost:3001 — needs AWS credentials for Bedrock
+pnpm build            # frontend only (tsc -b && vite build)
+pnpm build:all        # every workspace
+pnpm typecheck        # tsc --noEmit across workspaces
+pnpm lint             # eslint (only apps/web defines lint)
+pnpm --filter @campusgeo/web typecheck   # single workspace
+```
+
+- Full local loop = two terminals: `pnpm dev:server` + `pnpm dev`, with `apps/web/.env.local` containing `VITE_API_URL=http://localhost:3001`.
+- `dev:server` needs AWS credentials in the environment (`AWS_PROFILE` or access keys) plus `AWS_REGION`; optional `BEDROCK_MODEL_ID` overrides the default model set in `backend/lambdas/ai-agent/agent.ts`.
+- No test suite exists yet.
+
+**Infrastructure** — `infra/cdk` uses **npm, not pnpm** (own `package-lock.json`):
+
+```bash
+cd infra/cdk
+npm run synth | diff | deploy:dev | deploy:prod
+```
+
+Stacks in `infra/cdk/stacks/`: `DataStack` (S3 + DynamoDB), `ApiStack`, `AuthStack`, `FrontendStack`.
+
+**Data ETL** (Python — geopandas/fiona, run inside the ArcGIS Pro conda env set up by `setup_arcgis_env.bat`):
+
+```bash
+python convert_gdb.py --list-only                    # inspect GDB layers
+python convert_gdb.py --all                          # convert all layers → gis_output/
+python convert_gdb.py --upload-core-only --bucket campusgeo-geodata-<account-id>
+```
+
+See `QUICKSTART.md` for the S3/DynamoDB deployment sequence, `README_ARCGIS.md` for the conversion environment.
+
+## Repository Architecture
+
+- **`apps/web`** — React 18 + Vite + TS frontend. TanStack Router (`routes/LandingPage.tsx` → `routes/MapApp.tsx`), Zustand stores (`stores/mapStore.ts`, `stores/queryStore.ts`), ArcGIS Maps SDK (`@arcgis/core`).
+- **`packages/shared-types`** — `@campusgeo/shared-types`: geo/API/agent types shared between frontend and backend.
+- **`backend/lambdas/ai-agent`** — the agent core. `agent.ts` runs the Bedrock ConverseStream tool-use loop; `handler.ts` wraps it as a Lambda with Response Streaming (deploy with Function URL `InvokeMode = RESPONSE_STREAM`). **Adding a tool** = new file in `tools/campus/` (handler + Zod input schema) + register its `toolSpec` in `CAMPUS_TOOLS` and dispatch it in `agent.ts`.
+- **`backend/dev-server`** — plain Node HTTP wrapper around `runCampusGeoAgent` that reproduces the production SSE contract exactly, so local development needs no Lambda deploy.
+- **`backend/lambdas/{arcgis-proxy,auth-hook,bookmarks,data-ingestion,query-history,shuttle-proxy}`** — supporting Lambdas at varying maturity.
+- **`design/`, `ui_kits/`, `preview/`, root `*.html`** — design system and static prototypes; not part of the build.
+- **`convert_gdb.py` + `gis_output/`** — GDB → GeoJSON ETL and generated layer metadata (`core_layers.json`, `layers_metadata.json`, `dynamodb_batch_import.json`).
+
+### Query data flow
+
+`QueryBar` → `apps/web/src/api/agent.ts` `streamAgentQuery()` → `POST {VITE_API_URL}/api/agent` with `{ query }` → SSE stream of `data: {json}` events: `text` / `tool_call` / `tool_result` (may carry `mapUpdate` with GeoJSON features + center) / `done` / `error`. The frontend writes events into `queryStore`/`mapStore`; map components consume store data imperatively.
+
+Tools currently hit live sources (ArcGIS Feature Services via `queryArcGIS`, UChicago shuttle feed, Divvy GBFS). Migration to self-hosted S3 GeoJSON + Turf.js is the in-progress Phase 1 work (see roadmap below).
+
 ## Technical Stack
 
 - React 18 + Vite
 - ArcGIS Maps SDK for JavaScript 4.x — load via ESM
 - Tailwind CSS — utility layer ONLY for layout primitives (flex, grid, spacing). Use the CSS variables above for all color, typography, and aesthetic decisions. Do not reference Tailwind's default color ramp.
-- Anthropic Claude API with tool use (function calling) for query interpretation. **LLM calls go through a single provider-agnostic interface in `src/agent/llm.ts`** — MVP uses the Anthropic API directly (faster development, better docs); Phase 4 swaps the implementation to AWS Bedrock (IAM integration, compliance, portfolio value). Server-side proxy — never expose the API key.
-- Deployment: **unified on AWS** (S3 + CloudFront for frontend, Lambda for query API, Bedrock in Phase 4). A split Vercel/AWS deployment was considered and rejected — one platform avoids CORS friction, split secret management, and fragmented monitoring, and AWS experience aligns with target GIS/AI/PropTech roles. Vercel remains acceptable as a throwaway preview environment only.
+- **AWS Bedrock (ConverseStream) with tool use** for query interpretation — the planned Phase 4 migration from the direct Anthropic API already happened. The agent loop is server-side in `backend/lambdas/ai-agent/agent.ts`; model selected via `BEDROCK_MODEL_ID`. Never expose AWS credentials to the browser.
+- Deployment: **unified on AWS** (S3 + CloudFront for frontend, Lambda for query API, Bedrock for LLM). A split Vercel/AWS deployment was considered and rejected — one platform avoids CORS friction, split secret management, and fragmented monitoring, and AWS experience aligns with target GIS/AI/PropTech roles. Vercel remains acceptable as a throwaway preview environment only.
 
 ## Engineering Conventions
 
 - Component files: PascalCase, one component per file, co-located styles in `.module.css`.
 - Prefer vanilla CSS modules over Tailwind for aesthetic-heavy components (typography, color, complex layouts). Reserve Tailwind for genuine utility cases.
-- Map interaction logic lives in `src/map/` separate from React tree. Avoid putting ArcGIS view objects into React state.
-- Claude tool definitions live in `src/agent/tools/`. Each tool is a single file exporting a `name`, `description`, `input_schema`, and `handler`.
+- Map interaction logic stays imperative, outside the React tree (`apps/web/src/components/map/`, `apps/web/src/hooks/useArcGISLayer.ts`). Avoid putting ArcGIS view objects into React state — Zustand stores hold plain data (GeoJSON, ids, focus targets); map components react to it.
+- Agent tool definitions live in `backend/lambdas/ai-agent/tools/campus/`. Each tool is a single file exporting a handler and a Zod input schema; the Bedrock `toolSpec` is registered in `CAMPUS_TOOLS` in `agent.ts`.
 - All user-facing strings flow through a single `copy.ts` constants file. No inline UI text in components — this enforces voice consistency and makes copy audits trivial.
 
 ## Anti-Patterns to Refuse
@@ -291,7 +345,7 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 **Tasks:**
 - Performance: MapCanvas rendering optimization, S3 query result caching (CloudFront)
 - Monitoring: Sentry error tracking + CloudWatch Lambda metrics
-- Migrate LLM calls from Anthropic API to AWS Bedrock (swap the `src/agent/llm.ts` implementation; no call-site changes)
+- ~~Migrate LLM calls from Anthropic API to AWS Bedrock~~ — done early: `backend/lambdas/ai-agent/agent.ts` already calls Bedrock ConverseStream directly
 - Admin panel for user whitelist (deferred from Phase 2)
 - User docs: query syntax guide, data attribution, privacy policy
 - Beta testing: feedback forms, user interviews
