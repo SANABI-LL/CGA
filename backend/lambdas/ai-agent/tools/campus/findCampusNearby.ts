@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import { queryArcGIS } from './queryArcGIS'
+import { queryS3Layer } from './queryS3Layer'
 
 export const FindCampusNearbyInputSchema = z.object({
   referenceLocation: z.string().describe('Named campus location or "lat,lng" coordinates'),
-  featureType: z.enum(['bike_rack', 'building', 'dining', 'parking', 'accessible']),
+  featureType: z.enum(['building', 'dining', 'accessible']),
   radiusMeters: z.number().optional().default(300),
   limit: z.number().optional().default(5),
 })
@@ -60,14 +60,21 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-const LAYER_BY_FEATURE: Record<string, 'bike_racks' | 'buildings' | 'electrical' | 'parking' | 'accessible' | 'dining'> = {
-  bike_rack: 'bike_racks',
+const LAYER_BY_FEATURE: Record<string, 'buildings' | 'accessible' | 'dining'> = {
   building: 'buildings',
   dining: 'dining',
-  parking: 'parking',
   accessible: 'accessible',
 }
 
+/**
+ * 查找参考点附近的校园设施（使用 S3 数据）
+ *
+ * 用途：
+ * - "Find dining near Regenstein Library"
+ * - "Show accessible buildings near Main Quad"
+ *
+ * 注意：bike_rack, parking 暂未迁移到 S3，返回错误提示
+ */
 export async function findCampusNearby(input: FindCampusNearbyInput) {
   const center = resolveLocation(input.referenceLocation)
   if (!center) {
@@ -77,12 +84,11 @@ export async function findCampusNearby(input: FindCampusNearbyInput) {
   }
 
   const layerName = LAYER_BY_FEATURE[input.featureType]
-  const result = await queryArcGIS({
+  const result = await queryS3Layer({
     layerName,
     whereClause: '1=1',
     maxResults: 200,
     returnGeometry: true,
-    outFields: '*'
   })
 
   if ('error' in result) return result

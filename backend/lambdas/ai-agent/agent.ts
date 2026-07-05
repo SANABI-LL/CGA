@@ -88,7 +88,7 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'find_campus_nearby',
       description:
-        'Find campus features (buildings, bike racks, parking, dining, accessible paths) within a radius of a named location. Returns sorted by distance.',
+        'Find campus features (buildings, dining, accessible paths) within a radius of a named location. Returns sorted by distance. NOTE: bike racks and parking are not yet available in S3.',
       inputSchema: {
         json: {
           type: 'object',
@@ -96,7 +96,8 @@ const CAMPUS_TOOLS: Tool[] = [
             referenceLocation: { type: 'string', description: 'Named campus location, e.g. "Regenstein Library"' },
             featureType: {
               type: 'string',
-              enum: ['bike_rack', 'building', 'dining', 'parking', 'accessible'],
+              enum: ['building', 'dining', 'accessible'],
+              description: 'Type of feature to find nearby (bike_rack and parking temporarily unavailable)',
             },
             radiusMeters: { type: 'number', default: 300 },
             limit: { type: 'number', default: 5 },

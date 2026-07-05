@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { queryArcGIS } from './queryArcGIS'
+import { queryS3Layer } from './queryS3Layer'
 
 export const GetBuildingInfoInputSchema = z.object({
   buildingIdentifier: z.string().describe('Building name or UChicago building number'),
@@ -7,20 +7,26 @@ export const GetBuildingInfoInputSchema = z.object({
 
 export type GetBuildingInfoInput = z.infer<typeof GetBuildingInfoInputSchema>
 
+/**
+ * 获取建筑详细信息（从 S3 GeoJSON）
+ *
+ * 用途：
+ * - "Show me Regenstein Library" → 查找建筑
+ * - "What is building 170?" → 按建筑编号查询
+ */
 export async function getBuildingInfo(input: GetBuildingInfoInput) {
   const name = input.buildingIdentifier.trim()
   const isNumeric = /^\d+$/.test(name)
 
   const whereClause = isNumeric
     ? `BLDG_NUM = '${name}'`
-    : `LOWER(BLDG_NAME) LIKE '%${name.toLowerCase().replace(/'/g, "''")}%'`
+    : `BLDG_NAME LIKE '%${name.replace(/'/g, "''")}%'`
 
-  const result = await queryArcGIS({
+  const result = await queryS3Layer({
     layerName: 'buildings',
     whereClause,
     maxResults: 5,
     returnGeometry: true,
-    outFields: '*'
   })
 
   if ('error' in result) return result

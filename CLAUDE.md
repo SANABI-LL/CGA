@@ -286,11 +286,16 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
   - Verified output: 308 buildings, 1.7MB GeoJSON, WGS84 projection
 
 **Remaining:**
-- [ ] Upload GeoJSON to S3, populate DynamoDB metadata
-- [ ] Rewrite Lambda query tools: S3 + Turf.js instead of ArcGIS REST API
-  - Load + parse GeoJSON in module scope (outside the handler) and cache in `/tmp`, so warm invocations skip the S3 fetch. Cold starts add 1–2s; pre-warm before demos. p95 <2s target applies to warm Lambdas.
-- [ ] Fix Lambda handler TypeScript errors
-- [ ] Deploy frontend to S3 + CloudFront, backend to AWS Lambda
+- [x] Upload GeoJSON to S3 ✅ (完成于 2026-07-01)
+- [x] Rewrite Lambda query tools: S3 + Turf.js instead of ArcGIS REST API ✅ (完成于 2026-07-05)
+  - ✅ `queryS3Layer.ts` — 统一的 S3 查询工具（WHERE 子句解析 + 字段选择）
+  - ✅ `getBuildingInfo.ts` — 迁移到 S3
+  - ✅ `findCampusNearby.ts` — 迁移到 S3（buildings, dining, accessible）
+  - ✅ `queryTrees.ts` — 已使用 S3
+  - ⏳ 未迁移：bike_racks, electrical, parking（暂时保留 queryArcGIS）
+- [x] Fix Lambda handler TypeScript errors ✅
+- [x] Deploy frontend to S3 + CloudFront, backend to AWS Lambda ✅
+- [ ] Populate DynamoDB metadata (layers schema, update timestamps) — 可选，Phase 2 前完成
 
 **Success metric:** Public demo URL responds to "Show me campus trees" with S3-hosted data visualization.
 
