@@ -525,6 +525,18 @@ const UTILITY_MAP_LABELS = {
   compressed_air: 'Compressed air', tunnel: 'Utility tunnel', valves: 'Valves'
 };
 
+const UTILITY_SYSTEM_FILES = {
+  steam: ['utility_t2021_steam_line', 'utility_t2021_steam_line_condensate', 'utility_steam_vault', 'utility_low_pressure_piping', 'utility_medium_pressure_piping'],
+  chilled_water: ['utility_chilled_water_supply', 'utility_chilled_water_receive', 'utility_nesb_chilled_water_supply', 'utility_nesb_chilled_water_return'],
+  domestic_water: ['utility_domestic_water'],
+  sewer: ['utility_city_owned_combined_sewer', 'utility_university_owned_sewer'],
+  stormwater: ['utility_underground_stormwater_detention', 'utility_bioswale_area', 'utility_site_construction_with_stormwater_retention'],
+  electrical: ['utility_electrical_line', 'utility_comed_vault_feeder', 'utility_uchicago_conduit_infrastructure'],
+  compressed_air: ['utility_t80_compressed_air', 'utility_t50_compressed_air'],
+  tunnel: ['utility_new_walkable_tunnel'],
+  valves: ['utility_valves']
+};
+
 function buildUtilityScenario(res, q, features) {
   const count = features.features.length;
   const groups = {};
@@ -815,6 +827,45 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
             const p = e.features[0].properties;
             pop.setLngLat(e.lngLat).setHTML(`<div class="pop-title">${UTILITY_MAP_LABELS[p.utilitySystem] || p.utilitySystem || 'Utility'}</div><div class="pop-sub">${p.utilityLayer || ''}${p.distanceMeters != null ? ' · ' + p.distanceMeters + ' m from query point' : ''}</div>`).addTo(map);
           });
+        });
+        // ── Live viewport mode ──────────────────────────────────────────
+        // The initial answer is clipped to the query radius. Once the user
+        // pans or zooms, switch to viewport-driven display: the queried
+        // systems' full layers (fetched once from the CDN, browser-cached)
+        // are filtered to the current bounds on every moveend.
+        const liveSystems = Array.from(new Set((sc.data.features || [])
+          .map((f) => f.properties && f.properties.utilitySystem).filter(Boolean)));
+        let liveFeatures = null, userMoved = false;
+        Promise.all(liveSystems.flatMap((s) => (UTILITY_SYSTEM_FILES[s] || []).map((file) =>
+          fetch(`${CAMPUSGEO_CDN}/layers/${file}.geojson`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((gj) => (gj && gj.features ? gj.features.map((f) => ({
+              type: 'Feature', geometry: f.geometry,
+              properties: { utilitySystem: s, utilityLayer: file.replace(/^utility_/, '') }
+            })) : []))
+            .catch(() => [])
+        ))).then((chunks) => { liveFeatures = [].concat(...chunks); });
+        const anyVertexInBounds = (coords, b) => {
+          if (!Array.isArray(coords)) return false;
+          if (typeof coords[0] === 'number')
+            return coords[0] >= b.getWest() && coords[0] <= b.getEast() &&
+                   coords[1] >= b.getSouth() && coords[1] <= b.getNorth();
+          for (const c of coords) { if (anyVertexInBounds(c, b)) return true; }
+          return false;
+        };
+        map.on('movestart', (e) => { if (e.originalEvent) userMoved = true; });
+        map.on('moveend', () => {
+          if (!userMoved || !liveFeatures) return;
+          const b = map.getBounds();
+          const inView = [];
+          for (const f of liveFeatures) {
+            if (f.geometry && anyVertexInBounds(f.geometry.coordinates, b)) {
+              inView.push(f);
+              if (inView.length >= 2000) break; // rendering guard
+            }
+          }
+          const src = map.getSource('util');
+          if (src) src.setData({ type: 'FeatureCollection', features: inView });
         });
       } else {
         map.addSource('bldg-all', { type: 'geojson', data: sc.allData });

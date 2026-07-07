@@ -140,6 +140,43 @@ function minDistanceMeters(f: UtilityFeature, lat: number, lng: number): number 
   return min
 }
 
+// Clip line geometries to the query radius: CAD polylines can span the whole
+// campus, and without clipping a single in-radius vertex drags the entire
+// line onto the map far beyond the asked-about area.
+function clipToRadius(
+  geometry: { type: string; coordinates: unknown },
+  lat: number,
+  lng: number,
+  radius: number
+): { type: string; coordinates: unknown } | null {
+  // 5% tolerance keeps segments from flickering out right at the boundary
+  const r = radius * 1.05
+  const clipLine = (line: number[][]): number[][][] => {
+    const runs: number[][][] = []
+    let run: number[][] = []
+    for (const v of line) {
+      if (haversineMeters(lat, lng, v[1], v[0]) <= r) {
+        run.push([v[0], v[1]])
+      } else {
+        if (run.length > 1) runs.push(run)
+        run = []
+      }
+    }
+    if (run.length > 1) runs.push(run)
+    return runs
+  }
+  if (geometry.type === 'LineString') {
+    const runs = clipLine(geometry.coordinates as number[][])
+    return runs.length ? { type: 'MultiLineString', coordinates: runs } : null
+  }
+  if (geometry.type === 'MultiLineString') {
+    const runs = (geometry.coordinates as number[][][]).flatMap(clipLine)
+    return runs.length ? { type: 'MultiLineString', coordinates: runs } : null
+  }
+  // Points and (small-extent) polygons pass through — already distance-filtered
+  return geometry
+}
+
 // Drop Z values and round to 6 decimals (~0.1 m) to slim the map payload.
 function slimCoordinates(coords: unknown): unknown {
   if (!Array.isArray(coords)) return coords
@@ -197,19 +234,26 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
     if (center) selected.sort((a, b) => a.distance! - b.distance!)
     selected = selected.slice(0, input.maxResults)
 
-    const outFeatures = selected.map(({ layer, feature, distance }) => ({
-      type: 'Feature' as const,
-      properties: {
-        // utilitySystem drives per-system colors and the legend on the frontend
-        utilitySystem: input.utilityType,
-        utilityLayer: layer.replace(/^utility_/, ''),
-        source: typeof feature.properties?.Layer === 'string' ? feature.properties.Layer : undefined,
-        ...(distance !== undefined ? { distanceMeters: Math.round(distance) } : {}),
-      },
-      geometry: feature.geometry
-        ? { ...feature.geometry, coordinates: slimCoordinates(feature.geometry.coordinates) }
-        : null,
-    }))
+    const outFeatures = selected.flatMap(({ layer, feature, distance }) => {
+      let geometry = feature.geometry
+      if (geometry && center) {
+        geometry = clipToRadius(geometry, center.lat, center.lng, input.radiusMeters)
+        if (!geometry) return []
+      }
+      return [{
+        type: 'Feature' as const,
+        properties: {
+          // utilitySystem drives per-system colors and the legend on the frontend
+          utilitySystem: input.utilityType,
+          utilityLayer: layer.replace(/^utility_/, ''),
+          source: typeof feature.properties?.Layer === 'string' ? feature.properties.Layer : undefined,
+          ...(distance !== undefined ? { distanceMeters: Math.round(distance) } : {}),
+        },
+        geometry: geometry
+          ? { ...geometry, coordinates: slimCoordinates(geometry.coordinates) }
+          : null,
+      }]
+    })
 
     const summary = {
       utilityType: input.utilityType,
