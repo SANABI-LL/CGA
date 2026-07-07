@@ -102,7 +102,7 @@ async function legacyQueryHandler(
   let intent = 'query'
   // The agent may call several tools (e.g. one query per utility system) —
   // merge every mapUpdate's features instead of keeping only the last one.
-  const allFeatures: unknown[] = []
+  const featureChunks: unknown[][] = []
   let center: { lat: number; lng: number } | undefined
 
   try {
@@ -118,7 +118,7 @@ async function legacyQueryHandler(
         const fc = capMapUpdate(eventObj as MapUpdateEvent, 300).mapUpdate?.features as
           | { features?: unknown[] }
           | undefined
-        if (fc?.features) allFeatures.push(...fc.features)
+        if (fc?.features) featureChunks.push(fc.features)
         const c = (mapUpdate as { center?: { lat: number; lng: number } }).center
         if (c && !center) center = c
       }
@@ -138,11 +138,28 @@ async function legacyQueryHandler(
       answer,
       intent,
       // 600-feature ceiling keeps the merged one-shot payload well under the
-      // 6 MB Lambda response limit even for dense polyline layers
-      features: { type: 'FeatureCollection', features: allFeatures.slice(0, 600) },
+      // 6 MB Lambda response limit; round-robin across tool calls so no
+      // utility system is cut out entirely by the cap
+      features: { type: 'FeatureCollection', features: interleave(featureChunks, 600) },
       mapAction: center ? { center: [center.lng, center.lat], zoom: 16 } : undefined,
     }),
   }
+}
+
+function interleave(chunks: unknown[][], cap: number): unknown[] {
+  const merged: unknown[] = []
+  for (let i = 0; merged.length < cap; i++) {
+    let added = false
+    for (const chunk of chunks) {
+      if (i < chunk.length) {
+        merged.push(chunk[i])
+        added = true
+        if (merged.length >= cap) break
+      }
+    }
+    if (!added) break
+  }
+  return merged
 }
 
 interface MapUpdateEvent {

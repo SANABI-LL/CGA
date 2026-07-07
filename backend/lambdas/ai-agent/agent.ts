@@ -167,7 +167,7 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'query_campus_utilities',
       description:
-        'PREFERRED tool for campus underground utility infrastructure: steam lines and vaults, chilled water, domestic water, sewers, stormwater detention, electrical lines/conduits/ComEd feeders, compressed air, walkable utility tunnels, valves. Optionally filter to a radius around a named campus location ("what runs under/near Regenstein Library"). Results render on the map. Attributes are CAD metadata only — no depth/diameter data yet.',
+        'PREFERRED tool for campus underground utility infrastructure: steam lines and vaults, chilled water, domestic water, sewers, stormwater detention, electrical lines/conduits/ComEd feeders, compressed air, walkable utility tunnels, valves. When the user names ANY campus building or place, ALWAYS pass it as nearLocation — results are then filtered and clipped to a rectangular area around it (any of the 308 campus building names resolve). Results render on the map. Attributes are CAD metadata only — no depth/diameter data yet.',
       inputSchema: {
         json: {
           type: 'object',

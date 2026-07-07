@@ -866,6 +866,15 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
           }
           const src = map.getSource('util');
           if (src) src.setData({ type: 'FeatureCollection', features: inView });
+          // broadcast per-system counts so the legend tracks the viewport
+          const counts = {};
+          inView.forEach((f) => {
+            const s = f.properties && f.properties.utilitySystem;
+            if (s) counts[s] = (counts[s] || 0) + 1;
+          });
+          window.dispatchEvent(new CustomEvent('campusgeo:utilstats', {
+            detail: { counts, total: inView.length, capped: inView.length >= 2000 }
+          }));
         });
       } else {
         map.addSource('bldg-all', { type: 'geojson', data: sc.allData });
@@ -1009,6 +1018,23 @@ const PrintComposer = ({ sc, mpp, title, setTitle, onZoom, onPrint, onCancel, on
   const [pos, setPos] = useState({ x: 0, y: -6 }); // offset from center (px)
   const drag = useRef(null);
 
+  // Live legend: while browsing a utilities result, the legend follows the
+  // viewport (counts broadcast from MapCanvas on every moveend).
+  const [utilStats, setUtilStats] = useState(null);
+  useEffect(() => {
+    if (!sc || sc.kind !== 'utilities') return;
+    const onStats = (e) => setUtilStats(e.detail);
+    window.addEventListener('campusgeo:utilstats', onStats);
+    return () => window.removeEventListener('campusgeo:utilstats', onStats);
+  }, [sc]);
+  const liveLegend = sc && sc.kind === 'utilities' && utilStats ?
+    Object.keys(utilStats.counts).sort((a, b) => utilStats.counts[b] - utilStats.counts[a]).map((s) => ({
+      color: UTILITY_MAP_COLORS[s] || T.maroon,
+      label: <b style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}>{(UTILITY_MAP_LABELS[s] || s)} · {utilStats.counts[s]}</b>
+    })).concat([{ color: 'transparent', sub: true,
+      label: <span style={{ fontSize: 10, color: T.inkLt }}>{utilStats.total}{utilStats.capped ? '+' : ''} in view</span> }])
+    : null;
+
   const base = PAPERS[paper];
   const ratio = landscape ? base.w / base.h : base.h / base.w;
   const baseH = Math.min(560, Math.max(320, window.innerHeight - 300));
@@ -1073,8 +1099,8 @@ const PrintComposer = ({ sc, mpp, title, setTitle, onZoom, onPrint, onCancel, on
           border: `1px solid ${T.rule}`, borderRadius: 8, padding: '9px 11px', pointerEvents: 'none',
           backdropFilter: 'blur(3px)', boxShadow: '0 2px 10px rgba(0,0,0,0.12)' }}>
           <div style={{ fontSize: 9, fontWeight: 700, color: T.inkLt, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Legend</div>
-          {sc.legend.map((lg, i) =>
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: i < sc.legend.length - 1 ? 4 : 0 }}>
+          {(liveLegend || sc.legend).map((lg, i) =>
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: i < (liveLegend || sc.legend).length - 1 ? 4 : 0 }}>
               <span style={{ width: lg.sub ? 9 : 11, height: lg.sub ? 9 : 11, borderRadius: lg.round ? '50%' : sc.legendSquare ? 2 : '50%', background: lg.color, border: lg.sub ? 'none' : '1.5px solid #FAF7F2', flexShrink: 0, marginLeft: lg.sub ? 1 : 0, marginRight: lg.sub ? 1 : 0 }} />
               <span style={{ fontSize: 11, color: lg.sub ? T.inkMd : T.ink }}>{lg.label}</span>
             </div>
@@ -1199,6 +1225,30 @@ const AttrTable = ({ sc }) => {
     </div>);
 
 };
+// Cycling status line shown while the buffered agent call is in flight —
+// the user sees concrete activity instead of a silent wait.
+const TICKER_LINES = [
+  'Contacting the CampusGeo agent\u2026',
+  'Loading GeoJSON layers from S3\u2026',
+  'Running spatial filters and distance checks\u2026',
+  'Clipping features to the query area\u2026',
+  'Composing map layers and legend\u2026',
+  'Writing up the answer\u2026'
+];
+const ThinkingTicker = () => {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((v) => (v + 1) % TICKER_LINES.length), 2300);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 14, paddingLeft: 40, animation: 'ccFadeUp 0.35s ease-out both' }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: T.amber, animation: 'ccPulse 1.2s ease-in-out infinite' }} />
+      <span key={i} style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, color: T.inkLt, animation: 'ccFadeUp 0.3s ease-out both' }}>{TICKER_LINES[i]}</span>
+    </div>
+  );
+};
+
 const ReasoningTrace = ({ sc, steps, query, shown, done }) =>
 <div style={{ width: '100%', maxWidth: 560, margin: '0 auto', animation: 'ccFadeUp 0.4s ease-out both' }}>
     <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
@@ -1234,6 +1284,7 @@ const ReasoningTrace = ({ sc, steps, query, shown, done }) =>
 
     })}
     </div>
+    {shown >= steps.length && !done && <ThinkingTicker />}
   </div>;
 
 

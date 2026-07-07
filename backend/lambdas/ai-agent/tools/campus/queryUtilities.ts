@@ -119,6 +119,101 @@ function loadLayer(name: string): Promise<UtilityFeature[]> {
   return cached
 }
 
+// ── Location resolution ────────────────────────────────────────────────
+// The static gazetteer in findCampusNearby covers ~15 landmarks; fall back
+// to the 308-building S3 layer so ANY named building can anchor a query.
+
+interface ResolvedLocation {
+  lat: number
+  lng: number
+  displayName: string
+}
+
+let buildingIndexPromise: Promise<Array<ResolvedLocation & { key: string }>> | null = null
+
+function loadBuildingIndex() {
+  if (!buildingIndexPromise) {
+    buildingIndexPromise = (async () => {
+      const response = await s3.send(
+        new GetObjectCommand({ Bucket: BUCKET, Key: 'layers/buildings.geojson' })
+      )
+      if (!response.Body) throw new Error('Empty S3 response for buildings.geojson')
+      const parsed = JSON.parse(await response.Body.transformToString()) as {
+        features: UtilityFeature[]
+      }
+      return parsed.features.flatMap((f) => {
+        const name = String(f.properties?.DISCRIPT1 ?? '').trim()
+        if (!name || !f.geometry) return []
+        let sumLat = 0
+        let sumLng = 0
+        let n = 0
+        forEachVertex(f.geometry.coordinates, (lng, lat) => {
+          sumLng += lng
+          sumLat += lat
+          n++
+        })
+        if (!n) return []
+        return [{ key: name.toLowerCase(), displayName: name, lat: sumLat / n, lng: sumLng / n }]
+      })
+    })().catch((err) => {
+      buildingIndexPromise = null
+      throw err
+    })
+  }
+  return buildingIndexPromise
+}
+
+async function resolveAnyLocation(name: string): Promise<ResolvedLocation | null> {
+  const fromGazetteer = resolveLocation(name)
+  if (fromGazetteer) return fromGazetteer
+  const n = name.toLowerCase().trim()
+  try {
+    const index = await loadBuildingIndex()
+    const exact = index.find((b) => b.key === n)
+    if (exact) return exact
+    // Token match handles partial names: "Cobb Hall" → "Cobb Lecture Hall"
+    const tokens = n.split(/[^a-z0-9]+/).filter((t) => t.length > 1)
+    if (tokens.length) {
+      const candidates = index
+        .filter((b) => tokens.every((t) => b.key.includes(t)))
+        .sort((a, b) => a.key.length - b.key.length)
+      if (candidates.length) return candidates[0]
+    }
+    return index.find((b) => b.key.includes(n) || n.includes(b.key)) ?? null
+  } catch {
+    return null
+  }
+}
+
+// ── Bounding box (user preference: rectangular extent, prints cleanly) ──
+
+interface Box {
+  w: number
+  e: number
+  s: number
+  n: number
+}
+
+function boxAround(lat: number, lng: number, radiusMeters: number): Box {
+  const dLat = radiusMeters / 111_320
+  const dLng = radiusMeters / (111_320 * Math.cos((lat * Math.PI) / 180))
+  return { w: lng - dLng, e: lng + dLng, s: lat - dLat, n: lat + dLat }
+}
+
+function vertexInBox(lng: number, lat: number, box: Box): boolean {
+  return lng >= box.w && lng <= box.e && lat >= box.s && lat <= box.n
+}
+
+function anyVertexInBox(f: UtilityFeature, box: Box): boolean {
+  let found = false
+  if (f.geometry) {
+    forEachVertex(f.geometry.coordinates, (lng, lat) => {
+      if (!found && vertexInBox(lng, lat, box)) found = true
+    })
+  }
+  return found
+}
+
 // Walk nested coordinate arrays, yielding [lng, lat] pairs (Z ignored).
 function forEachVertex(coords: unknown, fn: (lng: number, lat: number) => void): void {
   if (!Array.isArray(coords)) return
@@ -140,22 +235,19 @@ function minDistanceMeters(f: UtilityFeature, lat: number, lng: number): number 
   return min
 }
 
-// Clip line geometries to the query radius: CAD polylines can span the whole
-// campus, and without clipping a single in-radius vertex drags the entire
-// line onto the map far beyond the asked-about area.
-function clipToRadius(
+// Clip line geometries to the query box: CAD polylines can span the whole
+// campus, and without clipping a single in-box vertex drags the entire line
+// onto the map far beyond the asked-about area. A rectangular boundary (not
+// a circle) per user preference — it matches the print frame.
+function clipToBox(
   geometry: { type: string; coordinates: unknown },
-  lat: number,
-  lng: number,
-  radius: number
+  box: Box
 ): { type: string; coordinates: unknown } | null {
-  // 5% tolerance keeps segments from flickering out right at the boundary
-  const r = radius * 1.05
   const clipLine = (line: number[][]): number[][][] => {
     const runs: number[][][] = []
     let run: number[][] = []
     for (const v of line) {
-      if (haversineMeters(lat, lng, v[1], v[0]) <= r) {
+      if (vertexInBox(v[0], v[1], box)) {
         run.push([v[0], v[1]])
       } else {
         if (run.length > 1) runs.push(run)
@@ -173,7 +265,7 @@ function clipToRadius(
     const runs = (geometry.coordinates as number[][][]).flatMap(clipLine)
     return runs.length ? { type: 'MultiLineString', coordinates: runs } : null
   }
-  // Points and (small-extent) polygons pass through — already distance-filtered
+  // Points and (small-extent) polygons pass through — already box-filtered
   return geometry
 }
 
@@ -197,12 +289,15 @@ function slimCoordinates(coords: unknown): unknown {
 export async function queryUtilities(input: QueryUtilitiesInput) {
   const system = UTILITY_SYSTEMS[input.utilityType]
 
-  let center: { lat: number; lng: number; displayName: string } | null = null
+  let center: ResolvedLocation | null = null
+  let box: Box | null = null
   if (input.nearLocation) {
-    center = resolveLocation(input.nearLocation)
+    center = await resolveAnyLocation(input.nearLocation)
     if (!center) {
-      return { error: `Unknown location "${input.nearLocation}". Try a campus building name or "lat,lng".` }
+      return { error: `Unknown location "${input.nearLocation}". Try a campus building name (e.g. "Cobb Hall") or "lat,lng".` }
     }
+    // 5% tolerance keeps boundary segments from flickering out at the edge
+    box = boxAround(center.lat, center.lng, input.radiusMeters * 1.05)
   }
 
   try {
@@ -215,14 +310,14 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
 
     for (const { name, features } of perLayer) {
       let kept: Array<{ layer: string; feature: UtilityFeature; distance?: number }>
-      if (center) {
+      if (center && box) {
         kept = features
+          .filter((feature) => anyVertexInBox(feature, box!))
           .map((feature) => ({
             layer: name,
             feature,
-            distance: minDistanceMeters(feature, center.lat, center.lng),
+            distance: minDistanceMeters(feature, center!.lat, center!.lng),
           }))
-          .filter((x) => x.distance! <= input.radiusMeters)
       } else {
         kept = features.map((feature) => ({ layer: name, feature }))
       }
@@ -236,8 +331,8 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
 
     const outFeatures = selected.flatMap(({ layer, feature, distance }) => {
       let geometry = feature.geometry
-      if (geometry && center) {
-        geometry = clipToRadius(geometry, center.lat, center.lng, input.radiusMeters)
+      if (geometry && box) {
+        geometry = clipToBox(geometry, box)
         if (!geometry) return []
       }
       return [{
