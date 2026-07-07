@@ -100,7 +100,9 @@ async function legacyQueryHandler(
 
   let answer = ''
   let intent = 'query'
-  let features: unknown = null
+  // The agent may call several tools (e.g. one query per utility system) —
+  // merge every mapUpdate's features instead of keeping only the last one.
+  const allFeatures: unknown[] = []
   let center: { lat: number; lng: number } | undefined
 
   try {
@@ -113,9 +115,12 @@ async function legacyQueryHandler(
       }
       const mapUpdate = (eventObj as MapUpdateEvent).mapUpdate
       if (mapUpdate?.features) {
-        features = capMapUpdate(eventObj as MapUpdateEvent, 300).mapUpdate?.features
+        const fc = capMapUpdate(eventObj as MapUpdateEvent, 300).mapUpdate?.features as
+          | { features?: unknown[] }
+          | undefined
+        if (fc?.features) allFeatures.push(...fc.features)
         const c = (mapUpdate as { center?: { lat: number; lng: number } }).center
-        if (c) center = c
+        if (c && !center) center = c
       }
     })
   } catch (err) {
@@ -132,7 +137,9 @@ async function legacyQueryHandler(
     body: JSON.stringify({
       answer,
       intent,
-      features: features ?? { type: 'FeatureCollection', features: [] },
+      // 600-feature ceiling keeps the merged one-shot payload well under the
+      // 6 MB Lambda response limit even for dense polyline layers
+      features: { type: 'FeatureCollection', features: allFeatures.slice(0, 600) },
       mapAction: center ? { center: [center.lng, center.lat], zoom: 16 } : undefined,
     }),
   }

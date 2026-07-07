@@ -513,9 +513,67 @@ function buildScenario(q, buildings) {
 }
 
 /* ── Map a real Lambda response to the prototype’s scenario format ───── */
+// ── Campus utilities: per-system palette, legend and map scenario ────────
+const UTILITY_MAP_COLORS = {
+  steam: '#D64545', chilled_water: '#2B7DD1', domestic_water: '#0E8A6D',
+  sewer: '#8250C4', stormwater: '#4E9B47', electrical: '#E08A00',
+  compressed_air: '#C4477F', tunnel: '#5B5B5B', valves: '#7A6A20'
+};
+const UTILITY_MAP_LABELS = {
+  steam: 'Steam', chilled_water: 'Chilled water', domestic_water: 'Domestic water',
+  sewer: 'Sewer', stormwater: 'Stormwater', electrical: 'Electrical',
+  compressed_air: 'Compressed air', tunnel: 'Utility tunnel', valves: 'Valves'
+};
+
+function buildUtilityScenario(res, q, features) {
+  const count = features.features.length;
+  const groups = {};
+  features.features.forEach((f) => {
+    const s = (f.properties && f.properties.utilitySystem) || 'other';
+    if (!groups[s]) groups[s] = { count: 0, layers: new Set() };
+    groups[s].count += 1;
+    if (f.properties && f.properties.utilityLayer) groups[s].layers.add(f.properties.utilityLayer);
+  });
+  const systems = Object.keys(groups).sort((a, b) => groups[b].count - groups[a].count);
+  let center = [-87.5987, 41.7912], zoom = 15.6;
+  if (res.mapAction && res.mapAction.center) { center = res.mapAction.center; zoom = 16.2; }
+  return {
+    kind: 'utilities', unit: 'features',
+    title: res.answer || 'Campus utilities',
+    center, zoom, data: features, allData: null,
+    matchCount: count, recordCount: count, fieldCount: 3,
+    chip: 'Campus Utilities', chipIcon: 'zap', fieldName: 'utilitySystem',
+    apiAnswer: res.answer,
+    intentDetail: <span>Intent <b>{res.intent || 'query_campus_utilities'}</b> · via <b style={{ color: T.amber }}>AWS Bedrock</b></span>,
+    scanDetail: <span>{systems.length} utility system{systems.length !== 1 ? 's' : ''} · self-hosted S3 GeoJSON</span>,
+    filterDetail: <span style={{ color: T.green }}>{systems.map((s) => UTILITY_MAP_LABELS[s] || s).join(' · ')}</span>,
+    plotDetail: <span>Placing <b>{count}</b> utility feature{count !== 1 ? 's' : ''} on the map</span>,
+    table: {
+      grid: '1fr 70px 80px',
+      head: ['System', 'Layers', 'Features'],
+      hi: -1,
+      rows: systems.slice(0, 5).map((s) => ({
+        cells: [UTILITY_MAP_LABELS[s] || s, String(groups[s].layers.size), String(groups[s].count)],
+        hit: true
+      })),
+      more: Math.max(0, systems.length - 5)
+    },
+    legend: systems.map((s) => ({
+      color: UTILITY_MAP_COLORS[s] || T.maroon,
+      label: <b style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}>{(UTILITY_MAP_LABELS[s] || s)} · {groups[s].count}</b>
+    })),
+    legendSquare: false,
+    mapAction: res.mapAction
+  };
+}
+
 function buildScenarioFromApi(res, q) {
   const features = res.features || { type: 'FeatureCollection', features: [] };
   const count = features.features.length;
+  const utilFirst = features.features[0];
+  if (utilFirst && utilFirst.properties && utilFirst.properties.utilitySystem) {
+    return buildUtilityScenario(res, q, features);
+  }
   // infer layer from intent name or feature properties
   const looksLikeTrees = (res.intent || '').includes('tree') ||
     (features.features[0] && features.features[0].properties && features.features[0].properties.CommonName);
@@ -733,6 +791,31 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
             pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">${p.condition}</div><div class="pop-coord">TreeID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
           });
         }
+      } else if (sc.kind === 'utilities') {
+        const UC = ['match', ['get', 'utilitySystem'],
+          'steam', '#D64545', 'chilled_water', '#2B7DD1', 'domestic_water', '#0E8A6D',
+          'sewer', '#8250C4', 'stormwater', '#4E9B47', 'electrical', '#E08A00',
+          'compressed_air', '#C4477F', 'tunnel', '#5B5B5B', 'valves', '#7A6A20',
+          T.maroon];
+        map.addSource('util', { type: 'geojson', data: sc.data });
+        map.addLayer({ id: 'util-fill', type: 'fill', source: 'util', filter: ['==', '$type', 'Polygon'],
+          paint: { 'fill-color': UC, 'fill-opacity': 0.22 } });
+        map.addLayer({ id: 'util-poly-line', type: 'line', source: 'util', filter: ['==', '$type', 'Polygon'],
+          paint: { 'line-color': UC, 'line-width': 1.2 } });
+        map.addLayer({ id: 'util-line', type: 'line', source: 'util', filter: ['==', '$type', 'LineString'],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': UC, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 1.4, 17, 3.2] } });
+        map.addLayer({ id: 'util-pt', type: 'circle', source: 'util', filter: ['==', '$type', 'Point'],
+          paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.5, 17, 5],
+            'circle-color': UC, 'circle-stroke-color': '#FAF7F2', 'circle-stroke-width': 1.2 } });
+        ['util-line', 'util-pt', 'util-fill'].forEach((lid) => {
+          map.on('mouseenter', lid, () => map.getCanvas().style.cursor = 'pointer');
+          map.on('mouseleave', lid, () => {map.getCanvas().style.cursor = '';pop.remove();});
+          map.on('click', lid, (e) => {
+            const p = e.features[0].properties;
+            pop.setLngLat(e.lngLat).setHTML(`<div class="pop-title">${UTILITY_MAP_LABELS[p.utilitySystem] || p.utilitySystem || 'Utility'}</div><div class="pop-sub">${p.utilityLayer || ''}${p.distanceMeters != null ? ' · ' + p.distanceMeters + ' m from query point' : ''}</div>`).addTo(map);
+          });
+        });
       } else {
         map.addSource('bldg-all', { type: 'geojson', data: sc.allData });
         map.addLayer({ id: 'bldg-all-fill', type: 'fill', source: 'bldg-all',

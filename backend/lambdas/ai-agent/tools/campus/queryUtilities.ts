@@ -200,6 +200,8 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
     const outFeatures = selected.map(({ layer, feature, distance }) => ({
       type: 'Feature' as const,
       properties: {
+        // utilitySystem drives per-system colors and the legend on the frontend
+        utilitySystem: input.utilityType,
         utilityLayer: layer.replace(/^utility_/, ''),
         source: typeof feature.properties?.Layer === 'string' ? feature.properties.Layer : undefined,
         ...(distance !== undefined ? { distanceMeters: Math.round(distance) } : {}),
