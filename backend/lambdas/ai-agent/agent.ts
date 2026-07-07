@@ -14,6 +14,7 @@ import { getBuildingInfo, GetBuildingInfoInputSchema } from './tools/campus/getB
 import { checkHours, CheckHoursInputSchema } from './tools/campus/checkHours'
 import { queryTrees, QueryTreesInputSchema } from './tools/campus/queryTrees'
 import { searchDocuments, SearchDocumentsInputSchema } from './tools/campus/searchDocuments'
+import { queryUtilities, QueryUtilitiesInputSchema } from './tools/campus/queryUtilities'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -164,6 +165,32 @@ const CAMPUS_TOOLS: Tool[] = [
   },
   {
     toolSpec: {
+      name: 'query_campus_utilities',
+      description:
+        'PREFERRED tool for campus underground utility infrastructure: steam lines and vaults, chilled water, domestic water, sewers, stormwater detention, electrical lines/conduits/ComEd feeders, compressed air, walkable utility tunnels, valves. Optionally filter to a radius around a named campus location ("what runs under/near Regenstein Library"). Results render on the map. Attributes are CAD metadata only — no depth/diameter data yet.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            utilityType: {
+              type: 'string',
+              enum: ['steam', 'chilled_water', 'domestic_water', 'sewer', 'stormwater', 'electrical', 'compressed_air', 'tunnel', 'valves'],
+              description: 'Utility system to query',
+            },
+            nearLocation: {
+              type: 'string',
+              description: 'Named campus location, e.g. "Regenstein Library" — omit to show the whole system',
+            },
+            radiusMeters: { type: 'number', default: 150 },
+            maxResults: { type: 'number', default: 300 },
+          },
+          required: ['utilityType'],
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
       name: 'search_planning_documents',
       description:
         'Semantic search over the PD 43 (Planned Development 43, the UChicago campus zoning district) document knowledge base: Chicago Zoning Ordinance chapters 17-8 and 17-17, PD 43 statements and amendments, City Council proceedings, Woodlawn Avenue plans, traffic management plan. Use for questions about zoning rules, FAR, height limits, permitted uses, setbacks, approvals, or planning history. The query must be an English keyword phrase — translate the user question if needed.',
@@ -194,7 +221,7 @@ Guidelines:
 - Format responses concisely — this is a map app, not a chat.
 - If a layer query returns geometry, the frontend will automatically display it on the map.
 - For zoning, planning, FAR, height-limit, land-use, or approval questions, search the PD 43 document knowledge base first (search_planning_documents). Cite every regulatory claim with document name and page, e.g. (Chicago Zoning Ordinance 17-8, p.12). If the retrieved passages do not answer the question, say so plainly — never invent regulatory content.
-- Tone: intelligent, direct, evidence-based. No filler phrases.`
+- Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
 
 type SSECallback = (event: { type: string; [key: string]: unknown }) => void
 
@@ -302,10 +329,15 @@ export async function runCampusGeoAgent(
           onEvent({ type: 'tool_result', toolName: name!, data: result })
         }
 
+        // Tools may provide a compact _modelSummary: the full geometry payload
+        // reaches the map via the mapUpdate event above, while the model only
+        // reasons over the summary — keeps token usage flat for dense layers.
+        const modelResult = (resultObj?._modelSummary as DocumentType | undefined) ?? (result as DocumentType)
+
         toolResults.push({
           toolResult: {
             toolUseId: toolUseId!,
-            content: [{ json: result as DocumentType }],
+            content: [{ json: modelResult }],
           },
         })
       }
@@ -350,6 +382,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'search_planning_documents': {
       const input = SearchDocumentsInputSchema.parse(rawInput)
       return searchDocuments(input)
+    }
+    case 'query_campus_utilities': {
+      const input = QueryUtilitiesInputSchema.parse(rawInput)
+      return queryUtilities(input)
     }
     default:
       return { error: `Unknown tool: ${name}` }

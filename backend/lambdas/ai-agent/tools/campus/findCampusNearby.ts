@@ -29,7 +29,7 @@ const CAMPUS_LOCATIONS: Record<string, { lat: number; lng: number; displayName: 
   '57th street': { lat: 41.7916, lng: -87.5997, displayName: '57th Street' },
 }
 
-function resolveLocation(name: string): { lat: number; lng: number; displayName: string } | null {
+export function resolveLocation(name: string): { lat: number; lng: number; displayName: string } | null {
   const n = name.toLowerCase().trim()
 
   // Direct match
@@ -50,7 +50,7 @@ function resolveLocation(name: string): { lat: number; lng: number; displayName:
   return null
 }
 
-function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6_371_000
   const φ1 = (lat1 * Math.PI) / 180
   const φ2 = (lat2 * Math.PI) / 180
