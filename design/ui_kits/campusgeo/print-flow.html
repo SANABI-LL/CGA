@@ -572,7 +572,7 @@ function buildUtilityScenario(res, q, features) {
     },
     legend: systems.map((s) => ({
       color: UTILITY_MAP_COLORS[s] || T.maroon,
-      label: <b style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}>{(UTILITY_MAP_LABELS[s] || s)} · {groups[s].count}</b>
+      label: <b style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}>{UTILITY_MAP_LABELS[s] || s}</b>
     })),
     legendSquare: false,
     mapAction: res.mapAction
@@ -1028,11 +1028,10 @@ const PrintComposer = ({ sc, mpp, title, setTitle, onZoom, onPrint, onCancel, on
     return () => window.removeEventListener('campusgeo:utilstats', onStats);
   }, [sc]);
   const liveLegend = sc && sc.kind === 'utilities' && utilStats ?
-    Object.keys(utilStats.counts).sort((a, b) => utilStats.counts[b] - utilStats.counts[a]).map((s) => ({
-      color: UTILITY_MAP_COLORS[s] || T.maroon,
-      label: <b style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}>{(UTILITY_MAP_LABELS[s] || s)} · {utilStats.counts[s]}</b>
-    })).concat([{ color: 'transparent', sub: true,
-      label: <span style={{ fontSize: 10, color: T.inkLt }}>{utilStats.total}{utilStats.capped ? '+' : ''} in view</span> }])
+    Object.keys(UTILITY_MAP_COLORS).filter((s) => utilStats.counts[s]).map((s) => ({
+      color: UTILITY_MAP_COLORS[s],
+      label: <b style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}>{UTILITY_MAP_LABELS[s] || s}</b>
+    }))
     : null;
 
   const base = PAPERS[paper];
@@ -1073,7 +1072,7 @@ const PrintComposer = ({ sc, mpp, title, setTitle, onZoom, onPrint, onCancel, on
       {/* The page frame — spotlight mask via huge box-shadow; pointer-events pass through to map */}
       <div style={{ position: 'absolute', top: '50%', left: '50%', width: w, height: h,
         transform: `translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,
-        boxShadow: '0 0 0 9999px rgba(26,21,14,0.5)', outline: `1px solid rgba(255,255,255,0.9)`,
+        boxShadow: '0 0 0 9999px rgba(240,236,227,0.78)', outline: `1px solid rgba(255,255,255,0.9)`,
         pointerEvents: 'none', zIndex: 40, animation: 'ccFade 0.4s ease-out both', transition: 'width 0.25s,height 0.25s' }}>
         {/* crop corners */}
         <div style={corner(1, 1, 0, 0)} /><div style={corner(1, 0, 0, 1)} />
