@@ -13,9 +13,12 @@ import { findCampusNearby, FindCampusNearbyInputSchema } from './tools/campus/fi
 import { getBuildingInfo, GetBuildingInfoInputSchema } from './tools/campus/getBuildingInfo'
 import { checkHours, CheckHoursInputSchema } from './tools/campus/checkHours'
 import { queryTrees, QueryTreesInputSchema } from './tools/campus/queryTrees'
+import { searchDocuments, SearchDocumentsInputSchema } from './tools/campus/searchDocuments'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
-const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
+// BEDROCK_REGION may differ from the Lambda's own region when the model is an
+// application inference profile pinned to another region (prod uses us-east-2).
+const AWS_REGION = process.env.BEDROCK_REGION ?? process.env.AWS_REGION ?? 'us-east-1'
 
 const client = new BedrockRuntimeClient({ region: AWS_REGION })
 
@@ -159,6 +162,26 @@ const CAMPUS_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    toolSpec: {
+      name: 'search_planning_documents',
+      description:
+        'Semantic search over the PD 43 (Planned Development 43, the UChicago campus zoning district) document knowledge base: Chicago Zoning Ordinance chapters 17-8 and 17-17, PD 43 statements and amendments, City Council proceedings, Woodlawn Avenue plans, traffic management plan. Use for questions about zoning rules, FAR, height limits, permitted uses, setbacks, approvals, or planning history. The query must be an English keyword phrase — translate the user question if needed.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'English search phrase, e.g. "maximum floor area ratio subarea A"',
+            },
+            topK: { type: 'number', description: 'Number of passages to retrieve (1-10)', default: 5 },
+          },
+          required: ['query'],
+        },
+      },
+    },
+  },
 ]
 
 const SYSTEM_PROMPT = `You are CampusGeo, an AI geospatial assistant for the University of Chicago. You have access to real-time campus data through tools.
@@ -170,6 +193,7 @@ Guidelines:
 - For shuttle/bike queries, always call the relevant tool even if you think you know the answer.
 - Format responses concisely — this is a map app, not a chat.
 - If a layer query returns geometry, the frontend will automatically display it on the map.
+- For zoning, planning, FAR, height-limit, land-use, or approval questions, search the PD 43 document knowledge base first (search_planning_documents). Cite every regulatory claim with document name and page, e.g. (Chicago Zoning Ordinance 17-8, p.12). If the retrieved passages do not answer the question, say so plainly — never invent regulatory content.
 - Tone: intelligent, direct, evidence-based. No filler phrases.`
 
 type SSECallback = (event: { type: string; [key: string]: unknown }) => void
@@ -322,6 +346,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'query_trees': {
       const input = QueryTreesInputSchema.parse(rawInput)
       return queryTrees(input)
+    }
+    case 'search_planning_documents': {
+      const input = SearchDocumentsInputSchema.parse(rawInput)
+      return searchDocuments(input)
     }
     default:
       return { error: `Unknown tool: ${name}` }

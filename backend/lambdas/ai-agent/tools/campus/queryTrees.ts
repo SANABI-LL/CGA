@@ -70,13 +70,22 @@ export async function queryTrees(input: QueryTreesInput) {
     // 2. 应用过滤条件
     let filtered = geojson.features
 
-    // 过滤：树种
+    // 字段名兼容：当前 S3 数据用 CommonName/AgeClass/Condition/DBH1，
+    // 旧转换产物用 Common_Nam/ageClass/conditionC/Diameter
+    const firstString = (f: TreeFeature, keys: string[]): string | null => {
+      for (const key of keys) {
+        const v = f.properties[key]
+        if (v && typeof v === 'string') return v
+      }
+      return null
+    }
+
+    // 过滤：树种（常用名/学名/属名都可命中，如 "Maple" → "Maple-Sugar"）
     if (input.species) {
       const sp = input.species.toLowerCase()
       filtered = filtered.filter(f => {
-        const species = f.properties.Common_Nam || f.properties.hostId
-        return species && typeof species === 'string' &&
-               species.toLowerCase().includes(sp)
+        const species = firstString(f, ['CommonName', 'Common_Nam', 'ScientName', 'Genus', 'hostId'])
+        return species !== null && species.toLowerCase().includes(sp)
       })
     }
 
@@ -84,9 +93,8 @@ export async function queryTrees(input: QueryTreesInput) {
     if (input.ageClass) {
       const age = input.ageClass.toLowerCase()
       filtered = filtered.filter(f => {
-        const ageClass = f.properties.ageClass
-        return ageClass && typeof ageClass === 'string' &&
-               ageClass.toLowerCase().includes(age)
+        const ageClass = firstString(f, ['AgeClass', 'ageClass'])
+        return ageClass !== null && ageClass.toLowerCase().includes(age)
       })
     }
 
@@ -94,17 +102,17 @@ export async function queryTrees(input: QueryTreesInput) {
     if (input.condition) {
       const cond = input.condition.toLowerCase()
       filtered = filtered.filter(f => {
-        const condition = f.properties.conditionC
-        return condition && typeof condition === 'string' &&
-               condition.toLowerCase().includes(cond)
+        const condition = firstString(f, ['Condition', 'conditionC'])
+        return condition !== null && condition.toLowerCase().includes(cond)
       })
     }
 
-    // 过滤：最小直径
+    // 过滤：最小直径（DBH1 为字符串英寸值）
     if (input.minDiameter) {
       filtered = filtered.filter(f => {
-        const diameter = f.properties.Diameter
-        return diameter !== undefined && diameter >= input.minDiameter!
+        const raw = f.properties.Diameter ?? f.properties.DBH1
+        const diameter = typeof raw === 'string' ? parseFloat(raw) : raw
+        return typeof diameter === 'number' && !Number.isNaN(diameter) && diameter >= input.minDiameter!
       })
     }
 
