@@ -1173,6 +1173,72 @@ const EditReview = ({ sc, state, onApply, onUndo, onDiscard, onDone }) => {
 
 /* ── Data provenance report (editorial answer for sync queries) ── */
 const provLbl = { fontSize: 9.5, fontWeight: 700, color: T.inkXlt, textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 6 };
+// ── Document answer (PD 43 knowledge base) — text-only, no map jump ─────
+const mdInline = (s) => {
+  const parts = []; let rest = s; let k = 0;
+  while (rest.length) {
+    const m = rest.match(/\*\*([^*]+)\*\*/);
+    if (!m) { parts.push(rest); break; }
+    if (m.index > 0) parts.push(rest.slice(0, m.index));
+    parts.push(<b key={k++} style={{ color: T.ink }}>{m[1]}</b>);
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return parts;
+};
+
+const DocAnswer = ({ ans, query, setQuery, onSubmit }) => {
+  const lines = (ans.text || '').split('\n');
+  const blocks = [];
+  let i = 0;
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (/^\s*\|/.test(ln)) {
+      const rows = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) {
+        if (!/^\s*\|[\s:|-]+\|\s*$/.test(lines[i]))
+          rows.push(lines[i].replace(/^\s*\||\|\s*$/g, '').split('|').map((c) => c.trim().replace(/\*\*/g, '')));
+        i++;
+      }
+      blocks.push({ type: 'table', rows });
+      continue;
+    }
+    if (/^\s*#{1,4}\s/.test(ln)) { blocks.push({ type: 'h', text: ln.replace(/^\s*#{1,4}\s*/, '').replace(/\*\*/g, '') }); i++; continue; }
+    if (/^\s*[-*]\s/.test(ln)) { blocks.push({ type: 'li', text: ln.replace(/^\s*[-*]\s*/, '') }); i++; continue; }
+    if (/^\s*---+\s*$/.test(ln) || !ln.trim()) { i++; continue; }
+    blocks.push({ type: 'p', text: ln });
+    i++;
+  }
+  return (
+    <div style={{ width: '100%', maxWidth: 664, margin: '0 auto', animation: 'ccFadeUp 0.45s ease-out both' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+        <div style={{ maxWidth: '85%', background: T.maroon, color: T.white, borderRadius: '14px 14px 4px 14px',
+          padding: '11px 16px', fontSize: 16, fontFamily: 'EB Garamond,serif', fontStyle: 'italic', lineHeight: 1.4, boxShadow: '0 3px 12px rgba(128,0,0,0.22)' }}>{ans.q}</div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <div style={{ width: 26, height: 26, borderRadius: 7, background: T.amberTint, border: '1px solid rgba(176,120,48,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic n="search" size={13} color={T.amber} /></div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, letterSpacing: '0.07em', textTransform: 'uppercase' }}>PD 43 · Planning documents</span>
+      </div>
+      <div style={{ background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, padding: '22px 26px', marginBottom: 20 }}>
+        {blocks.map((b, k) =>
+          b.type === 'h' ? <div key={k} style={{ fontFamily: 'EB Garamond,Georgia,serif', fontSize: 20, fontWeight: 600, color: T.ink, margin: '14px 0 8px' }}>{b.text}</div> :
+          b.type === 'li' ? <div key={k} style={{ display: 'flex', gap: 9, fontSize: 13.5, color: T.inkMd, lineHeight: 1.6, marginBottom: 4 }}><span style={{ color: T.maroon }}>·</span><span>{mdInline(b.text)}</span></div> :
+          b.type === 'table' ?
+            <div key={k} style={{ overflowX: 'auto', margin: '10px 0 14px' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12.5 }}>
+                <thead>{b.rows.slice(0, 1).map((r, ri) => <tr key={ri}>{r.map((c, ci) => <th key={ci} style={{ textAlign: 'left', padding: '7px 12px', borderBottom: `2px solid ${T.rule}`, color: T.inkMd, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{c}</th>)}</tr>)}</thead>
+                <tbody>{b.rows.slice(1).map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci} style={{ padding: '7px 12px', borderBottom: `1px solid ${T.ruleLt}`, color: T.inkMd, fontFamily: ci === 0 ? 'JetBrains Mono,monospace' : 'inherit' }}>{c}</td>)}</tr>)}</tbody>
+              </table>
+            </div> :
+          <p key={k} style={{ fontSize: 13.5, color: T.inkMd, lineHeight: 1.65, margin: '0 0 10px' }}>{mdInline(b.text)}</p>
+        )}
+      </div>
+      <p style={{ fontSize: 11.5, color: T.inkLt, lineHeight: 1.6, borderTop: `1px solid ${T.ruleLt}`, paddingTop: 12, marginBottom: 22 }}>
+        Answered from the PD 43 planning-document knowledge base — zoning ordinance chapters, PD 43 statements and amendments, council proceedings. Citations reference document name and page.
+      </p>
+      <SearchBar value={query} onChange={setQuery} onSubmit={onSubmit} big={false} />
+    </div>);
+};
+
 const SyncReport = ({ q, query, setQuery, onSubmit }) => {
   const [running, setRunning] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -1346,6 +1412,7 @@ const App = () => {
   }, [t.showChinese, t.exampleCount]);
   const [phase, setPhase] = useState('idle'); // idle · thinking · composing · editing · provenance · unrecognized
   const [editState, setEditState] = useState(null); // null · 'review' · 'applied'
+  const [docAns, setDocAns] = useState(null); // PD/document text-only answer
   const [unrecMsg, setUnrecMsg] = useState(null);
   const [query, setQuery] = useState('');
   const [submitted, setSubmitted] = useState('');
@@ -1459,6 +1526,13 @@ const App = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ q })
         }).then(r => r.json());
+        const featCount = res.features && res.features.features ? res.features.features.length : 0;
+        if (res.intent === 'search_planning_documents' || (!featCount && !res.mapAction)) {
+          setDocAns({ q, text: res.answer || 'The agent returned no answer.' });
+          timers.current.push(setTimeout(() => setTraceDone(true), 300));
+          timers.current.push(setTimeout(() => setPhase('docanswer'), 750));
+          return;
+        }
         const scenario = buildScenarioFromApi(res, q);
         setSc(scenario); setTitle(scenario.title);
         scaleAppliedRef.current = false; setScaleCmd(null);
@@ -1829,6 +1903,8 @@ const App = () => {
                 47 layers · synced from the campus ArcGIS web map · updated today 02:00 CT
               </button>
             </div> :
+        phase === 'docanswer' && docAns ?
+        <DocAnswer ans={docAns} query={query} setQuery={setQuery} onSubmit={() => submit()} /> :
         phase === 'provenance' ?
         <SyncReport q={submitted} query={query} setQuery={setQuery} onSubmit={() => submit()} /> :
 
