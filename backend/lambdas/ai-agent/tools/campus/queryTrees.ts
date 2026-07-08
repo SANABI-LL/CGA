@@ -157,18 +157,18 @@ export async function queryTrees(input: QueryTreesInput) {
     const conditionCount: Record<string, number> = {}
 
     for (const feature of filtered) {
-      // 统计树种
-      const species = feature.properties.Common_Nam || 'Unknown'
+      // 统计树种（新旧字段名兼容，同过滤逻辑）
+      const species = firstString(feature, ['CommonName', 'Common_Nam']) || 'Unknown'
       speciesCount[species] = (speciesCount[species] || 0) + 1
 
       // 统计年龄等级
-      const age = feature.properties.ageClass
+      const age = firstString(feature, ['AgeClass', 'ageClass'])
       if (age) {
         ageCount[age] = (ageCount[age] || 0) + 1
       }
 
       // 统计状态
-      const condition = feature.properties.conditionC
+      const condition = firstString(feature, ['Condition', 'conditionC'])
       if (condition) {
         conditionCount[condition] = (conditionCount[condition] || 0) + 1
       }
@@ -181,17 +181,28 @@ export async function queryTrees(input: QueryTreesInput) {
       .map(([name, count]) => ({ species: name, count }))
 
     // 5. 返回结果
+    // 地图最多收 500 个要素（缓冲响应还会再截到 300）；模型只读统计摘要
+    // （_modelSummary）——无过滤的全量查询曾把 5000+ 棵树连几何塞进上下文，
+    // 直接超出模型 token 上限
+    const summary = {
+      totalCount: count,
+      topSpecies,
+      ageBreakdown: ageCount,
+      conditionBreakdown: conditionCount,
+      queryFilters: input
+    }
+    const mapFeatures = filtered.slice(0, 500)
+
     return {
-      summary: {
-        totalCount: count,
-        topSpecies,
-        ageBreakdown: ageCount,
-        conditionBreakdown: conditionCount,
-        queryFilters: input
-      },
+      summary,
       features: {
         type: 'FeatureCollection' as const,
-        features: filtered
+        features: mapFeatures
+      },
+      _modelSummary: {
+        ...summary,
+        featuresShownOnMap: mapFeatures.length,
+        note: 'Features are rendered on the map; per-tree geometry omitted here.'
       }
     }
 
