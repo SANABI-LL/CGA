@@ -148,7 +148,7 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'query_trees',
       description:
-        'Query Main Quad tree inventory data. Filter by species (common name like "Maple", "Ash", "Oak"), age class ("Young", "Semi-mature", "Mature"), condition ("Good", "Fair", "Poor"), or minimum diameter. Returns tree locations and statistics. Total inventory: 539 trees.',
+        'Query the campus tree inventory. Filter by species (common name like "Maple", "Ash", "Oak"), age class ("Young", "Semi-mature", "Mature"), condition ("Good", "Fair", "Poor"), or minimum diameter. Returns tree locations and statistics. ALWAYS call this tool for tree counts — the inventory is updated regularly, never answer from memory.',
       inputSchema: {
         json: {
           type: 'object',
