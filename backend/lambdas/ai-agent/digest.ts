@@ -34,7 +34,7 @@ interface WatchedLayer {
 }
 
 const WATCHED: Record<string, WatchedLayer> = {
-  'layers/trees.geojson': { label: 'Campus Trees', icon: 'leaf', nameFields: ['CommonName', 'Common_Nam'] },
+  'layers/trees.geojson': { label: 'Campus Trees', icon: 'leaf', nameFields: ['CommonName', 'Common_Nam', 'ScientName', 'TreeNotes'] },
   'layers/buildings.geojson': { label: 'Campus Buildings', icon: 'building', nameFields: ['DISCRIPT1'] },
   'layers/Cafe__Market__Restaurant_and_Dining_Hall.geojson': { label: 'Dining', icon: 'building', nameFields: ['Name', 'NAME'] },
   'layers/all-gender-restrooms.geojson': { label: 'All-Gender Restrooms', icon: 'building', nameFields: ['Building', 'Name'] },
