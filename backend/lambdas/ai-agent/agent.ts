@@ -15,6 +15,8 @@ import { checkHours, CheckHoursInputSchema } from './tools/campus/checkHours'
 import { queryTrees, QueryTreesInputSchema } from './tools/campus/queryTrees'
 import { searchDocuments, SearchDocumentsInputSchema } from './tools/campus/searchDocuments'
 import { queryUtilities, QueryUtilitiesInputSchema } from './tools/campus/queryUtilities'
+import { queryBuildingAttributes, QueryBuildingAttributesInputSchema } from './tools/campus/queryBuildingAttributes'
+import { getDataFreshness, GetDataFreshnessInputSchema } from './tools/campus/getDataFreshness'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -165,6 +167,36 @@ const CAMPUS_TOOLS: Tool[] = [
   },
   {
     toolSpec: {
+      name: 'query_building_attributes',
+      description:
+        'Filter campus buildings by a numeric or text attribute and map the matches. Use for building METRICS: RI (resilience index, 0-1.2), FCI (facility condition index), height (ft), year opened/completed, area, use type, ownership. Example: buildings with RI above 0.52 → field "RI", operator ">", value 0.52. This is layer data — never answer these from planning documents.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            field: {
+              type: 'string',
+              description: '"RI", "FCI", "height", "year", "area", "use", "ownership", or an exact field name',
+            },
+            operator: { type: 'string', enum: ['>', '>=', '<', '<=', '=', 'contains'] },
+            value: { description: 'Number for metric comparisons, string for contains/=' },
+            maxResults: { type: 'number', default: 300 },
+          },
+          required: ['field', 'operator', 'value'],
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'get_data_freshness',
+      description:
+        'Report when the campus data was last checked/updated: last nightly diff run, layers tracked, and the most recent detected changes. Use for "when was the data last updated" / data currency questions.',
+      inputSchema: { json: { type: 'object', properties: {} } },
+    },
+  },
+  {
+    toolSpec: {
       name: 'query_campus_utilities',
       description:
         'PREFERRED tool for campus underground utility infrastructure: steam lines and vaults, chilled water, domestic water, sewers, stormwater detention, electrical lines/conduits/ComEd feeders, compressed air, walkable utility tunnels, valves. When the user names ANY campus building or place, ALWAYS pass it as nearLocation — results are then filtered and clipped to a rectangular area around it (any of the 308 campus building names resolve). Results render on the map. Attributes are CAD metadata only — no depth/diameter data yet.',
@@ -221,6 +253,7 @@ Guidelines:
 - Format responses concisely — this is a map app, not a chat.
 - If a layer query returns geometry, the frontend will automatically display it on the map.
 - For zoning, planning, FAR, height-limit, land-use, or approval questions, search the PD 43 document knowledge base first (search_planning_documents). Cite every regulatory claim with document name and page, e.g. (Chicago Zoning Ordinance 17-8, p.12). If the retrieved passages do not answer the question, say so plainly — never invent regulatory content.
+- Building METRICS (RI, FCI, height, year, area) are LAYER DATA: use query_building_attributes, never the document search. Data-currency questions: use get_data_freshness.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
 
 type SSECallback = (event: { type: string; [key: string]: unknown }) => void
@@ -386,6 +419,14 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'query_campus_utilities': {
       const input = QueryUtilitiesInputSchema.parse(rawInput)
       return queryUtilities(input)
+    }
+    case 'query_building_attributes': {
+      const input = QueryBuildingAttributesInputSchema.parse(rawInput)
+      return queryBuildingAttributes(input)
+    }
+    case 'get_data_freshness': {
+      const input = GetDataFreshnessInputSchema.parse(rawInput)
+      return getDataFreshness(input)
     }
     default:
       return { error: `Unknown tool: ${name}` }

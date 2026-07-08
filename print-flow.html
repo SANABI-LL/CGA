@@ -1400,7 +1400,7 @@ const DocAnswer = ({ ans, query, setQuery, onSubmit }) => {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <div style={{ width: 26, height: 26, borderRadius: 7, background: T.amberTint, border: '1px solid rgba(176,120,48,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic n="search" size={13} color={T.amber} /></div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, letterSpacing: '0.07em', textTransform: 'uppercase' }}>PD 43 · Planning documents</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, letterSpacing: '0.07em', textTransform: 'uppercase' }}>{ans.intent === 'search_planning_documents' ? 'PD 43 · Planning documents' : 'CampusGeo Agent'}</span>
       </div>
       <div style={{ background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, padding: '22px 26px', marginBottom: 20 }}>
         {blocks.map((b, k) =>
@@ -1416,9 +1416,10 @@ const DocAnswer = ({ ans, query, setQuery, onSubmit }) => {
           <p key={k} style={{ fontSize: 13.5, color: T.inkMd, lineHeight: 1.65, margin: '0 0 10px' }}>{mdInline(b.text)}</p>
         )}
       </div>
+      {ans.intent === 'search_planning_documents' &&
       <p style={{ fontSize: 11.5, color: T.inkLt, lineHeight: 1.6, borderTop: `1px solid ${T.ruleLt}`, paddingTop: 12, marginBottom: 22 }}>
         Answered from the PD 43 planning-document knowledge base — zoning ordinance chapters, PD 43 statements and amendments, council proceedings. Citations reference document name and page.
-      </p>
+      </p>}
       <SearchBar value={query} onChange={setQuery} onSubmit={onSubmit} big={false} />
     </div>);
 };
@@ -1733,7 +1734,7 @@ const App = () => {
         }).then(r => r.json());
         const featCount = res.features && res.features.features ? res.features.features.length : 0;
         if (res.intent === 'search_planning_documents' || (!featCount && !res.mapAction)) {
-          setDocAns({ q, text: res.answer || 'The agent returned no answer.' });
+          setDocAns({ q, text: res.answer || 'The agent returned no answer.', intent: res.intent });
           timers.current.push(setTimeout(() => setTraceDone(true), 300));
           timers.current.push(setTimeout(() => setPhase('docanswer'), 750));
           return;
