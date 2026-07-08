@@ -14,6 +14,7 @@ export const QueryTreesInputSchema = z.object({
   minDiameter: z.number().optional().describe('Minimum diameter in cm'),
   location: z.string().optional().describe('Location description (e.g., "Main Quad")'),
   year: z.number().optional().describe('Year planted or last updated (e.g., 2024, 2025, 2026)'),
+  notes: z.string().optional().describe('Keyword match on TreeNotes, which records planting batches like "2025 Fall" — use for "planted in fall 2025" questions'),
 })
 
 export type QueryTreesInput = z.infer<typeof QueryTreesInputSchema>
@@ -105,6 +106,19 @@ export async function queryTrees(input: QueryTreesInput) {
         const condition = firstString(f, ['Condition', 'conditionC'])
         return condition !== null && condition.toLowerCase().includes(cond)
       })
+    }
+
+    // 过滤：TreeNotes 关键词（分词全含,不限词序——"fall 2025" 可命中 "2025 Fall"）
+    if (input.notes) {
+      const tokens = input.notes.toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 1)
+      if (tokens.length) {
+        filtered = filtered.filter(f => {
+          const notes = f.properties.TreeNotes
+          if (!notes || typeof notes !== 'string') return false
+          const lower = notes.toLowerCase()
+          return tokens.every(t => lower.includes(t))
+        })
+      }
     }
 
     // 过滤：最小直径（DBH1 为字符串英寸值）
@@ -199,7 +213,9 @@ export async function queryTrees(input: QueryTreesInput) {
         OBJECTID: f.properties.OBJECTID,
         CommonName: firstString(f, ['CommonName', 'Common_Nam']),
         Condition: firstString(f, ['Condition', 'conditionC']),
-        AgeClass: firstString(f, ['AgeClass', 'ageClass'])
+        AgeClass: firstString(f, ['AgeClass', 'ageClass']),
+        CanRadius: firstString(f, ['CanRadius', 'canopyRadi']),
+        TreeNotes: firstString(f, ['TreeNotes'])
       }
     }))
 

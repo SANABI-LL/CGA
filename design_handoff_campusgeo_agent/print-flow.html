@@ -537,6 +537,15 @@ const UTILITY_SYSTEM_FILES = {
   valves: ['utility_valves']
 };
 
+// Print titles come from the user's question — short and predictable —
+// not from the model's full answer text (which can run to whole paragraphs).
+function shortMapTitle(res, q) {
+  let t = (q || '').trim().replace(/[?？.。!！]+$/, '');
+  if (t.length > 64) t = t.slice(0, 61) + '\u2026';
+  if (t) return t.charAt(0).toUpperCase() + t.slice(1);
+  return (res.answer || 'Query results').replace(/\*\*/g, '').split(/[.\n]/)[0].slice(0, 64);
+}
+
 function buildUtilityScenario(res, q, features) {
   const count = features.features.length;
   const groups = {};
@@ -551,7 +560,7 @@ function buildUtilityScenario(res, q, features) {
   if (res.mapAction && res.mapAction.center) { center = res.mapAction.center; zoom = 16.2; }
   return {
     kind: 'utilities', unit: 'features',
-    title: res.answer || 'Campus utilities',
+    title: shortMapTitle(res, q),
     center, zoom, data: features, allData: null,
     matchCount: count, recordCount: count, fieldCount: 3,
     chip: 'Campus Utilities', chipIcon: 'zap', fieldName: 'utilitySystem',
@@ -603,7 +612,7 @@ function buildScenarioFromApi(res, q) {
   });
   return {
     kind: kindStr, unit: kindStr,
-    title: res.answer || 'Query results',
+    title: shortMapTitle(res, q),
     center, zoom,
     data: features, allData: null,
     matchCount: count, recordCount: count, fieldCount: 3,
@@ -785,7 +794,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
         map.on('mouseleave', 'trees-2025', () => {map.getCanvas().style.cursor = '';pop.remove();});
         map.on('click', 'trees-2025', (e) => {
           const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
-          pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">Planted ${p.year_planted} · ${p.dbh_in}" DBH · ${p.condition}</div><div class="pop-coord">OBJECTID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+          const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${nm}</div><div class="pop-sub">${bits}</div><div class="pop-coord">TreeID ${p.TreeID || p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
         });
         } else {
           // all trees — no year-filter split, single green layer from sc.data
@@ -800,7 +809,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
           map.on('mouseleave', 'trees-all', () => {map.getCanvas().style.cursor = '';pop.remove();});
           map.on('click', 'trees-all', (e) => {
             const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
-            pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">${p.condition}</div><div class="pop-coord">TreeID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+            const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${nm}</div><div class="pop-sub">${bits}</div><div class="pop-coord">TreeID ${p.TreeID || p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
           });
         }
       } else if (sc.kind === 'utilities') {
@@ -903,7 +912,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
       map.on('mouseleave', 'ov-trees', () => {map.getCanvas().style.cursor = '';pop.remove();});
       map.on('click', 'ov-trees', (e) => {
         const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
-        pop.setLngLat(c).setHTML(`<div class="pop-title">${p.species}</div><div class="pop-sub">Planted ${p.year_planted} · ${p.dbh_in}" DBH · ${p.condition}</div><div class="pop-coord">OBJECTID ${p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+        const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${nm}</div><div class="pop-sub">${bits}</div><div class="pop-coord">TreeID ${p.TreeID || p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
       });
       setReady(true);
       // report meters-per-pixel for scale bar

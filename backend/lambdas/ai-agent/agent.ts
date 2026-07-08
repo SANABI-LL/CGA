@@ -150,7 +150,7 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'query_trees',
       description:
-        'Query the campus tree inventory. Filter by species (common name like "Maple", "Ash", "Oak"), age class ("Young", "Semi-mature", "Mature"), condition ("Good", "Fair", "Poor"), or minimum diameter. Returns tree locations and statistics. ALWAYS call this tool for tree counts — the inventory is updated regularly, never answer from memory.',
+        'Query the campus tree inventory. Filter by species (common name like "Maple", "Ash", "Oak"), age class ("Young", "Semi-mature", "Mature"), condition ("Good", "Fair", "Poor"), minimum diameter, or notes keyword (TreeNotes records planting batches, e.g. notes "2025 Fall" answers "trees planted in fall 2025"). Returns tree locations and statistics. ALWAYS call this tool for tree counts — the inventory is updated regularly, never answer from memory.',
       inputSchema: {
         json: {
           type: 'object',
@@ -160,6 +160,7 @@ const CAMPUS_TOOLS: Tool[] = [
             condition: { type: 'string', description: 'Tree condition: "Good", "Fair", or "Poor"' },
             minDiameter: { type: 'number', description: 'Minimum trunk diameter in cm' },
             location: { type: 'string', description: 'Location description' },
+            notes: { type: 'string', description: 'Keyword match on TreeNotes (planting batches, e.g. "2025 Fall")' },
           },
         },
       },
