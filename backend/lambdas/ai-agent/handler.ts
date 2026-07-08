@@ -1,5 +1,6 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
 import { runCampusGeoAgent } from './agent'
+import { runDailyDigest } from './digest'
 
 // This Lambda uses Lambda streaming (Response Streaming) for SSE
 // Deploy with FunctionUrlConfig.InvokeMode = RESPONSE_STREAM
@@ -14,6 +15,12 @@ import { runCampusGeoAgent } from './agent'
 async function bufferedHandler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyStructuredResultV2> {
+  // EventBridge daily schedule (no requestContext on scheduled events)
+  if ((event as unknown as { source?: string }).source === 'aws.events') {
+    const result = await runDailyDigest()
+    return { statusCode: 200, body: JSON.stringify(result) }
+  }
+
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders() }
   }
