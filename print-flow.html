@@ -1538,17 +1538,17 @@ const SearchBar = ({ value, onChange, onSubmit, big, disabled }) => {
 
 /* ── App ────────────────────────────────────────────────────── */
 /* ── Daily digest — notification of changes from the nightly sync ── */
-const DigestPanel = ({ onView, onClose, onOpenReport }) =>
+const DigestPanel = ({ onView, onClose, onOpenReport, date = DIGEST_DATE, items = DIGEST }) =>
 <div style={{ position: 'absolute', top: 46, right: 0, width: 344, zIndex: 80, background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 12, boxShadow: '0 14px 44px rgba(0,0,0,0.22)', overflow: 'hidden', animation: 'ccFadeUp 0.25s ease-out both' }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '13px 16px', borderBottom: `1px solid ${T.ruleLt}` }}>
       <Ic n="bell" size={14} color={T.maroon} />
       <span style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>Daily digest</span>
-      <span style={{ fontSize: 11, color: T.inkXlt }}>· {DIGEST_DATE.replace(', 2026', '')}</span>
+      <span style={{ fontSize: 11, color: T.inkXlt }}>· {date.replace(', 2026', '')}</span>
       <div style={{ flex: 1 }} />
       <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono,monospace', color: T.inkXlt }}>02:00 sync</span>
     </div>
     <div>
-      {DIGEST.map((it, i) =>
+      {items.map((it, i) =>
     <div key={i} style={{ display: 'flex', gap: 11, padding: '13px 16px', borderBottom: `1px solid ${T.ruleLt}` }}>
           <div style={{ width: 28, height: 28, borderRadius: 7, background: T.paperDk, border: `1px solid ${T.rule}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic n={it.icon} size={14} color={T.amber} /></div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1616,6 +1616,27 @@ const App = () => {
   const mapInstanceRef = useRef(null);
   const timers = useRef([]);
   const [digestOpen, setDigestOpen] = useState(false);
+  // Live digest from the nightly diff pipeline; scripted DIGEST is the fallback
+  const [liveDigest, setLiveDigest] = useState(null);
+  useEffect(() => {
+    fetch(`${CAMPUSGEO_CDN}/digest/latest.json`, { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!d || d.baseline || !Array.isArray(d.items)) return;
+        const items = d.items.length ? d.items.map((it) => ({
+          ...it,
+          open: it.open || (it.icon === 'leaf' ? 'How many trees are in the inventory right now?' : undefined)
+        })) : [{
+          icon: 'check', headline: 'No changes detected',
+          detail: 'The latest nightly sync found no layer updates.',
+          sub: 'All layers · nightly diff'
+        }];
+        setLiveDigest({ date: d.date || DIGEST_DATE, items });
+      })
+      .catch(() => {});
+  }, []);
+  const digestDate = liveDigest ? liveDigest.date : DIGEST_DATE;
+  const digestItems = liveDigest ? liveDigest.items : DIGEST;
   const [digestSeen, setDigestSeen] = useState(false);
   const [toast, setToast] = useState(false);
 
@@ -1956,7 +1977,7 @@ const App = () => {
             <Ic n="bell" size={16} color={T.inkMd} />
             {!digestSeen && <span style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: '50%', background: T.maroon, border: `1.5px solid ${T.cream}` }} />}
           </button>
-          {digestOpen && <DigestPanel onView={viewDigestItem} onClose={() => setDigestOpen(false)} onOpenReport={() => {setDigestOpen(false);submit('When was the campus data last updated?');}} />}
+          {digestOpen && <DigestPanel date={digestDate} items={digestItems} onView={viewDigestItem} onClose={() => setDigestOpen(false)} onOpenReport={() => {setDigestOpen(false);submit('When was the campus data last updated?');}} />}
         </div>
         {phase !== 'idle' &&
         <button onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 6, background: T.cream, border: `1px solid ${T.rule}`, borderRadius: 8, padding: '7px 12px', color: T.inkMd, fontSize: 12, fontWeight: 600 }}
@@ -1967,7 +1988,7 @@ const App = () => {
       </div>
 
       {/* Daily digest toast (one-time, on first load of an unseen sync) */}
-      {toast && <DigestToast item={DIGEST[0]} onView={() => viewDigestItem(DIGEST[0])} onClose={() => setToast(false)} />}
+      {toast && digestItems[0] && <DigestToast item={digestItems[0]} onView={() => viewDigestItem(digestItems[0])} onClose={() => setToast(false)} />}
 
       {/* Map layer (mounted while composing or reviewing an edit) */}
       {mapOn &&
