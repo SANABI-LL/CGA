@@ -181,9 +181,9 @@ export async function queryTrees(input: QueryTreesInput) {
       .map(([name, count]) => ({ species: name, count }))
 
     // 5. 返回结果
-    // 地图最多收 500 个要素（缓冲响应还会再截到 300）；模型只读统计摘要
-    // （_modelSummary）——无过滤的全量查询曾把 5000+ 棵树连几何塞进上下文，
-    // 直接超出模型 token 上限
+    // 树是点要素，可以全量上图（上限 6000 防御异常数据）——但要把 55 个
+    // CAD 字段瘦身成展示所需的 5 个，否则 5000+ 棵的属性就有数 MB。
+    // 模型只读统计摘要（_modelSummary），不接收逐棵几何。
     const summary = {
       totalCount: count,
       topSpecies,
@@ -191,7 +191,17 @@ export async function queryTrees(input: QueryTreesInput) {
       conditionBreakdown: conditionCount,
       queryFilters: input
     }
-    const mapFeatures = filtered.slice(0, 500)
+    const mapFeatures = filtered.slice(0, 6000).map(f => ({
+      type: 'Feature' as const,
+      geometry: f.geometry,
+      properties: {
+        TreeID: f.properties.TreeID ?? f.properties.OBJECTID,
+        OBJECTID: f.properties.OBJECTID,
+        CommonName: firstString(f, ['CommonName', 'Common_Nam']),
+        Condition: firstString(f, ['Condition', 'conditionC']),
+        AgeClass: firstString(f, ['AgeClass', 'ageClass'])
+      }
+    }))
 
     return {
       summary,

@@ -55,7 +55,8 @@ async function bufferedHandler(
   const events: string[] = []
   try {
     await runCampusGeoAgent(query, sessionId, (eventObj) => {
-      events.push(`data: ${JSON.stringify(capMapUpdate(eventObj, 300))}\n\n`)
+      const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
+      events.push(`data: ${JSON.stringify(capMapUpdate(eventObj, cap))}\n\n`)
     })
   } catch (err) {
     events.push(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`)
@@ -122,7 +123,7 @@ async function legacyQueryHandler(
       }
       const mapUpdate = (eventObj as MapUpdateEvent).mapUpdate
       if (mapUpdate?.features) {
-        const fc = capMapUpdate(eventObj as MapUpdateEvent, 300).mapUpdate?.features as
+        const fc = capMapUpdate(eventObj as MapUpdateEvent, mapCapFor(mapUpdate.features)).mapUpdate?.features as
           | { features?: unknown[] }
           | undefined
         if (fc?.features) featureChunks.push(fc.features)
@@ -144,29 +145,45 @@ async function legacyQueryHandler(
     body: JSON.stringify({
       answer,
       intent,
-      // 600-feature ceiling keeps the merged one-shot payload well under the
-      // 6 MB Lambda response limit; round-robin across tool calls so no
-      // utility system is cut out entirely by the cap
-      features: { type: 'FeatureCollection', features: interleave(featureChunks, 600) },
+      // Byte budget keeps the merged one-shot payload well under the 6 MB
+      // Lambda response limit; round-robin across tool calls so no utility
+      // system is cut out entirely, while cheap point sets can ship whole
+      features: { type: 'FeatureCollection', features: interleave(featureChunks, 4_500_000) },
       mapAction: center ? { center: [center.lng, center.lat], zoom: 16 } : undefined,
     }),
   }
 }
 
-function interleave(chunks: unknown[][], cap: number): unknown[] {
+// Round-robin merge across tool calls under a byte budget: dense polyline
+// chunks stop early, cheap point features (e.g. 5k trees) can all fit.
+function interleave(chunks: unknown[][], byteBudget: number): unknown[] {
   const merged: unknown[] = []
-  for (let i = 0; merged.length < cap; i++) {
+  let bytes = 0
+  for (let i = 0; bytes < byteBudget; i++) {
     let added = false
     for (const chunk of chunks) {
       if (i < chunk.length) {
+        bytes += JSON.stringify(chunk[i]).length
         merged.push(chunk[i])
         added = true
-        if (merged.length >= cap) break
+        if (bytes >= byteBudget) break
       }
     }
     if (!added) break
   }
   return merged
+}
+
+// Per-tool map cap: point-only results are cheap to render and ship, so they
+// get a much higher ceiling than vertex-dense lines/polygons.
+function mapCapFor(fc: unknown): number {
+  const feats = (fc as { features?: Array<{ geometry?: { type?: string } }> } | undefined)?.features
+  if (!Array.isArray(feats) || !feats.length) return 300
+  const pointsOnly = feats.every((f) => {
+    const t = f?.geometry?.type
+    return t === 'Point' || t === 'MultiPoint'
+  })
+  return pointsOnly ? 6000 : 300
 }
 
 interface MapUpdateEvent {
