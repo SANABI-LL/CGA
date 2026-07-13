@@ -43,12 +43,22 @@ pnpm-debug.log*
 # Test coverage
 coverage/
 
-# Geospatial source data and conversion output (large binaries — keep out of git)
+# === 大型资产文件（由 Dropbox 同步，Git 不跟踪）===
 Data/
 *.gdb/
 gis_output/
 *.geojson
 !apps/web/public/**/*.geojson
+
+# 设计稿和文档（大型二进制文件）
+design/
+design_handoff_campusgeo_agent/
+PD 43 (Campus)/
+uploads/
+*.ai
+*.psd
+*.sketch
+CampusGeo*.zip
 
 # Python
 __pycache__/
@@ -56,3 +66,10 @@ __pycache__/
 *.zip
 response.json
 test-event.json
+
+# Lambda 打包产物
+campusgeo-lambda/*.zip
+backend/lambdas/**/*.zip
+
+# Specify 临时文件
+.specify/memory/*.tmp.*
