@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
 export const CheckHoursInputSchema = z.object({
-  locationName: z.string().describe('Campus location name, e.g. "Regenstein Library", "Crerar Library"'),
-  checkTime: z.string().optional().describe('ISO 8601 timestamp, defaults to now'),
-})
+  locationName: z.string().max(200).describe('Campus location name, e.g. "Regenstein Library", "Crerar Library"'),
+  checkTime: z.string().max(50).optional().describe('ISO 8601 timestamp, defaults to now'),
+}).strict()
 
 export type CheckHoursInput = z.infer<typeof CheckHoursInputSchema>
 
@@ -63,6 +63,8 @@ function normalizeLocationName(name: string): string {
 
 function findHoursEntry(name: string): [string, Record<number, { open: string; close: string } | null>] | null {
   const normalized = normalizeLocationName(name)
+  // Too-short input would substring-match the first dictionary entry
+  if (normalized.length < 2) return null
   const direct = CAMPUS_HOURS[normalized]
   if (direct) return [normalized, direct]
 
@@ -72,8 +74,33 @@ function findHoursEntry(name: string): [string, Record<number, { open: string; c
   return match ?? null
 }
 
+// The schedule table is wall-clock time in Chicago; the Lambda runs in UTC,
+// so day/hour/minute must be extracted in America/Chicago, never via the
+// local-time getters.
+function chicagoParts(date: Date): { dayOfWeek: number; minutes: number; timeStr: string } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date)
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'))
+  const hour = Number(get('hour')) % 24 // "24:xx" quirk of hourCycle h23 edge
+  const minute = Number(get('minute'))
+  return {
+    dayOfWeek,
+    minutes: hour * 60 + minute,
+    timeStr: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+  }
+}
+
 export async function checkHours(input: CheckHoursInput) {
   const checkAt = input.checkTime ? new Date(input.checkTime) : new Date()
+  if (Number.isNaN(checkAt.getTime())) {
+    return { error: 'Invalid checkTime — expected an ISO 8601 timestamp.' }
+  }
   const entry = findHoursEntry(input.locationName)
 
   if (!entry) {
@@ -85,11 +112,10 @@ export async function checkHours(input: CheckHoursInput) {
   }
 
   const [matchedName, schedule] = entry
-  const dayOfWeek = checkAt.getDay()
+  const { dayOfWeek, minutes: currentMinutes } = chicagoParts(checkAt)
   const todaySchedule = schedule[dayOfWeek]
 
   const displayName = matchedName.replace(/\b\w/g, (c) => c.toUpperCase())
-  const timeStr = checkAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
 
   if (!todaySchedule) {
     return {
@@ -103,7 +129,6 @@ export async function checkHours(input: CheckHoursInput) {
 
   const [openH, openM] = todaySchedule.open.split(':').map(Number)
   const [closeH, closeM] = todaySchedule.close.split(':').map(Number)
-  const currentMinutes = checkAt.getHours() * 60 + checkAt.getMinutes()
   const openMinutes = openH * 60 + openM
   const closeMinutes = closeH * 60 + closeM
   const isOpen = currentMinutes >= openMinutes && currentMinutes < closeMinutes

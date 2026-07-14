@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import { queryS3Layer } from './queryS3Layer'
+import { pickBuildingProps } from './buildingFields'
 
 export const GetBuildingInfoInputSchema = z.object({
-  buildingIdentifier: z.string().describe('Building name or UChicago building number'),
-})
+  buildingIdentifier: z.string().max(200).describe('Building name or UChicago building number'),
+}).strict()
 
 export type GetBuildingInfoInput = z.infer<typeof GetBuildingInfoInputSchema>
 
@@ -16,6 +17,9 @@ export type GetBuildingInfoInput = z.infer<typeof GetBuildingInfoInputSchema>
  */
 export async function getBuildingInfo(input: GetBuildingInfoInput) {
   const name = input.buildingIdentifier.trim()
+  if (name.length < 2) {
+    return { error: 'Building identifier is too short.' }
+  }
   const isNumeric = /^\d+$/.test(name)
 
   const whereClause = isNumeric
@@ -55,7 +59,11 @@ export async function getBuildingInfo(input: GetBuildingInfoInput) {
     buildings,
     features: {
       type: 'FeatureCollection' as const,
-      features: result.features,
+      // Allow-listed properties only — never ship raw layer columns
+      features: result.features.map((f) => ({
+        ...f,
+        properties: pickBuildingProps(f.properties as Record<string, unknown>),
+      })),
     },
   }
 }

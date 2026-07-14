@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 
+import { getBucket } from './config'
+import { BUILDING_FIELD_ALLOWLIST } from './buildingFields'
+
 const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
-const BUCKET = process.env.GEOJSON_BUCKET || 'campusgeo-geodata-491117467175'
 const BUILDINGS_KEY = process.env.BUILDINGS_KEY || 'layers/buildings.geojson'
 
 const s3 = new S3Client({ region: AWS_REGION })
@@ -30,11 +32,12 @@ const FIELD_ALIASES: Record<string, string[]> = {
 export const QueryBuildingAttributesInputSchema = z.object({
   field: z
     .string()
+    .max(100)
     .describe('Attribute to filter on: "RI" (resilience index), "FCI", "height", "year", "area", "use", "ownership", or an exact field name'),
   operator: z.enum(['>', '>=', '<', '<=', '=', 'contains']),
-  value: z.union([z.number(), z.string()]),
-  maxResults: z.number().max(400).optional().default(300),
-})
+  value: z.union([z.number(), z.string().max(200)]),
+  maxResults: z.number().int().min(1).max(400).optional().default(300),
+}).strict()
 
 export type QueryBuildingAttributesInput = z.infer<typeof QueryBuildingAttributesInputSchema>
 
@@ -49,7 +52,7 @@ let buildingsPromise: Promise<BuildingFeature[]> | null = null
 function loadBuildings(): Promise<BuildingFeature[]> {
   if (!buildingsPromise) {
     buildingsPromise = (async () => {
-      const r = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: BUILDINGS_KEY }))
+      const r = await s3.send(new GetObjectCommand({ Bucket: getBucket(), Key: BUILDINGS_KEY }))
       if (!r.Body) throw new Error('Empty S3 response for buildings layer')
       const parsed = JSON.parse(await r.Body.transformToString()) as { features: BuildingFeature[] }
       return parsed.features ?? []
@@ -62,12 +65,16 @@ function loadBuildings(): Promise<BuildingFeature[]> {
 }
 
 function resolveField(requested: string, sample: Record<string, unknown>): string | null {
-  if (requested in sample) return requested
+  // Only allow-listed fields are queryable — internal facilities columns are
+  // not reachable even by exact name, and `Object.hasOwn` avoids matching
+  // prototype-chain properties like "constructor".
+  const isAllowed = (f: string) => BUILDING_FIELD_ALLOWLIST.has(f) && Object.hasOwn(sample, f)
+  if (isAllowed(requested)) return requested
   const candidates = FIELD_ALIASES[requested.toLowerCase().replace(/[^a-z]/g, '')] ?? []
-  for (const c of candidates) if (c in sample) return c
-  // last resort: case-insensitive match
+  for (const c of candidates) if (isAllowed(c)) return c
+  // last resort: case-insensitive match within the allow-list
   const lower = requested.toLowerCase()
-  return Object.keys(sample).find((k) => k.toLowerCase() === lower) ?? null
+  return [...BUILDING_FIELD_ALLOWLIST].find((k) => k.toLowerCase() === lower && Object.hasOwn(sample, k)) ?? null
 }
 
 function centroidOf(features: BuildingFeature[]): { lat: number; lng: number } | undefined {
@@ -95,8 +102,9 @@ export async function queryBuildingAttributes(input: QueryBuildingAttributesInpu
 
     const field = resolveField(input.field, buildings[0].properties)
     if (!field) {
+      // Deliberately generic: do not enumerate layer columns to the caller.
       return {
-        error: `Field "${input.field}" not found. Available fields include: ${Object.keys(buildings[0].properties).join(', ')}`,
+        error: 'Field not available. Queryable attributes: RI, FCI, height, year, area, use, ownership, name.',
       }
     }
 
@@ -165,6 +173,7 @@ export async function queryBuildingAttributes(input: QueryBuildingAttributesInpu
       },
     }
   } catch (err) {
-    return { error: `Building attribute query failed: ${err instanceof Error ? err.message : String(err)}` }
+    console.error('queryBuildingAttributes error:', err)
+    return { error: 'Building attribute query failed' }
   }
 }

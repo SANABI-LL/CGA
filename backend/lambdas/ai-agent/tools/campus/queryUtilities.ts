@@ -2,8 +2,9 @@ import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { resolveLocation, haversineMeters } from './findCampusNearby'
 
+import { getBucket } from './config'
+
 const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
-const BUCKET = process.env.GEOJSON_BUCKET || 'campusgeo-geodata-491117467175'
 
 const s3 = new S3Client({ region: AWS_REGION })
 
@@ -81,11 +82,12 @@ export const QueryUtilitiesInputSchema = z.object({
   ]),
   nearLocation: z
     .string()
+    .max(200)
     .optional()
     .describe('Named campus location or "lat,lng" — limits results to a radius around it'),
-  radiusMeters: z.number().optional().default(150),
-  maxResults: z.number().max(500).optional().default(300),
-})
+  radiusMeters: z.number().min(1).max(2000).optional().default(150),
+  maxResults: z.number().int().min(1).max(500).optional().default(300),
+}).strict()
 
 export type QueryUtilitiesInput = z.infer<typeof QueryUtilitiesInputSchema>
 
@@ -103,7 +105,7 @@ function loadLayer(name: string): Promise<UtilityFeature[]> {
   if (!cached) {
     cached = (async () => {
       const response = await s3.send(
-        new GetObjectCommand({ Bucket: BUCKET, Key: `layers/${name}.geojson` })
+        new GetObjectCommand({ Bucket: getBucket(), Key: `layers/${name}.geojson` })
       )
       if (!response.Body) throw new Error(`Empty S3 response for ${name}`)
       const parsed = JSON.parse(await response.Body.transformToString()) as {
@@ -135,7 +137,7 @@ function loadBuildingIndex() {
   if (!buildingIndexPromise) {
     buildingIndexPromise = (async () => {
       const response = await s3.send(
-        new GetObjectCommand({ Bucket: BUCKET, Key: 'layers/buildings.geojson' })
+        new GetObjectCommand({ Bucket: getBucket(), Key: 'layers/buildings.geojson' })
       )
       if (!response.Body) throw new Error('Empty S3 response for buildings.geojson')
       const parsed = JSON.parse(await response.Body.transformToString()) as {
@@ -373,8 +375,7 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
       _modelSummary: { ...summary, featuresShownOnMap: outFeatures.length },
     }
   } catch (err) {
-    return {
-      error: `Utility query failed: ${err instanceof Error ? err.message : String(err)}`,
-    }
+    console.error('queryUtilities error:', err)
+    return { error: 'Utility query failed' }
   }
 }

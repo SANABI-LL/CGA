@@ -4,6 +4,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSP: babel-standalone transpiles the inline script at runtime, so
+     'unsafe-inline'/'unsafe-eval' cannot be dropped on this prototype page;
+     the primary XSS defense is esc() on all popup interpolations. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://tiles.openfreemap.org https://du0vacooj41k3.cloudfront.net https://*.execute-api.us-east-1.amazonaws.com; worker-src blob:; object-src 'none'; base-uri 'self'">
 <title>CampusGeo — Print a Map</title>
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
@@ -47,6 +51,11 @@ button{cursor:pointer;}
 <script type="text/babel">
 
 const { useState, useRef, useEffect, useMemo, useCallback } = React;
+
+// HTML-escape for popup interpolations — feature properties (TreeNotes,
+// building names, CAD layer names…) are external data and must never reach
+// setHTML unescaped.
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
 /* ── Tokens ─────────────────────────────────────────────────── */
 const T = {
@@ -794,7 +803,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
         map.on('mouseleave', 'trees-2025', () => {map.getCanvas().style.cursor = '';pop.remove();});
         map.on('click', 'trees-2025', (e) => {
           const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
-          const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${nm}</div><div class="pop-sub">${bits}</div><div class="pop-coord">TreeID ${p.TreeID || p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+          const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${esc(nm)}</div><div class="pop-sub">${esc(bits)}</div><div class="pop-coord">TreeID ${esc(p.TreeID || p.OBJECTID)} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
         });
         } else {
           // all trees — no year-filter split, single green layer from sc.data
@@ -809,7 +818,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
           map.on('mouseleave', 'trees-all', () => {map.getCanvas().style.cursor = '';pop.remove();});
           map.on('click', 'trees-all', (e) => {
             const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
-            const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${nm}</div><div class="pop-sub">${bits}</div><div class="pop-coord">TreeID ${p.TreeID || p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+            const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${esc(nm)}</div><div class="pop-sub">${esc(bits)}</div><div class="pop-coord">TreeID ${esc(p.TreeID || p.OBJECTID)} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
           });
         }
       } else if (sc.kind === 'utilities') {
@@ -834,7 +843,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
           map.on('mouseleave', lid, () => {map.getCanvas().style.cursor = '';pop.remove();});
           map.on('click', lid, (e) => {
             const p = e.features[0].properties;
-            pop.setLngLat(e.lngLat).setHTML(`<div class="pop-title">${UTILITY_MAP_LABELS[p.utilitySystem] || p.utilitySystem || 'Utility'}</div><div class="pop-sub">${p.utilityLayer || ''}${p.distanceMeters != null ? ' · ' + p.distanceMeters + ' m from query point' : ''}</div>`).addTo(map);
+            pop.setLngLat(e.lngLat).setHTML(`<div class="pop-title">${esc(UTILITY_MAP_LABELS[p.utilitySystem] || p.utilitySystem || 'Utility')}</div><div class="pop-sub">${esc(p.utilityLayer || '')}${p.distanceMeters != null ? ' · ' + esc(p.distanceMeters) + ' m from query point' : ''}</div>`).addTo(map);
           });
         });
         // ── Live viewport mode ──────────────────────────────────────────
@@ -904,7 +913,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
           const bits = [`RI ${ri}`];
           if (p.Year_Completed) bits.push('built ' + Math.round(p.Year_Completed));
           if ((p.CHRS || '').trim()) bits.push(p.CHRS.trim());
-          pop.setLngLat(e.lngLat).setHTML(`<div class="pop-title">${(p.DISCRIPT1 || 'Building').trim()}</div><div class="pop-sub">${bits.join(' · ')}</div><div class="pop-coord">${(p.BD_ID || '').trim() || (p.ADDRESS || '').trim()}</div>`).addTo(map);
+          pop.setLngLat(e.lngLat).setHTML(`<div class="pop-title">${esc((p.DISCRIPT1 || 'Building').trim())}</div><div class="pop-sub">${esc(bits.join(' · '))}</div><div class="pop-coord">${esc((p.BD_ID || '').trim() || (p.ADDRESS || '').trim())}</div>`).addTo(map);
         });
       }
       // overlay tree popups (delegated — layer may not exist yet)
@@ -912,7 +921,7 @@ const MapCanvas = ({ sc, visible, zoomCmd, fitCmd, scaleCmd, onScaleChange, mapI
       map.on('mouseleave', 'ov-trees', () => {map.getCanvas().style.cursor = '';pop.remove();});
       map.on('click', 'ov-trees', (e) => {
         const f = e.features[0],p = f.properties,c = f.geometry.coordinates.slice();
-        const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${nm}</div><div class="pop-sub">${bits}</div><div class="pop-coord">TreeID ${p.TreeID || p.OBJECTID} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
+        const nm = p.CommonName || p.species || p.TreeNotes || 'Tree'; const bits = [p.Condition || p.condition, p.AgeClass, p.CanRadius ? `canopy ${p.CanRadius} ft` : null, p.CommonName && p.TreeNotes ? p.TreeNotes : null].filter(Boolean).join(' · ') || 'No attributes recorded'; pop.setLngLat(c).setHTML(`<div class="pop-title">${esc(nm)}</div><div class="pop-sub">${esc(bits)}</div><div class="pop-coord">TreeID ${esc(p.TreeID || p.OBJECTID)} · ${c[1].toFixed(5)}, ${c[0].toFixed(5)}</div>`).addTo(map);
       });
       setReady(true);
       // report meters-per-pixel for scale bar

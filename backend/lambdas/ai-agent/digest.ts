@@ -19,8 +19,9 @@ import {
  * First run only establishes the baseline (baseline: true, no items).
  */
 
+import { getBucket } from './tools/campus/config'
+
 const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
-const BUCKET = process.env.GEOJSON_BUCKET || 'campusgeo-geodata-491117467175'
 const STATE_KEY = 'digest/state.json'
 const LATEST_KEY = 'digest/latest.json'
 
@@ -111,7 +112,7 @@ function describeAdded(features: RawFeature[], cfg: WatchedLayer): string {
 
 async function readJson<T>(key: string): Promise<T | null> {
   try {
-    const r = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
+    const r = await s3.send(new GetObjectCommand({ Bucket: getBucket(), Key: key }))
     if (!r.Body) return null
     return JSON.parse(await r.Body.transformToString()) as T
   } catch {
@@ -129,7 +130,7 @@ export async function runDailyDigest() {
   for (const [key, cfg] of Object.entries(WATCHED)) {
     let etag: string
     try {
-      const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }))
+      const head = await s3.send(new HeadObjectCommand({ Bucket: getBucket(), Key: key }))
       etag = head.ETag ?? ''
     } catch {
       continue // layer not present — skip silently
@@ -179,11 +180,11 @@ export async function runDailyDigest() {
   }
 
   await s3.send(new PutObjectCommand({
-    Bucket: BUCKET, Key: STATE_KEY,
+    Bucket: getBucket(), Key: STATE_KEY,
     Body: JSON.stringify(newState), ContentType: 'application/json',
   }))
   await s3.send(new PutObjectCommand({
-    Bucket: BUCKET, Key: LATEST_KEY,
+    Bucket: getBucket(), Key: LATEST_KEY,
     Body: JSON.stringify(latest), ContentType: 'application/json',
     CacheControl: 'no-cache',
   }))

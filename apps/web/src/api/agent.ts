@@ -9,6 +9,10 @@ interface StreamCallbacks {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
+// Shared secret for the Lambda's API gate. Local development only
+// (apps/web/.env.local) — never set VITE_API_SECRET in a build that gets
+// hosted publicly: anything prefixed VITE_ is embedded in the JS bundle.
+const API_SECRET = import.meta.env.VITE_API_SECRET as string | undefined
 
 export async function streamAgentQuery(
   query: string,
@@ -19,6 +23,7 @@ export async function streamAgentQuery(
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
+      ...(API_SECRET ? { 'X-Api-Key': API_SECRET } : {}),
     },
     body: JSON.stringify({ query }),
   })

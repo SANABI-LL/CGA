@@ -1,6 +1,27 @@
+import { randomUUID } from 'node:crypto'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
 import { runCampusGeoAgent } from './agent'
 import { runDailyDigest } from './digest'
+
+const MAX_QUERY_LENGTH = 2000
+
+// Shared-secret gate: the API must never be anonymously callable, whichever
+// front door (CloudFront, API Gateway, Function URL) the request came through.
+// Fail closed — a Lambda without API_SECRET configured rejects everything.
+function isAuthorized(event: APIGatewayProxyEventV2): boolean {
+  const secret = process.env.API_SECRET
+  if (!secret) return false
+  const provided =
+    event.headers?.['x-api-key'] ?? event.headers?.['authorization']?.replace(/^Bearer\s+/i, '')
+  return provided === secret
+}
+
+// Generic client-facing error + correlation id; full detail stays in CloudWatch.
+function logInternalError(err: unknown): string {
+  const ref = randomUUID()
+  console.error(`[${ref}]`, err)
+  return ref
+}
 
 // This Lambda uses Lambda streaming (Response Streaming) for SSE
 // Deploy with FunctionUrlConfig.InvokeMode = RESPONSE_STREAM
@@ -25,6 +46,14 @@ async function bufferedHandler(
     return { statusCode: 204, headers: corsHeaders() }
   }
 
+  if (!isAuthorized(event)) {
+    return {
+      statusCode: 403,
+      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Forbidden' }),
+    }
+  }
+
   // Legacy contract used by print-flow.html: POST /query {q} →
   // one-shot JSON {answer, features, intent, mapAction}.
   if (event.requestContext.http.path.endsWith('/query')) {
@@ -37,11 +66,13 @@ async function bufferedHandler(
     const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string }
     query = body.query?.trim() ?? ''
     sessionId = body.sessionId ?? `anon-${Date.now()}`
-    if (!query) {
+    if (!query || query.length > MAX_QUERY_LENGTH) {
       return {
         statusCode: 400,
         headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'query is required' }),
+        body: JSON.stringify({
+          error: query ? `query exceeds ${MAX_QUERY_LENGTH} characters` : 'query is required',
+        }),
       }
     }
   } catch {
@@ -59,7 +90,8 @@ async function bufferedHandler(
       events.push(`data: ${JSON.stringify(capMapUpdate(eventObj, cap))}\n\n`)
     })
   } catch (err) {
-    events.push(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`)
+    const ref = logInternalError(err)
+    events.push(`data: ${JSON.stringify({ type: 'error', message: 'Internal error', ref })}\n\n`)
   }
 
   let body = events.join('')
@@ -98,11 +130,13 @@ async function legacyQueryHandler(
   } catch {
     q = ''
   }
-  if (!q) {
+  if (!q || q.length > MAX_QUERY_LENGTH) {
     return {
       statusCode: 400,
       headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'q is required' }),
+      body: JSON.stringify({
+        error: q ? `q exceeds ${MAX_QUERY_LENGTH} characters` : 'q is required',
+      }),
     }
   }
 
@@ -132,10 +166,11 @@ async function legacyQueryHandler(
       }
     })
   } catch (err) {
+    const ref = logInternalError(err)
     return {
       statusCode: 500,
       headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: String(err) }),
+      body: JSON.stringify({ error: 'Internal error', ref }),
     }
   }
 
@@ -218,6 +253,16 @@ const streamingHandler = () => awslambda.streamifyResponse(
       return
     }
 
+    if (!isAuthorized(event)) {
+      const metadata = awslambda.HttpResponseStream.from(responseStream, {
+        statusCode: 403,
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+      } as never)
+      metadata.write(JSON.stringify({ error: 'Forbidden' }))
+      metadata.end()
+      return
+    }
+
     // Parse request
     let query: string
     let sessionId: string
@@ -227,12 +272,16 @@ const streamingHandler = () => awslambda.streamifyResponse(
       query = body.query?.trim() ?? ''
       sessionId = body.sessionId ?? `anon-${Date.now()}`
 
-      if (!query) {
+      if (!query || query.length > MAX_QUERY_LENGTH) {
         const metadata = awslambda.HttpResponseStream.from(responseStream, {
           statusCode: 400,
           headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
         } as never)
-        metadata.write(JSON.stringify({ error: 'query is required' }))
+        metadata.write(
+          JSON.stringify({
+            error: query ? `query exceeds ${MAX_QUERY_LENGTH} characters` : 'query is required',
+          })
+        )
         metadata.end()
         return
       }
@@ -257,12 +306,32 @@ const streamingHandler = () => awslambda.streamifyResponse(
       },
     } as never)
 
+    // Same caps as the buffered path: per-event feature cap plus a total
+    // event-count and byte budget, so streaming mode can't ship an unbounded
+    // payload to the client.
+    let eventCount = 0
+    let bytesSent = 0
+    let truncated = false
+    const MAX_EVENTS = 500
+    const MAX_BYTES = 5_000_000
+
     try {
       await runCampusGeoAgent(query, sessionId, (eventObj) => {
-        metadata.write(`data: ${JSON.stringify(eventObj)}\n\n`)
+        if (truncated) return
+        if (eventCount >= MAX_EVENTS || bytesSent >= MAX_BYTES) {
+          truncated = true
+          metadata.write(`data: ${JSON.stringify({ type: 'error', message: 'Response truncated: size limit reached' })}\n\n`)
+          return
+        }
+        const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
+        const line = `data: ${JSON.stringify(capMapUpdate(eventObj as MapUpdateEvent, cap))}\n\n`
+        eventCount++
+        bytesSent += line.length
+        metadata.write(line)
       })
     } catch (err) {
-      metadata.write(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`)
+      const ref = logInternalError(err)
+      metadata.write(`data: ${JSON.stringify({ type: 'error', message: 'Internal error', ref })}\n\n`)
     }
 
     metadata.end()
@@ -272,10 +341,12 @@ const streamingHandler = () => awslambda.streamifyResponse(
 export const handler = process.env.BUFFERED === '1' ? bufferedHandler : streamingHandler()
 
 function corsHeaders() {
-  const origin = process.env.ALLOWED_ORIGIN ?? '*'
+  // No wildcard fallback: default to the local dev origin; production sets
+  // ALLOWED_ORIGIN explicitly on the Lambda.
+  const origin = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   }
 }

@@ -6,7 +6,7 @@ const s3 = new S3Client({
   forcePathStyle: false
 })
 
-const BUCKET = process.env.GEOJSON_BUCKET || 'campusgeo-geodata-491117467175'
+import { getBucket } from './config'
 
 /**
  * S3 上的图层映射（已迁移）
@@ -20,13 +20,15 @@ const S3_LAYER_FILES: Record<string, string> = {
   trees: 'layers/trees.geojson',
 }
 
+// Internal helper schema (not exposed as a model tool) — outFields stays for
+// in-process callers, but inputs are still clamped defensively.
 export const QueryS3LayerInputSchema = z.object({
   layerName: z.enum(['buildings', 'dining', 'accessible', 'leed_buildings', 'trees']),
-  whereClause: z.string().optional().describe('SQL-like WHERE clause (e.g., "BLDG_NAME LIKE \'%Library%\'")'),
-  maxResults: z.number().optional().default(100),
+  whereClause: z.string().max(500).optional().describe('SQL-like WHERE clause (e.g., "BLDG_NAME LIKE \'%Library%\'")'),
+  maxResults: z.number().int().min(1).max(500).optional().default(100),
   returnGeometry: z.boolean().optional().default(true),
   outFields: z.array(z.string()).optional().describe('Fields to return (default: all)'),
-})
+}).strict()
 
 export type QueryS3LayerInput = z.infer<typeof QueryS3LayerInputSchema>
 
@@ -61,7 +63,7 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
   try {
     // 1. 从 S3 读取 GeoJSON
     const response = await s3.send(new GetObjectCommand({
-      Bucket: BUCKET,
+      Bucket: getBucket(),
       Key: s3Key
     }))
 
@@ -108,9 +110,8 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
       source: 's3',
     }
   } catch (err) {
-    return {
-      error: `Failed to query S3 layer ${input.layerName}: ${err instanceof Error ? err.message : String(err)}`
-    }
+    console.error(`queryS3Layer error (${input.layerName}):`, err)
+    return { error: `Failed to query layer ${input.layerName}` }
   }
 }
 

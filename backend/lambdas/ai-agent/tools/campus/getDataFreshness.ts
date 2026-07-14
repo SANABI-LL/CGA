@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 
+import { getBucket } from './config'
+
 const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
-const BUCKET = process.env.GEOJSON_BUCKET || 'campusgeo-geodata-491117467175'
 
 const s3 = new S3Client({ region: AWS_REGION })
 
@@ -12,12 +13,12 @@ const s3 = new S3Client({ region: AWS_REGION })
  * most recent detected changes. No fabricated timestamps.
  */
 
-export const GetDataFreshnessInputSchema = z.object({})
+export const GetDataFreshnessInputSchema = z.object({}).strict()
 export type GetDataFreshnessInput = z.infer<typeof GetDataFreshnessInputSchema>
 
 async function readJson<T>(key: string): Promise<T | null> {
   try {
-    const r = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
+    const r = await s3.send(new GetObjectCommand({ Bucket: getBucket(), Key: key }))
     if (!r.Body) return null
     return JSON.parse(await r.Body.transformToString()) as T
   } catch {

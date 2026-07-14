@@ -11,14 +11,13 @@ const LAYER_ENDPOINTS: Record<string, string> = {
   dining:      `${ARCGIS_BASE}/2022_06_23_Web_Map_WFL1/FeatureServer/30`,
 }
 
+// Schema matches the advertised toolSpec exactly — no unadvertised fields.
 export const QueryArcGISInputSchema = z.object({
   layerName: z.enum(['bike_racks', 'buildings', 'electrical', 'parking', 'accessible', 'dining']),
-  whereClause: z.string().optional().default('1=1'),
-  spatialFilter: z.string().optional(),
-  maxResults: z.number().optional().default(20),
+  whereClause: z.string().max(500).optional().default('1=1'),
+  maxResults: z.number().int().min(1).max(100).optional().default(20),
   returnGeometry: z.boolean().optional().default(true),
-  outFields: z.string().optional().default('*'),
-})
+}).strict()
 
 export type QueryArcGISInput = z.infer<typeof QueryArcGISInputSchema>
 
@@ -30,17 +29,12 @@ export async function queryArcGIS(input: QueryArcGISInput) {
 
   const params = new URLSearchParams({
     where: input.whereClause ?? '1=1',
-    outFields: input.outFields ?? '*',
+    outFields: '*',
     f: 'geojson',
     outSR: '4326',
     returnGeometry: String(input.returnGeometry ?? true),
     resultRecordCount: String(Math.min(input.maxResults ?? 20, 100)),
   })
-
-  if (input.spatialFilter) {
-    params.set('geometryType', 'esriGeometryEnvelope')
-    params.set('spatialRel', 'esriSpatialRelIntersects')
-  }
 
   try {
     const response = await fetch(`${endpoint}/query?${params}`, {
@@ -64,6 +58,7 @@ export async function queryArcGIS(input: QueryArcGISInput) {
       layer: input.layerName,
     }
   } catch (err) {
-    return { error: `Failed to query ArcGIS: ${err instanceof Error ? err.message : String(err)}` }
+    console.error('queryArcGIS error:', err)
+    return { error: 'ArcGIS layer query failed' }
   }
 }

@@ -6,10 +6,11 @@ const TRANSLOC_AGENCY_ID = process.env.TRANSLOC_AGENCY_ID ?? '1323'
 const TRANSLOC_API_KEY = process.env.TRANSLOC_API_KEY ?? ''
 const TRANSLOC_BASE = 'https://transloc-api-1-2.p.rapidapi.com'
 
+// stopName only — the unadvertised stopId passthrough was removed so callers
+// cannot inject arbitrary ids/params into the TransLoc request.
 export const GetShuttleArrivalsInputSchema = z.object({
-  stopName: z.string().describe('Campus shuttle stop name, e.g. "Keller Center", "Ratner"'),
-  stopId: z.string().optional().describe('TransLoc stop ID if known'),
-})
+  stopName: z.string().max(200).describe('Campus shuttle stop name, e.g. "Keller Center", "Ratner"'),
+}).strict()
 
 export type GetShuttleArrivalsInput = z.infer<typeof GetShuttleArrivalsInputSchema>
 
@@ -33,17 +34,14 @@ export async function getShuttleArrivals(input: GetShuttleArrivalsInput) {
     return getMockShuttleArrivals(input.stopName)
   }
 
-  // Resolve stop ID
-  let stopId = input.stopId
-  if (!stopId) {
-    const normalized = normalizeStopName(input.stopName)
-    stopId = KNOWN_STOPS[normalized]
+  // Resolve stop ID from the known-stop dictionary
+  const normalized = normalizeStopName(input.stopName)
+  let stopId = normalized.length >= 2 ? KNOWN_STOPS[normalized] : undefined
 
-    if (!stopId) {
-      // Try partial match
-      const match = Object.entries(KNOWN_STOPS).find(([key]) => normalized.includes(key) || key.includes(normalized))
-      stopId = match?.[1]
-    }
+  if (!stopId && normalized.length >= 2) {
+    // Try partial match (guarded above: short input must not match everything)
+    const match = Object.entries(KNOWN_STOPS).find(([key]) => normalized.includes(key) || key.includes(normalized))
+    stopId = match?.[1]
   }
 
   if (!stopId) {
@@ -54,7 +52,7 @@ export async function getShuttleArrivals(input: GetShuttleArrivalsInput) {
 
   try {
     const response = await fetch(
-      `${TRANSLOC_BASE}/arrival-estimates.json?agencies=${TRANSLOC_AGENCY_ID}&stops=${stopId}`,
+      `${TRANSLOC_BASE}/arrival-estimates.json?agencies=${encodeURIComponent(TRANSLOC_AGENCY_ID)}&stops=${encodeURIComponent(stopId)}`,
       {
         headers: {
           'X-RapidAPI-Key': TRANSLOC_API_KEY,
@@ -102,7 +100,8 @@ export async function getShuttleArrivals(input: GetShuttleArrivalsInput) {
       arrivals: arrivals.sort((a, b) => a.minutesAway - b.minutesAway),
     }
   } catch (err) {
-    return { error: `Failed to get shuttle arrivals: ${err instanceof Error ? err.message : String(err)}` }
+    console.error('getShuttleArrivals error:', err)
+    return { error: 'Failed to get shuttle arrivals' }
   }
 }
 

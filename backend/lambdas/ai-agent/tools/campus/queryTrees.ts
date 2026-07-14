@@ -1,21 +1,21 @@
 import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
+import { getBucket } from './config'
 
 const s3 = new S3Client({
   region: 'us-east-1',
   forcePathStyle: false
 })
-const BUCKET = process.env.GEOJSON_BUCKET || 'campusgeo-geodata-491117467175'
 
 export const QueryTreesInputSchema = z.object({
-  species: z.string().optional().describe('Tree species common name (e.g., "Maple", "Ash", "Oak")'),
-  ageClass: z.string().optional().describe('Tree age class: "Young", "Semi-mature", "Mature"'),
-  condition: z.string().optional().describe('Tree condition: "Good", "Fair", "Poor"'),
-  minDiameter: z.number().optional().describe('Minimum diameter in cm'),
-  location: z.string().optional().describe('Location description (e.g., "Main Quad")'),
-  year: z.number().optional().describe('Year planted or last updated (e.g., 2024, 2025, 2026)'),
-  notes: z.string().optional().describe('Keyword match on TreeNotes, which records planting batches like "2025 Fall" — use for "planted in fall 2025" questions'),
-})
+  species: z.string().max(200).optional().describe('Tree species common name (e.g., "Maple", "Ash", "Oak")'),
+  ageClass: z.string().max(200).optional().describe('Tree age class: "Young", "Semi-mature", "Mature"'),
+  condition: z.string().max(200).optional().describe('Tree condition: "Good", "Fair", "Poor"'),
+  minDiameter: z.number().min(0).max(10_000).optional().describe('Minimum diameter in cm'),
+  location: z.string().max(200).optional().describe('Location description (e.g., "Main Quad")'),
+  year: z.number().int().min(1800).max(2200).optional().describe('Year planted or last updated (e.g., 2024, 2025, 2026)'),
+  notes: z.string().max(200).optional().describe('Keyword match on TreeNotes, which records planting batches like "2025 Fall" — use for "planted in fall 2025" questions'),
+}).strict()
 
 export type QueryTreesInput = z.infer<typeof QueryTreesInputSchema>
 
@@ -57,7 +57,7 @@ export async function queryTrees(input: QueryTreesInput) {
   try {
     // 1. 从 S3 读取树木 GeoJSON
     const response = await s3.send(new GetObjectCommand({
-      Bucket: BUCKET,
+      Bucket: getBucket(),
       Key: 'layers/trees.geojson'
     }))
 
@@ -233,9 +233,9 @@ export async function queryTrees(input: QueryTreesInput) {
     }
 
   } catch (error) {
+    // Full detail stays server-side; the caller gets a generic message so
+    // S3 keys / ARNs / account ids never reach the client.
     console.error('queryTrees error:', error)
-    return {
-      error: error instanceof Error ? error.message : 'Unknown error querying trees'
-    }
+    return { error: 'Tree query failed' }
   }
 }

@@ -19,12 +19,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { runCampusGeoAgent } from '../lambdas/ai-agent/agent'
 
 const PORT = Number(process.env.PORT ?? 3001)
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? '*'
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
+const MAX_QUERY_LENGTH = 2000
 
 function corsHeaders(): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   }
 }
@@ -65,9 +66,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const body = JSON.parse((await readBody(req)) || '{}') as { query?: string; sessionId?: string }
     query = body.query?.trim() ?? ''
     sessionId = body.sessionId ?? `local-${Date.now()}`
-    if (!query) {
+    if (!query || query.length > MAX_QUERY_LENGTH) {
       res.writeHead(400, { ...corsHeaders(), 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'query is required' }))
+      res.end(
+        JSON.stringify({
+          error: query ? `query exceeds ${MAX_QUERY_LENGTH} characters` : 'query is required',
+        })
+      )
       return
     }
   } catch {
@@ -90,7 +95,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       res.write(`data: ${JSON.stringify(eventObj)}\n\n`)
     })
   } catch (err) {
-    res.write(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`)
+    // Generic message to the client; full detail stays in the local console.
+    console.error('[dev-server] agent error:', err)
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Internal error' })}\n\n`)
   }
   res.end()
 })

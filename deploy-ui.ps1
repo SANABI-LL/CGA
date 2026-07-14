@@ -28,6 +28,15 @@ param(
     [switch]$SkipGit
 )
 
+# ============================================================================
+# ⛔ 已停用（IT 安全要求，2026-07-14）
+# 开发期前端不公开托管：print-flow.html 不得上传到 S3 / CloudFront。
+# 恢复公开上线需先由 IT 配置 CloudFront 边缘 Basic Auth，届时再解除此拦截。
+# 详见 .claude/skills/campusgeo-deploy/SKILL.md。
+# ============================================================================
+Write-Error "deploy-ui.ps1 已停用：开发期前端不公开托管（IT 安全要求 2026-07）。请勿上传 print-flow.html。"
+exit 1
+
 # 配置
 $SOURCE_FILE = "design_handoff_campusgeo_agent\print-flow.html"
 $S3_BUCKET = "campusgeo-geodata-491117467175"

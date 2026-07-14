@@ -5,10 +5,10 @@ const DIVVY_STATION_INFO = 'https://gbfs.divvybikes.com/gbfs/en/station_informat
 const DIVVY_STATION_STATUS = 'https://gbfs.divvybikes.com/gbfs/en/station_status.json'
 
 export const GetBikeStationsInputSchema = z.object({
-  nearLocation: z.string().describe('Campus location name, e.g. "GCIS", "Regenstein Library"'),
-  radiusMeters: z.number().optional().default(400),
-  limit: z.number().optional().default(5),
-})
+  nearLocation: z.string().max(200).describe('Campus location name, e.g. "GCIS", "Regenstein Library"'),
+  radiusMeters: z.number().min(1).max(2000).optional().default(400),
+  limit: z.number().int().min(1).max(50).optional().default(5),
+}).strict()
 
 export type GetBikeStationsInput = z.infer<typeof GetBikeStationsInputSchema>
 
@@ -38,6 +38,8 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
 
 function resolveLocation(name: string): { lat: number; lng: number } | null {
   const normalized = name.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
+  // Too-short input would substring-match the first dictionary entry
+  if (normalized.length < 2) return null
   const direct = LOCATION_COORDS[normalized]
   if (direct) return direct
 
@@ -118,6 +120,7 @@ export async function getBikeStations(input: GetBikeStationsInput) {
       },
     }
   } catch (err) {
-    return { error: `Failed to get bike stations: ${err instanceof Error ? err.message : String(err)}` }
+    console.error('getBikeStations error:', err)
+    return { error: 'Failed to get bike stations' }
   }
 }

@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import { queryS3Layer } from './queryS3Layer'
+import { pickBuildingProps } from './buildingFields'
 
 export const FindCampusNearbyInputSchema = z.object({
-  referenceLocation: z.string().describe('Named campus location or "lat,lng" coordinates'),
+  referenceLocation: z.string().max(200).describe('Named campus location or "lat,lng" coordinates'),
   featureType: z.enum(['building', 'dining', 'accessible']),
-  radiusMeters: z.number().optional().default(300),
-  limit: z.number().optional().default(5),
-})
+  radiusMeters: z.number().min(1).max(2000).optional().default(300),
+  limit: z.number().int().min(1).max(50).optional().default(5),
+}).strict()
 
 export type FindCampusNearbyInput = z.infer<typeof FindCampusNearbyInputSchema>
 
@@ -31,6 +32,9 @@ const CAMPUS_LOCATIONS: Record<string, { lat: number; lng: number; displayName: 
 
 export function resolveLocation(name: string): { lat: number; lng: number; displayName: string } | null {
   const n = name.toLowerCase().trim()
+
+  // Too-short input would substring-match the first dictionary entry
+  if (n.length < 2) return null
 
   // Direct match
   if (CAMPUS_LOCATIONS[n]) return CAMPUS_LOCATIONS[n]
@@ -141,7 +145,12 @@ export async function findCampusNearby(input: FindCampusNearbyInput) {
       type: 'FeatureCollection' as const,
       features: nearby.map(({ _distanceMeters, ...f }) => ({
         ...f,
-        properties: { ...f.properties, distanceMeters: _distanceMeters },
+        // Building layer carries internal columns — allow-list them; the
+        // dining/accessible layers are public info and pass through.
+        properties:
+          input.featureType === 'building'
+            ? pickBuildingProps(f.properties as Record<string, unknown>, { distanceMeters: _distanceMeters })
+            : { ...f.properties, distanceMeters: _distanceMeters },
       })),
     },
   }

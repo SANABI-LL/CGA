@@ -1,16 +1,23 @@
 ---
 name: campusgeo-deploy
-description: 部署 CampusGeo 前后端到生产环境(Lambda esbuild 打包、print-flow.html 上传、CloudFront 缓存失效、四处副本同步、分层验证)。当要部署、上线、更新前端或后端、修改 agent 工具后发布时使用。
+description: 部署 CampusGeo 后端到生产环境(Lambda esbuild 打包、分层验证)。当要部署、上线、更新后端、修改 agent 工具后发布时使用。前端开发期不公开托管(IT 安全要求 2026-07)。
 ---
 
 # CampusGeo 生产部署流程
 
+> **⚠️ 安全状态(2026-07-14)**:IT 安全审查后开发环境已被账户级临时禁用。恢复前提:
+> Lambda 配置 `API_SECRET`(共享密钥门禁,handler 已实现,未配置则一律 403)、
+> `GEOJSON_BUCKET`(代码已去除硬编码兜底,不配置则查询报错)、`ALLOWED_ORIGIN`。
+> **前端(print-flow.html)在开发期不再公开托管** —— 不上传 S3、不经 CloudFront 分发;
+> 本地开发用 `pnpm dev`(apps/web)或本地打开 print-flow.html。恢复公开上线需先由 IT
+> 在 CloudFront 边缘配置 Basic Auth(CloudFront Function),再恢复本文件的前端部署段
+> (见 git 历史 2026-07-14 之前版本)。
+
 ## 生产架构(2026-07 现状,先读懂再动手)
 
 ```
-用户 → https://du0vacooj41k3.cloudfront.net/ (分发 E3J65QFHW23IJZ, 根对象=print-flow.html)
-  ├─ 静态: S3 campusgeo-geodata-491117467175 根部 (print-flow.html 是唯一正式前端)
-  └─ /api/* → API Gateway blfi6fqdnc → Lambda campusgeo-query (缓冲模式 BUFFERED=1)
+用户 → https://du0vacooj41k3.cloudfront.net/ (分发 E3J65QFHW23IJZ; 前端已下线,根对象待清理)
+  └─ /api/* → API Gateway blfi6fqdnc → Lambda campusgeo-query (缓冲模式 BUFFERED=1, 需 x-api-key)
        后端源码 = backend/lambdas/ai-agent/ (TypeScript)。campusgeo-lambda/ 是已退役旧版,勿动勿部署!
 ```
 
@@ -29,22 +36,21 @@ aws lambda wait function-updated --function-name campusgeo-query
 ```
 
 环境变量(update-function-configuration 时必须整组带全,漏一个就丢配置):
-`GEOJSON_BUCKET / GEODATA_BUCKET / EMBED_MODEL_ID / BEDROCK_MODEL_ID / BEDROCK_REGION=us-east-2 / BUFFERED=1`
+`GEOJSON_BUCKET / GEODATA_BUCKET / EMBED_MODEL_ID / BEDROCK_MODEL_ID / BEDROCK_REGION=us-east-2 / BUFFERED=1 / API_SECRET / ALLOWED_ORIGIN`
 
-## 前端部署(改了 print-flow.html 之后)
+## 前端部署 —— 已停用(IT 安全要求,2026-07)
 
-1. **改动方式**:对当前线上版本做锚点式补丁(python 脚本,`assert count==1` 防锚点漂移),永远不要整页重写
-2. **JSX 语法校验(唯一防线,不可省)**:抽出 `<script type="text/babel">` 内容,用
-   `node_modules/.pnpm/esbuild@*/node_modules/@esbuild/win32-x64/esbuild.exe file.jsx --outfile=check.js` 编译,报错即中止
-3. 上传:`aws s3 cp <file> s3://campusgeo-geodata-491117467175/print-flow.html --content-type "text/html" --cache-control "no-cache"`
-4. 失效缓存:`aws cloudfront create-invalidation --distribution-id E3J65QFHW23IJZ --paths "/*"`(路径 `/` 不合法,用 `/*`)
-5. **同步四处仓库副本**(以线上为准的纪律):根目录、`ui_kits/campusgeo/`、`design/ui_kits/campusgeo/`、`design_handoff_campusgeo_agent/` 的 print-flow.html 全部覆盖为部署版
+**不要把 print-flow.html 或任何原型文件(`*.jsx`、prototype HTML)上传到 S3 / CloudFront。**
+开发期前端只在本地运行。仓库内四处 print-flow.html 副本(根目录、`ui_kits/campusgeo/`、
+`design/ui_kits/campusgeo/`、`design_handoff_campusgeo_agent/`)以**根目录为权威副本**互相同步。
+改动 print-flow.html 时仍须做 JSX 语法校验:抽出 `<script type="text/babel">` 内容,用
+`node_modules/.pnpm/esbuild@*/node_modules/@esbuild/win32-x64/esbuild.exe file.jsx --outfile=check.js` 编译,报错即中止。
 
 ## 分层验证(出问题时逐层隔离)
 
-1. 直连 API Gateway:`curl -X POST https://blfi6fqdnc.execute-api.us-east-1.amazonaws.com/query -d '{"q":"..."}'`(旧契约,一次性 JSON)
-2. 经 CloudFront:`curl -X POST https://du0vacooj41k3.cloudfront.net/api/agent -d '{"query":"..."}'`(SSE 文本,缓冲一次到达)
-3. 浏览器 Ctrl+Shift+R 硬刷新;F12 Network 确认 /query POST 200(走 fallback = 没连上 API)
+1. 直连 API Gateway(需密钥):`curl -X POST https://blfi6fqdnc.execute-api.us-east-1.amazonaws.com/query -H "x-api-key: $API_SECRET" -d '{"q":"..."}'`(旧契约,一次性 JSON);**无 x-api-key 应得 403**
+2. 经 CloudFront:`curl -X POST https://du0vacooj41k3.cloudfront.net/api/agent -H "x-api-key: $API_SECRET" -d '{"query":"..."}'`(SSE 文本,缓冲一次到达)
+3. 本地前端:`pnpm dev` + `pnpm dev:server`,`.env.local` 配 `VITE_API_URL` 与(打到远端时)`VITE_API_SECRET`
 4. 回归三件套:FAR 问题(文字视图)、utilities near Cobb Hall(方框裁剪+图例)、how many trees(全量计数)
 
 ## 铁律(每条都对应一次生产事故)

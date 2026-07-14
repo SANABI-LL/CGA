@@ -259,12 +259,40 @@ Guidelines:
 
 type SSECallback = (event: { type: string; [key: string]: unknown }) => void
 
+// The system prompt only *asks* the model to cite retrieved passages; nothing
+// enforces it. Compare every "(document, p.N)"-style citation in the final
+// answer against the passages actually returned by search_planning_documents
+// and flag the ones that don't correspond — streamed text can't be retracted,
+// so an explicit warning event is the enforceable floor.
+interface RetrievedCitation {
+  document: string
+  page: number
+}
+
+function findUnverifiedCitations(text: string, retrieved: RetrievedCitation[]): string[] {
+  const unverified: string[] = []
+  const citationPattern = /\(([^()]{3,120}?),\s*p(?:age|\.)?\s*(\d{1,4})\)/gi
+  for (const match of text.matchAll(citationPattern)) {
+    const citedDoc = match[1].trim().toLowerCase()
+    const citedPage = Number(match[2])
+    const ok = retrieved.some((r) => {
+      const doc = r.document.toLowerCase()
+      return r.page === citedPage && (doc.includes(citedDoc) || citedDoc.includes(doc))
+    })
+    if (!ok) unverified.push(match[0])
+  }
+  return unverified
+}
+
 export async function runCampusGeoAgent(
   userQuery: string,
   sessionId: string,
   onEvent: SSECallback
 ): Promise<void> {
   const messages: Message[] = [{ role: 'user', content: [{ text: userQuery }] }]
+  const retrievedCitations: RetrievedCitation[] = []
+  let usedDocumentSearch = false
+  let answerText = ''
 
   for (let turn = 0; turn < 6; turn++) {
     const command = new ConverseStreamCommand({
@@ -296,6 +324,7 @@ export async function runCampusGeoAgent(
       if (streamEvent.contentBlockDelta?.delta?.text) {
         const text = streamEvent.contentBlockDelta.delta.text
         currentTextBlock += text
+        answerText += text
         onEvent({ type: 'text', content: text })
       }
 
@@ -345,7 +374,23 @@ export async function runCampusGeoAgent(
         try {
           result = await executeTool(name!, input as Record<string, unknown>)
         } catch (err) {
-          result = { error: err instanceof Error ? err.message : String(err) }
+          // Zod validation details are safe and useful to the model; anything
+          // else stays server-side and the model gets a generic failure.
+          console.error(`tool ${name} error:`, err)
+          result =
+            err instanceof Error && err.name === 'ZodError'
+              ? { error: `Invalid input for ${name}: ${err.message}` }
+              : { error: `Tool ${name} failed` }
+        }
+
+        if (name === 'search_planning_documents') {
+          usedDocumentSearch = true
+          const passages = (result as { passages?: Array<{ document?: string; page?: number }> })?.passages
+          for (const p of passages ?? []) {
+            if (typeof p.document === 'string' && typeof p.page === 'number') {
+              retrievedCitations.push({ document: p.document, page: p.page })
+            }
+          }
         }
 
         // Extract GeoJSON for map update if tool returned features
@@ -377,6 +422,17 @@ export async function runCampusGeoAgent(
       }
 
       messages.push({ role: 'user', content: toolResults })
+    }
+  }
+
+  if (usedDocumentSearch) {
+    const unverified = findUnverifiedCitations(answerText, retrievedCitations)
+    if (unverified.length) {
+      onEvent({
+        type: 'citation_warning',
+        message: 'Some citations could not be matched to retrieved passages and may be unreliable.',
+        unverified,
+      })
     }
   }
 

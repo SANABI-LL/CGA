@@ -2,8 +2,9 @@ import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime'
 
+import { getBucket } from './config'
+
 const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
-const BUCKET = process.env.GEOJSON_BUCKET || 'campusgeo-geodata-491117467175'
 const INDEX_KEY = process.env.DOCS_INDEX_KEY || 'documents/pd43_index.json'
 // Overridable so the Lambda can point at an application inference profile ARN
 // when its IAM policy is scoped to inference-profile/* rather than amazon.* models.
@@ -20,9 +21,11 @@ const bedrock = new BedrockRuntimeClient({ region: EMBED_REGION })
 export const SearchDocumentsInputSchema = z.object({
   query: z
     .string()
+    .min(2)
+    .max(500)
     .describe('English search phrase, e.g. "maximum floor area ratio" or "permitted uses subarea B"'),
-  topK: z.number().min(1).max(10).optional().default(5),
-})
+  topK: z.number().int().min(1).max(10).optional().default(5),
+}).strict()
 
 export type SearchDocumentsInput = z.infer<typeof SearchDocumentsInputSchema>
 
@@ -50,7 +53,7 @@ let indexPromise: Promise<DocumentIndex> | null = null
 function loadIndex(): Promise<DocumentIndex> {
   if (!indexPromise) {
     indexPromise = (async () => {
-      const response = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: INDEX_KEY }))
+      const response = await s3.send(new GetObjectCommand({ Bucket: getBucket(), Key: INDEX_KEY }))
       if (!response.Body) throw new Error(`Empty response from S3 for ${INDEX_KEY}`)
       return JSON.parse(await response.Body.transformToString()) as DocumentIndex
     })().catch((err) => {
@@ -182,8 +185,7 @@ export async function searchDocuments(input: SearchDocumentsInput) {
       })),
     }
   } catch (err) {
-    return {
-      error: `Document search failed: ${err instanceof Error ? err.message : String(err)}`,
-    }
+    console.error('searchDocuments error:', err)
+    return { error: 'Document search failed' }
   }
 }
