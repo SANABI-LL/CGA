@@ -73,3 +73,6 @@ backend/lambdas/**/*.zip
 
 # Specify 临时文件
 .specify/memory/*.tmp.*
+
+# 本地 vendored 工具包(非项目源码)
+skills/
