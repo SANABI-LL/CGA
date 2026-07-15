@@ -24,7 +24,7 @@ const S3_LAYER_FILES: Record<string, string> = {
 // in-process callers, but inputs are still clamped defensively.
 export const QueryS3LayerInputSchema = z.object({
   layerName: z.enum(['buildings', 'dining', 'accessible', 'leed_buildings', 'trees']),
-  whereClause: z.string().max(500).optional().describe('SQL-like WHERE clause (e.g., "BLDG_NAME LIKE \'%Library%\'")'),
+  whereClause: z.string().max(500).optional().describe('SQL-like WHERE clause (e.g., "DISCRIPT1 LIKE \'%Library%\'")'),
   maxResults: z.number().int().min(1).max(500).optional().default(100),
   returnGeometry: z.boolean().optional().default(true),
   outFields: z.array(z.string()).optional().describe('Fields to return (default: all)'),
@@ -68,7 +68,9 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
     }))
 
     if (!response.Body) {
-      return { error: `Empty response from S3 for ${s3Key}` }
+      // Same generic string as the catch below — S3 keys never reach a client.
+      console.error(`queryS3Layer: empty S3 response for ${s3Key}`)
+      return { error: `Failed to query layer ${input.layerName}` }
     }
 
     const bodyString = await response.Body.transformToString()

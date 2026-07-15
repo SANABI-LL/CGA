@@ -14,15 +14,16 @@ export const GetShuttleArrivalsInputSchema = z.object({
 
 export type GetShuttleArrivalsInput = z.infer<typeof GetShuttleArrivalsInputSchema>
 
-// Known UChicago shuttle stop name → ID mapping (populated from TransLoc /stops endpoint)
-const KNOWN_STOPS: Record<string, string> = {
-  'keller center': '4126614',
-  'ratner': '4126616',
-  'regenstein library': '4126618',
-  'booth school': '4126620',
-  'midway': '4126622',
-  'gordon center': '4126624',
-}
+// Known UChicago shuttle stop name → ID mapping (populated from TransLoc /stops endpoint).
+// A Map so lookups can never hit prototype-chain keys like "__proto__".
+const KNOWN_STOPS = new Map<string, string>([
+  ['keller center', '4126614'],
+  ['ratner', '4126616'],
+  ['regenstein library', '4126618'],
+  ['booth school', '4126620'],
+  ['midway', '4126622'],
+  ['gordon center', '4126624'],
+])
 
 function normalizeStopName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
@@ -36,17 +37,21 @@ export async function getShuttleArrivals(input: GetShuttleArrivalsInput) {
 
   // Resolve stop ID from the known-stop dictionary
   const normalized = normalizeStopName(input.stopName)
-  let stopId = normalized.length >= 2 ? KNOWN_STOPS[normalized] : undefined
+  let stopId = normalized.length >= 2 ? KNOWN_STOPS.get(normalized) : undefined
 
   if (!stopId && normalized.length >= 2) {
     // Try partial match (guarded above: short input must not match everything)
-    const match = Object.entries(KNOWN_STOPS).find(([key]) => normalized.includes(key) || key.includes(normalized))
-    stopId = match?.[1]
+    for (const [key, id] of KNOWN_STOPS) {
+      if (normalized.includes(key) || key.includes(normalized)) {
+        stopId = id
+        break
+      }
+    }
   }
 
   if (!stopId) {
     return {
-      error: `Could not find stop "${input.stopName}". Known stops: ${Object.keys(KNOWN_STOPS).map(s => s.replace(/\b\w/g, c => c.toUpperCase())).join(', ')}`,
+      error: `Could not find stop "${input.stopName}". Known stops: ${[...KNOWN_STOPS.keys()].map(s => s.replace(/\b\w/g, c => c.toUpperCase())).join(', ')}`,
     }
   }
 

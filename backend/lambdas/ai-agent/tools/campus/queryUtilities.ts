@@ -169,6 +169,9 @@ async function resolveAnyLocation(name: string): Promise<ResolvedLocation | null
   const fromGazetteer = resolveLocation(name)
   if (fromGazetteer) return fromGazetteer
   const n = name.toLowerCase().trim()
+  // Too-short input would match every building via `b.key.includes('')` —
+  // bail out before paying for the S3 building-index load.
+  if (n.length < 2) return null
   try {
     const index = await loadBuildingIndex()
     const exact = index.find((b) => b.key === n)

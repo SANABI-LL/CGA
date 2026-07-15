@@ -12,19 +12,20 @@ export const GetBikeStationsInputSchema = z.object({
 
 export type GetBikeStationsInput = z.infer<typeof GetBikeStationsInputSchema>
 
-// Known UChicago/Hyde Park locations → coordinates
-const LOCATION_COORDS: Record<string, { lat: number; lng: number }> = {
-  'gcis': { lat: 41.7912, lng: -87.6017 },
-  'gordonCenter': { lat: 41.7912, lng: -87.6017 },
-  'regenstein library': { lat: 41.7921, lng: -87.5997 },
-  'crerar library': { lat: 41.7908, lng: -87.6002 },
-  'booth school': { lat: 41.7876, lng: -87.5955 },
-  'main quad': { lat: 41.7886, lng: -87.5987 },
-  'ratner': { lat: 41.7929, lng: -87.6009 },
-  'keller center': { lat: 41.7943, lng: -87.5978 },
-  'midway': { lat: 41.7828, lng: -87.5998 },
-  'harper memorial': { lat: 41.7876, lng: -87.5994 },
-}
+// Known UChicago/Hyde Park locations → coordinates.
+// A Map so lookups can never hit prototype-chain keys like "__proto__".
+const LOCATION_COORDS = new Map<string, { lat: number; lng: number }>([
+  ['gcis', { lat: 41.7912, lng: -87.6017 }],
+  ['gordon center', { lat: 41.7912, lng: -87.6017 }],
+  ['regenstein library', { lat: 41.7921, lng: -87.5997 }],
+  ['crerar library', { lat: 41.7908, lng: -87.6002 }],
+  ['booth school', { lat: 41.7876, lng: -87.5955 }],
+  ['main quad', { lat: 41.7886, lng: -87.5987 }],
+  ['ratner', { lat: 41.7929, lng: -87.6009 }],
+  ['keller center', { lat: 41.7943, lng: -87.5978 }],
+  ['midway', { lat: 41.7828, lng: -87.5998 }],
+  ['harper memorial', { lat: 41.7876, lng: -87.5994 }],
+])
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6_371_000
@@ -40,13 +41,13 @@ function resolveLocation(name: string): { lat: number; lng: number } | null {
   const normalized = name.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
   // Too-short input would substring-match the first dictionary entry
   if (normalized.length < 2) return null
-  const direct = LOCATION_COORDS[normalized]
+  const direct = LOCATION_COORDS.get(normalized)
   if (direct) return direct
 
-  const match = Object.entries(LOCATION_COORDS).find(
-    ([key]) => normalized.includes(key) || key.includes(normalized)
-  )
-  return match ? match[1] : null
+  for (const [key, loc] of LOCATION_COORDS) {
+    if (normalized.includes(key) || key.includes(normalized)) return loc
+  }
+  return null
 }
 
 export async function getBikeStations(input: GetBikeStationsInput) {

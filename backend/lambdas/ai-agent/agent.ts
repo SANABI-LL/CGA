@@ -43,7 +43,7 @@ const CAMPUS_TOOLS: Tool[] = [
             },
             whereClause: {
               type: 'string',
-              description: "SQL WHERE clause for filtering, e.g. BLDG_NAME='Regenstein Library'",
+              description: "SQL WHERE clause for filtering. The buildings layer's name field is DISCRIPT1, e.g. DISCRIPT1 LIKE '%Regenstein%'",
             },
             maxResults: { type: 'number', description: 'Max features to return (1-100)', default: 20 },
             returnGeometry: { type: 'boolean', default: true },
@@ -117,12 +117,12 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'get_building_info',
       description:
-        'Get detailed info about a specific UChicago building: use type, address, accessibility, floor count, year built. Use when user asks about a specific building.',
+        'Get detailed info about a specific UChicago building: address, year built/opened, gross area, height, architects, heritage status. Use when user asks about a specific building.',
       inputSchema: {
         json: {
           type: 'object',
           properties: {
-            buildingIdentifier: { type: 'string', description: 'Building name or number, e.g. "Regenstein Library" or "302"' },
+            buildingIdentifier: { type: 'string', description: 'Building name or building code, e.g. "Regenstein Library" or "C03"' },
           },
           required: ['buildingIdentifier'],
         },
@@ -269,9 +269,11 @@ interface RetrievedCitation {
   page: number
 }
 
-function findUnverifiedCitations(text: string, retrieved: RetrievedCitation[]): string[] {
+export function findUnverifiedCitations(text: string, retrieved: RetrievedCitation[]): string[] {
   const unverified: string[] = []
-  const citationPattern = /\(([^()]{3,120}?),\s*p(?:age|\.)?\s*(\d{1,4})\)/gi
+  // Covers (Doc, p.12), (Doc, page 12), (Doc, pp. 12-14) and the [Doc, p.12]
+  // bracket variant; ranges are verified against their first page.
+  const citationPattern = /[([]([^()[\]]{3,120}?),\s*p(?:age|p)?\.?\s*(\d{1,4})(?:\s*[-–—]\s*\d{1,4})?[)\]]/gi
   for (const match of text.matchAll(citationPattern)) {
     const citedDoc = match[1].trim().toLowerCase()
     const citedPage = Number(match[2])
@@ -291,7 +293,6 @@ export async function runCampusGeoAgent(
 ): Promise<void> {
   const messages: Message[] = [{ role: 'user', content: [{ text: userQuery }] }]
   const retrievedCitations: RetrievedCitation[] = []
-  let usedDocumentSearch = false
   let answerText = ''
 
   for (let turn = 0; turn < 6; turn++) {
@@ -374,17 +375,16 @@ export async function runCampusGeoAgent(
         try {
           result = await executeTool(name!, input as Record<string, unknown>)
         } catch (err) {
-          // Zod validation details are safe and useful to the model; anything
-          // else stays server-side and the model gets a generic failure.
+          // Full detail (zod field paths, expected/received) stays server-side;
+          // the tool_result event reaches the client, so it gets generic text.
           console.error(`tool ${name} error:`, err)
           result =
             err instanceof Error && err.name === 'ZodError'
-              ? { error: `Invalid input for ${name}: ${err.message}` }
+              ? { error: `Invalid input for ${name}` }
               : { error: `Tool ${name} failed` }
         }
 
         if (name === 'search_planning_documents') {
-          usedDocumentSearch = true
           const passages = (result as { passages?: Array<{ document?: string; page?: number }> })?.passages
           for (const p of passages ?? []) {
             if (typeof p.document === 'string' && typeof p.page === 'number') {
@@ -425,15 +425,17 @@ export async function runCampusGeoAgent(
     }
   }
 
-  if (usedDocumentSearch) {
-    const unverified = findUnverifiedCitations(answerText, retrievedCitations)
-    if (unverified.length) {
-      onEvent({
-        type: 'citation_warning',
-        message: 'Some citations could not be matched to retrieved passages and may be unreliable.',
-        unverified,
-      })
-    }
+  // Validate whenever the answer CONTAINS citations — not only when retrieval
+  // ran. If the model cited documents without ever calling
+  // search_planning_documents, every citation is unverified: that pure
+  // fabrication is exactly the case this control exists for.
+  const unverified = findUnverifiedCitations(answerText, retrievedCitations)
+  if (unverified.length) {
+    onEvent({
+      type: 'citation_warning',
+      message: 'Some citations could not be matched to retrieved passages and may be unreliable.',
+      unverified,
+    })
   }
 
   onEvent({ type: 'done' })

@@ -146,6 +146,7 @@ async function legacyQueryHandler(
   // merge every mapUpdate's features instead of keeping only the last one.
   const featureChunks: unknown[][] = []
   let center: { lat: number; lng: number } | undefined
+  let citationWarning: { message: string; unverified: string[] } | undefined
 
   try {
     await runCampusGeoAgent(q, `legacy-${Date.now()}`, (eventObj) => {
@@ -154,6 +155,14 @@ async function legacyQueryHandler(
       }
       if (eventObj.type === 'tool_call' && typeof eventObj.toolName === 'string') {
         intent = eventObj.toolName
+      }
+      // This is the live path under BUFFERED=1 — dropping citation_warning
+      // here would silence the fabricated-citation control entirely.
+      if (eventObj.type === 'citation_warning') {
+        citationWarning = {
+          message: typeof eventObj.message === 'string' ? eventObj.message : 'Unverified citations detected.',
+          unverified: Array.isArray(eventObj.unverified) ? (eventObj.unverified as string[]) : [],
+        }
       }
       const mapUpdate = (eventObj as MapUpdateEvent).mapUpdate
       if (mapUpdate?.features) {
@@ -185,6 +194,7 @@ async function legacyQueryHandler(
       // system is cut out entirely, while cheap point sets can ship whole
       features: { type: 'FeatureCollection', features: interleave(featureChunks, 4_500_000) },
       mapAction: center ? { center: [center.lng, center.lat], zoom: 16 } : undefined,
+      citationWarning,
     }),
   }
 }
@@ -308,24 +318,32 @@ const streamingHandler = () => awslambda.streamifyResponse(
 
     // Same caps as the buffered path: per-event feature cap plus a total
     // event-count and byte budget, so streaming mode can't ship an unbounded
-    // payload to the client.
+    // payload to the client. Terminal/control events are exempt: the client
+    // hangs forever if `done` never arrives, and citation_warning is a safety
+    // signal — both are tiny, so they always go out even after truncation.
     let eventCount = 0
     let bytesSent = 0
     let truncated = false
     const MAX_EVENTS = 500
     const MAX_BYTES = 5_000_000
+    const TERMINAL_EVENT_TYPES = new Set(['done', 'citation_warning', 'error'])
 
     try {
       await runCampusGeoAgent(query, sessionId, (eventObj) => {
-        if (truncated) return
-        if (eventCount >= MAX_EVENTS || bytesSent >= MAX_BYTES) {
-          truncated = true
-          metadata.write(`data: ${JSON.stringify({ type: 'error', message: 'Response truncated: size limit reached' })}\n\n`)
-          return
+        const isTerminal = TERMINAL_EVENT_TYPES.has(eventObj.type)
+        if (!isTerminal) {
+          if (truncated) return
+          if (eventCount >= MAX_EVENTS || bytesSent >= MAX_BYTES) {
+            truncated = true
+            metadata.write(`data: ${JSON.stringify({ type: 'error', message: 'Response truncated: size limit reached' })}\n\n`)
+            return
+          }
         }
         const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
         const line = `data: ${JSON.stringify(capMapUpdate(eventObj as MapUpdateEvent, cap))}\n\n`
-        eventCount++
+        // Text deltas are numerous but tiny — the byte budget bounds them;
+        // only payload-bearing events count toward the event cap.
+        if (eventObj.type === 'tool_result' || (eventObj as MapUpdateEvent).mapUpdate) eventCount++
         bytesSent += line.length
         metadata.write(line)
       })

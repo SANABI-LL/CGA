@@ -11,44 +11,50 @@ export const FindCampusNearbyInputSchema = z.object({
 
 export type FindCampusNearbyInput = z.infer<typeof FindCampusNearbyInputSchema>
 
-// Named location → approximate coordinates on UChicago campus
-const CAMPUS_LOCATIONS: Record<string, { lat: number; lng: number; displayName: string }> = {
-  'main quad': { lat: 41.7886, lng: -87.5987, displayName: 'Main Quadrangle' },
-  'regenstein library': { lat: 41.7921, lng: -87.5997, displayName: 'Regenstein Library' },
-  'crerar library': { lat: 41.7908, lng: -87.6002, displayName: 'John Crerar Library' },
-  'harper memorial': { lat: 41.7876, lng: -87.5994, displayName: 'Harper Memorial Library' },
-  'booth school': { lat: 41.7876, lng: -87.5955, displayName: 'Booth School of Business' },
-  'ratner': { lat: 41.7929, lng: -87.6009, displayName: 'Ratner Athletics Center' },
-  'gcis': { lat: 41.7912, lng: -87.6017, displayName: 'Gordon Center for Integrative Science' },
-  'gordon center': { lat: 41.7912, lng: -87.6017, displayName: 'Gordon Center for Integrative Science' },
-  'keller center': { lat: 41.7943, lng: -87.5978, displayName: 'Gerald Ratner Athletics Center - Keller Stop' },
-  'midway': { lat: 41.7828, lng: -87.5998, displayName: 'Midway Plaisance' },
-  'hutchinson commons': { lat: 41.7901, lng: -87.5984, displayName: 'Hutchinson Commons' },
-  'saieh hall': { lat: 41.7889, lng: -87.5970, displayName: 'Saieh Hall for Economics' },
-  'harris school': { lat: 41.7871, lng: -87.5981, displayName: 'Harris School of Public Policy' },
-  'uchicago medical center': { lat: 41.7889, lng: -87.6042, displayName: 'UChicago Medical Center' },
-  '57th street': { lat: 41.7916, lng: -87.5997, displayName: '57th Street' },
-}
+// Named location → approximate coordinates on UChicago campus.
+// A Map (not a plain object) so lookups can never hit prototype-chain keys
+// like "__proto__" or "constructor".
+const CAMPUS_LOCATIONS = new Map<string, { lat: number; lng: number; displayName: string }>([
+  ['main quad', { lat: 41.7886, lng: -87.5987, displayName: 'Main Quadrangle' }],
+  ['regenstein library', { lat: 41.7921, lng: -87.5997, displayName: 'Regenstein Library' }],
+  ['crerar library', { lat: 41.7908, lng: -87.6002, displayName: 'John Crerar Library' }],
+  ['harper memorial', { lat: 41.7876, lng: -87.5994, displayName: 'Harper Memorial Library' }],
+  ['booth school', { lat: 41.7876, lng: -87.5955, displayName: 'Booth School of Business' }],
+  ['ratner', { lat: 41.7929, lng: -87.6009, displayName: 'Ratner Athletics Center' }],
+  ['gcis', { lat: 41.7912, lng: -87.6017, displayName: 'Gordon Center for Integrative Science' }],
+  ['gordon center', { lat: 41.7912, lng: -87.6017, displayName: 'Gordon Center for Integrative Science' }],
+  ['keller center', { lat: 41.7943, lng: -87.5978, displayName: 'Gerald Ratner Athletics Center - Keller Stop' }],
+  ['midway', { lat: 41.7828, lng: -87.5998, displayName: 'Midway Plaisance' }],
+  ['hutchinson commons', { lat: 41.7901, lng: -87.5984, displayName: 'Hutchinson Commons' }],
+  ['saieh hall', { lat: 41.7889, lng: -87.5970, displayName: 'Saieh Hall for Economics' }],
+  ['harris school', { lat: 41.7871, lng: -87.5981, displayName: 'Harris School of Public Policy' }],
+  ['uchicago medical center', { lat: 41.7889, lng: -87.6042, displayName: 'UChicago Medical Center' }],
+  ['57th street', { lat: 41.7916, lng: -87.5997, displayName: '57th Street' }],
+])
 
 export function resolveLocation(name: string): { lat: number; lng: number; displayName: string } | null {
-  const n = name.toLowerCase().trim()
+  const raw = name.toLowerCase().trim()
+
+  // "lat,lng" is parsed from the raw input — the name sanitizer below would
+  // strip the digits' punctuation.
+  const coords = raw.match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/)
+  if (coords) {
+    return { lat: parseFloat(coords[1]), lng: parseFloat(coords[2]), displayName: 'Custom location' }
+  }
+
+  // Same sanitizer as the sibling resolvers (checkHours / getBikeStations)
+  const n = raw.replace(/[^a-z0-9 ]/g, '').trim()
 
   // Too-short input would substring-match the first dictionary entry
   if (n.length < 2) return null
 
   // Direct match
-  if (CAMPUS_LOCATIONS[n]) return CAMPUS_LOCATIONS[n]
+  const direct = CAMPUS_LOCATIONS.get(n)
+  if (direct) return direct
 
   // Partial match
-  const entry = Object.entries(CAMPUS_LOCATIONS).find(
-    ([key]) => n.includes(key) || key.includes(n)
-  )
-  if (entry) return entry[1]
-
-  // Try parsing as "lat,lng"
-  const coords = n.match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/)
-  if (coords) {
-    return { lat: parseFloat(coords[1]), lng: parseFloat(coords[2]), displayName: 'Custom location' }
+  for (const [key, loc] of CAMPUS_LOCATIONS) {
+    if (n.includes(key) || key.includes(n)) return loc
   }
 
   return null
@@ -83,7 +89,7 @@ export async function findCampusNearby(input: FindCampusNearbyInput) {
   const center = resolveLocation(input.referenceLocation)
   if (!center) {
     return {
-      error: `Unknown location "${input.referenceLocation}". Known locations: ${Object.values(CAMPUS_LOCATIONS).map(l => l.displayName).slice(0, 8).join(', ')}...`,
+      error: `Unknown location "${input.referenceLocation}". Known locations: ${[...CAMPUS_LOCATIONS.values()].map(l => l.displayName).slice(0, 8).join(', ')}...`,
     }
   }
 
@@ -107,11 +113,13 @@ export async function findCampusNearby(input: FindCampusNearbyInput) {
         [lng, lat] = geom.coordinates as number[]
       } else if (geom.type === 'Polygon') {
         // Use first coordinate as approximation for polygon centroid
-        const coords = (geom.coordinates as number[][][])[0][0]
+        const coords = (geom.coordinates as number[][][])[0]?.[0]
+        if (!Array.isArray(coords)) return false // layer contains empty geometries
         ;[lng, lat] = coords
       } else if (geom.type === 'MultiPolygon') {
         // Use first polygon's first coordinate
-        const coords = (geom.coordinates as number[][][][])[0][0][0]
+        const coords = (geom.coordinates as number[][][][])[0]?.[0]?.[0]
+        if (!Array.isArray(coords)) return false
         ;[lng, lat] = coords
       } else {
         return false
@@ -119,13 +127,15 @@ export async function findCampusNearby(input: FindCampusNearbyInput) {
       return haversineMeters(center.lat, center.lng, lat, lng) <= (input.radiusMeters ?? 300)
     })
     .map((f) => {
-      const geom = f.geometry as { type: string; coordinates: number[] | number[][] | number[][][] }
+      const geom = f.geometry as { type: string; coordinates: number[] | number[][][] | number[][][][] }
       let lng: number, lat: number
       if (geom.type === 'Point') {
         [lng, lat] = geom.coordinates as number[]
+      } else if (geom.type === 'Polygon') {
+        ;[lng, lat] = (geom.coordinates as number[][][])[0][0]
       } else {
-        const coords = (geom.coordinates as number[][][])[0][0]
-        ;[lng, lat] = coords
+        // MultiPolygon — first polygon's first ring's first position
+        ;[lng, lat] = (geom.coordinates as number[][][][])[0][0][0]
       }
       return {
         ...f,

@@ -9,7 +9,8 @@ export const LIVE_LAYERS = {
     label: 'Bike Rack',
   },
   buildings: {
-    url: `${ARCGIS_BASE}/UoC_Properties/FeatureServer/2509/query?where=1%3D1&outFields=DISCRIPT1,Lat,Lon,BLDG_NUM,BLDG_USE,GIS_AREA&f=geojson&outSR=4326&resultRecordCount=300`,
+    // outFields verified against the layer's real schema (no BLDG_NUM/BLDG_USE/GIS_AREA there)
+    url: `${ARCGIS_BASE}/UoC_Properties/FeatureServer/2509/query?where=1%3D1&outFields=DISCRIPT1,Lat,Lon,BD_ID,DISCRIPT2,Gross_Area&f=geojson&outSR=4326&resultRecordCount=300`,
     type: 'polygon' as const,
     color: '#8B6F47',
     label: 'Building',

@@ -8,8 +8,11 @@ export const CheckHoursInputSchema = z.object({
 export type CheckHoursInput = z.infer<typeof CheckHoursInputSchema>
 
 // Static hours data — in production this would come from DynamoDB `campus-hours` table
-// Format: { [normalizedName]: { [dayIndex 0=Sun]: { open: "HH:MM", close: "HH:MM" } | null } }
-const CAMPUS_HOURS: Record<string, Record<number, { open: string; close: string } | null>> = {
+// Format: [normalizedName, { [dayIndex 0=Sun]: { open: "HH:MM", close: "HH:MM" } | null }]
+// A Map so lookups can never hit prototype-chain keys ("constructor" used to
+// resolve to Function.prototype and report a fabricated location as closed).
+type WeekSchedule = Record<number, { open: string; close: string } | null>
+const CAMPUS_HOURS = new Map<string, WeekSchedule>(Object.entries({
   'regenstein library': {
     0: { open: '10:00', close: '22:00' },
     1: { open: '08:30', close: '22:00' },
@@ -55,23 +58,23 @@ const CAMPUS_HOURS: Record<string, Record<number, { open: string; close: string 
     5: { open: '07:30', close: '20:00' },
     6: { open: '11:00', close: '20:00' },
   },
-}
+}))
 
 function normalizeLocationName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
 }
 
-function findHoursEntry(name: string): [string, Record<number, { open: string; close: string } | null>] | null {
+function findHoursEntry(name: string): [string, WeekSchedule] | null {
   const normalized = normalizeLocationName(name)
   // Too-short input would substring-match the first dictionary entry
   if (normalized.length < 2) return null
-  const direct = CAMPUS_HOURS[normalized]
+  const direct = CAMPUS_HOURS.get(normalized)
   if (direct) return [normalized, direct]
 
-  const match = Object.entries(CAMPUS_HOURS).find(
-    ([key]) => normalized.includes(key) || key.includes(normalized)
-  )
-  return match ?? null
+  for (const [key, schedule] of CAMPUS_HOURS) {
+    if (normalized.includes(key) || key.includes(normalized)) return [key, schedule]
+  }
+  return null
 }
 
 // The schedule table is wall-clock time in Chicago; the Lambda runs in UTC,
@@ -107,7 +110,7 @@ export async function checkHours(input: CheckHoursInput) {
     return {
       locationName: input.locationName,
       found: false,
-      message: `No hours data for "${input.locationName}". Known locations: ${Object.keys(CAMPUS_HOURS).map(k => k.replace(/\b\w/g, c => c.toUpperCase())).join(', ')}.`,
+      message: `No hours data for "${input.locationName}". Known locations: ${[...CAMPUS_HOURS.keys()].map(k => k.replace(/\b\w/g, c => c.toUpperCase())).join(', ')}.`,
     }
   }
 

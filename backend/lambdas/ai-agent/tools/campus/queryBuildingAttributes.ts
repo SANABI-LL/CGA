@@ -16,18 +16,20 @@ const s3 = new S3Client({ region: AWS_REGION })
  * the PD 43 document search is for zoning/regulatory text, not layer data.
  */
 
-// Friendly aliases → actual field names in buildings.geojson.
-// RI = Resilience Index, FCI = Facility Condition Index.
-const FIELD_ALIASES: Record<string, string[]> = {
-  ri: ['RI_23', 'RI_', 'RI'],
-  fci: ['FCI__', 'FCI'],
-  height: ['BLDG_HGT'],
-  year: ['Year_Opened', 'YearOpened', 'Year_Completed'],
-  area: ['Area_AC'],
-  name: ['DISCRIPT1'],
-  use: ['DISCRIPT2'],
-  ownership: ['PROPERTY_S'],
-}
+// Friendly aliases → actual field names in buildings.geojson (every candidate
+// verified to exist in the layer). RI = Resilience Index, FCI = Facility
+// Condition Index. A Map so lookups can never hit prototype-chain keys.
+const FIELD_ALIASES = new Map<string, string[]>([
+  ['ri', ['RI_23', 'RI_']],
+  ['fci', ['FCI_23', 'FCI__']],
+  ['height', ['BLDG_HGT']],
+  ['year', ['Year_Completed', 'Year_Opened']],
+  ['area', ['Area_AC']],
+  ['sqft', ['Gross_Area__s_f__']],
+  ['name', ['DISCRIPT1']],
+  ['use', ['DISCRIPT2']],
+  ['ownership', ['PROPERTY_S']],
+])
 
 export const QueryBuildingAttributesInputSchema = z.object({
   field: z
@@ -70,7 +72,7 @@ function resolveField(requested: string, sample: Record<string, unknown>): strin
   // prototype-chain properties like "constructor".
   const isAllowed = (f: string) => BUILDING_FIELD_ALLOWLIST.has(f) && Object.hasOwn(sample, f)
   if (isAllowed(requested)) return requested
-  const candidates = FIELD_ALIASES[requested.toLowerCase().replace(/[^a-z]/g, '')] ?? []
+  const candidates = FIELD_ALIASES.get(requested.toLowerCase().replace(/[^a-z]/g, '')) ?? []
   for (const c of candidates) if (isAllowed(c)) return c
   // last resort: case-insensitive match within the allow-list
   const lower = requested.toLowerCase()
