@@ -38,8 +38,15 @@ async function bufferedHandler(
 ): Promise<APIGatewayProxyStructuredResultV2> {
   // EventBridge daily schedule (no requestContext on scheduled events)
   if ((event as unknown as { source?: string }).source === 'aws.events') {
-    const result = await runDailyDigest()
-    return { statusCode: 200, body: JSON.stringify(result) }
+    try {
+      const result = await runDailyDigest()
+      return { statusCode: 200, body: JSON.stringify(result) }
+    } catch (err) {
+      // Log full detail server-side; return 500 so EventBridge retry policy
+      // can attempt redelivery (requires RetryPolicy configured on the target).
+      const ref = logInternalError(err)
+      return { statusCode: 500, body: JSON.stringify({ error: 'Digest failed', ref }) }
+    }
   }
 
   if (event.requestContext.http.method === 'OPTIONS') {
