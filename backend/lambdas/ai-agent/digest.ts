@@ -24,6 +24,8 @@ import { getBucket } from './tools/campus/config'
 const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
 const STATE_KEY = 'digest/state.json'
 const LATEST_KEY = 'digest/latest.json'
+const HISTORY_KEY = 'digest/history.json'
+const HISTORY_MAX = 30
 
 const s3 = new S3Client({ region: AWS_REGION })
 
@@ -79,6 +81,15 @@ interface DigestItem {
 interface RawFeature {
   id?: string | number
   properties?: Record<string, unknown>
+}
+
+// One line per nightly run, newest first — feeds the frontend "Recent syncs" list.
+interface HistoryEntry {
+  generatedAt: string
+  status: 'applied' | 'skipped' | 'held'
+  summary: string
+  itemCount: number
+  baseline?: boolean
 }
 
 function featureId(f: RawFeature, index: number): string | number {
@@ -189,5 +200,59 @@ export async function runDailyDigest() {
     CacheControl: 'no-cache',
   }))
 
+  // Append this run to the rolling history (newest first, capped) — a failed
+  // history write must not fail the digest itself.
+  try {
+    const entry: HistoryEntry = {
+      generatedAt: latest.generatedAt,
+      itemCount: items.length,
+      ...(isBaseline ? { baseline: true } : {}),
+      status: errors.length ? 'held' : items.length ? 'applied' : 'skipped',
+      summary: isBaseline
+        ? 'Baseline established for watched layers'
+        : items.length
+        ? items.slice(0, 3).map((i) => i.headline).join(' · ')
+        : 'No changes detected since the previous run',
+    }
+    const history = (await readJson<HistoryEntry[]>(HISTORY_KEY)) ?? []
+    history.unshift(entry)
+    await s3.send(new PutObjectCommand({
+      Bucket: getBucket(), Key: HISTORY_KEY,
+      Body: JSON.stringify(history.slice(0, HISTORY_MAX)), ContentType: 'application/json',
+      CacheControl: 'no-cache',
+    }))
+  } catch (err) {
+    console.error('digest history write failed:', err)
+  }
+
   return { ok: true, baseline: isBaseline, layersTracked: Object.keys(newState.layers).length, items }
+}
+
+/**
+ * Read-only digest report for the frontend provenance panel ("source of
+ * truth" / recent syncs / daily digest). No LLM involved — plain S3 reads,
+ * safe fields only (no S3 keys, no per-feature ids).
+ */
+export async function readDigestReport() {
+  const [state, latest, history] = await Promise.all([
+    readJson<DigestState>(STATE_KEY),
+    readJson<{ date?: string; generatedAt?: string; baseline?: boolean; items?: DigestItem[] }>(LATEST_KEY),
+    readJson<HistoryEntry[]>(HISTORY_KEY),
+  ])
+
+  const layers = state?.layers ?? {}
+  return {
+    lastRunAt: state?.updatedAt ?? latest?.generatedAt ?? null,
+    date: latest?.date ?? null,
+    baseline: latest?.baseline ?? null,
+    items: latest?.items ?? [],
+    layersTracked: Object.keys(layers).length,
+    layerCounts: Object.fromEntries(
+      Object.entries(layers)
+        .slice(0, 30)
+        .map(([k, v]) => [k.replace('layers/', '').replace('.geojson', ''), v.count])
+    ),
+    history: history ?? [],
+    schedule: 'Nightly at 02:00 America/Chicago (EventBridge)',
+  }
 }

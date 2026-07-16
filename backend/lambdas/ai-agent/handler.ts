@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
 import { runCampusGeoAgent } from './agent'
-import { runDailyDigest } from './digest'
+import { runDailyDigest, readDigestReport } from './digest'
 
 const MAX_QUERY_LENGTH = 2000
 
@@ -58,6 +58,29 @@ async function bufferedHandler(
   // one-shot JSON {answer, features, intent, mapAction}.
   if (event.requestContext.http.path.endsWith('/query')) {
     return legacyQueryHandler(event)
+  }
+
+  // Lightweight data-provenance endpoint for the frontend digest panel —
+  // plain S3 reads, no LLM. Reachable today as POST /api/agent
+  // {"freshness": true} (no new API Gateway route needed); the path check
+  // means a dedicated /api/freshness route needs no code change later.
+  let peekBody: Record<string, unknown> = {}
+  try { peekBody = JSON.parse(event.body ?? '{}') as Record<string, unknown> } catch { /* fall through to normal 400 */ }
+  if (event.requestContext.http.path.endsWith('/freshness') || peekBody.freshness === true) {
+    try {
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        body: JSON.stringify(await readDigestReport()),
+      }
+    } catch (err) {
+      const ref = logInternalError(err)
+      return {
+        statusCode: 500,
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Internal error', ref }),
+      }
+    }
   }
 
   let query: string

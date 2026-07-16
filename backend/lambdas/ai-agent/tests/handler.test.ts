@@ -16,7 +16,21 @@ vi.mock('../agent', () => ({
   runCampusGeoAgent: async (_q: string, _sid: string, onEvent: (e: SSEEvent) => void) =>
     agentMock.impl!(onEvent),
 }))
-vi.mock('../digest', () => ({ runDailyDigest: async () => ({}) }))
+vi.mock('../digest', () => ({
+  runDailyDigest: async () => ({}),
+  readDigestReport: async () => ({
+    lastRunAt: '2026-07-14T07:00:33.781Z',
+    date: 'Jul 14, 2026',
+    baseline: false,
+    items: [],
+    layersTracked: 27,
+    layerCounts: { buildings: 308, trees: 5491 },
+    history: [
+      { generatedAt: '2026-07-14T07:00:33.781Z', status: 'skipped', summary: 'No changes detected since the previous run', itemCount: 0 },
+    ],
+    schedule: 'Nightly at 02:00 America/Chicago (EventBridge)',
+  }),
+}))
 
 function makeEvent(path: string, body: unknown): APIGatewayProxyEventV2 {
   return {
@@ -65,6 +79,39 @@ describe('streaming truncation latch', () => {
     // and the latch really did suppress the flood
     const textEvents = written.filter((l) => l.includes('"type":"text"'))
     expect(textEvents.length).toBeLessThan(400)
+  })
+})
+
+describe('freshness endpoint (BUFFERED=1)', () => {
+  it('returns the digest report as JSON without invoking the agent', async () => {
+    process.env.BUFFERED = '1'
+    agentMock.impl = async () => {
+      throw new Error('agent must not run for freshness requests')
+    }
+
+    const { handler } = await import('../handler')
+    const result = (await (handler as (e: APIGatewayProxyEventV2) => Promise<APIGatewayProxyStructuredResultV2>)(
+      makeEvent('/api/agent', { freshness: true })
+    ))
+
+    expect(result.statusCode).toBe(200)
+    const parsed = JSON.parse(result.body ?? '{}') as {
+      layersTracked: number
+      history: Array<{ status: string }>
+      date: string
+    }
+    expect(parsed.layersTracked).toBe(27)
+    expect(parsed.date).toBe('Jul 14, 2026')
+    expect(parsed.history[0].status).toBe('skipped')
+  })
+
+  it('still requires the API key', async () => {
+    process.env.BUFFERED = '1'
+    const { handler } = await import('../handler')
+    const event = makeEvent('/api/agent', { freshness: true })
+    ;(event.headers as Record<string, string>)['x-api-key'] = 'wrong'
+    const result = (await (handler as (e: APIGatewayProxyEventV2) => Promise<APIGatewayProxyStructuredResultV2>)(event))
+    expect(result.statusCode).toBe(403)
   })
 })
 

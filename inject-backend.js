@@ -283,10 +283,86 @@
     }
   }
 
+  // ── 数据溯源面板真数据 ──────────────────────────────────────
+  // 拉取后端 freshness 报告（S3 digest 直读，无 LLM），填充
+  // window.CAMPUSGEO_LIVE —— bundle 里的 SYNC_SOURCE / SYNC_LOG / DIGEST
+  // 已被 build-with-backend.mjs 补丁为渲染时优先读取该对象（取不到回退演示值）。
+  async function loadFreshness() {
+    try {
+      const response = await fetch(`${API_BASE}/api/agent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(API_KEY ? { 'X-Api-Key': API_KEY } : {})
+        },
+        body: JSON.stringify({ freshness: true })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const d = await response.json();
+
+      const fmt = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' });
+      const rel = (dt) => {
+        const days = Math.floor((Date.now() - dt.getTime()) / 86400000);
+        return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days} days ago`;
+      };
+
+      const gen = d.lastRunAt ? new Date(d.lastRunAt) : null;
+      const hist = (d.history && d.history.length)
+        ? d.history
+        : gen
+        ? [{
+            generatedAt: d.lastRunAt,
+            status: (d.items && d.items.length) ? 'applied' : 'skipped',
+            summary: (d.items && d.items.length)
+              ? d.items.map((i) => i.headline).join(' · ')
+              : 'No changes detected since the previous run'
+          }]
+        : [];
+
+      // 下次运行：下一个 02:00 America/Chicago
+      const nowCT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+      const next = new Date(nowCT);
+      next.setHours(2, 0, 0, 0);
+      if (next <= nowCT) next.setDate(next.getDate() + 1);
+      const hoursToNext = Math.max(1, Math.round((next - nowCT) / 3600000));
+
+      window.CAMPUSGEO_LIVE = {
+        syncSource: {
+          name: 'UChicago Campus GIS',
+          type: 'Self-hosted GeoJSON on S3',
+          layers: d.layersTracked
+        },
+        syncLog: hist.slice(0, 5).map((h) => {
+          const dt = new Date(h.generatedAt);
+          return { date: fmt(dt), rel: rel(dt), summary: h.summary, status: h.status || 'applied' };
+        }),
+        syncLogLabel: `last ${Math.min(5, hist.length)} of ${hist.length} run${hist.length !== 1 ? 's' : ''}`,
+        digestDate: d.date || undefined,
+        digestItems: (d.items && d.items.length)
+          ? d.items
+          : gen
+          ? [{
+              icon: 'diff',
+              headline: 'No changes in the latest sync',
+              detail: `Nightly diff ran ${fmt(gen)} — no layer changes detected.`,
+              sub: `${d.layersTracked} layers checked`
+            }]
+          : undefined,
+        currentAsOf: gen ? `Campus data is current as of ${fmt(gen)}, 02:00 CT.` : undefined,
+        nextRunIn: `≈ ${hoursToNext} h`
+      };
+      console.log('[CampusGeo Backend] Freshness loaded:', d.layersTracked, 'layers, last run', d.lastRunAt);
+    } catch (err) {
+      console.warn('[CampusGeo Backend] Freshness unavailable, panel keeps demo data:', err.message);
+    }
+  }
+  loadFreshness();
+
   // 暴露测试函数
   window.testBackend = function(query) {
     return queryBackend(query || 'How many trees on campus?');
   };
+  window.reloadFreshness = loadFreshness;
 
   // 初始化
   if (document.readyState === 'loading') {
