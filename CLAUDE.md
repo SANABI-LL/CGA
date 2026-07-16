@@ -170,7 +170,8 @@ pnpm monorepo (`pnpm@9`, Node ≥20). Workspaces: `apps/*`, `packages/*`, `backe
 
 ```bash
 pnpm install          # all workspaces
-pnpm dev              # frontend (Vite, http://localhost:5173)
+pnpm dev:print        # ★ 当前主力前端：Print-a-Map 原型 UI (http://localhost:5173，直连生产 API)
+pnpm dev              # 旧 React 前端（已弃用视觉方向，仅存代码参考）
 pnpm dev:server       # local agent API (SSE) at http://localhost:3001 — needs AWS credentials for Bedrock
 pnpm build            # frontend only (tsc -b && vite build)
 pnpm build:all        # every workspace
@@ -179,7 +180,8 @@ pnpm lint             # eslint (only apps/web defines lint)
 pnpm --filter @campusgeo/web typecheck   # single workspace
 ```
 
-- Full local loop = two terminals: `pnpm dev:server` + `pnpm dev`, with `apps/web/.env.local` containing `VITE_API_URL=http://localhost:3001`.
+- **主力前端是 `CampusGeo Print-a-Map.html` 原型**（`pnpm dev:print` 服务于 5173）：`CampusGeo-with-Backend.html` = 设计稿 + `backend-config.local.js`（gitignored，端点+key，模板见 `backend-config.example.js`）+ `inject-backend.js`。改设计稿后重新追加两个 script 标签生成 with-Backend 版。
+- 旧 React 全链路（如需）= two terminals: `pnpm dev:server` + `pnpm dev`, with `apps/web/.env.local` containing `VITE_API_URL=http://localhost:3001`.
 - `dev:server` needs AWS credentials in the environment (`AWS_PROFILE` or access keys) plus `AWS_REGION`; optional `BEDROCK_MODEL_ID` overrides the default model set in `backend/lambdas/ai-agent/agent.ts`.
 - No test suite exists yet.
 

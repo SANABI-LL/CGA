@@ -5,6 +5,7 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "pnpm --filter @campusgeo/web dev",
+    "dev:print": "node scripts/serve-print.mjs",
     "dev:server": "pnpm --filter @campusgeo/dev-server dev",
     "build": "pnpm --filter @campusgeo/web build",
     "build:all": "pnpm -r build",

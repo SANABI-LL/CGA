@@ -1,12 +1,16 @@
 // CampusGeo 后端注入脚本
-// 将此脚本注入到 CampusGeo Print-a-Map.html 中以连接 localhost:3001 后端
+// 将此脚本注入到 CampusGeo Print-a-Map.html 中以连接后端。
+// 端点与 API key 来自 backend-config.local.js（gitignored，见
+// backend-config.example.js）；缺省回退到本地 dev-server（无需 key）。
 
 (function() {
   'use strict';
 
   console.log('[CampusGeo Backend] Injection script loaded');
 
-  const API_BASE = 'http://localhost:3001';
+  const cfg = window.CAMPUSGEO_CONFIG || {};
+  const API_BASE = cfg.apiBase || 'http://localhost:3001';
+  const API_KEY = cfg.apiKey || '';
 
   // 等待页面加载完成
   function waitForElement(selector, callback) {
@@ -27,7 +31,8 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'text/event-stream'
+          'Accept': 'text/event-stream',
+          ...(API_KEY ? { 'X-Api-Key': API_KEY } : {})
         },
         body: JSON.stringify({
           query: userQuery,
@@ -87,7 +92,7 @@
 
     } catch (error) {
       console.error('[CampusGeo Backend] Error:', error);
-      alert(`后端连接失败: ${error.message}\n请确保后端服务器运行在 http://localhost:3001`);
+      alert(`后端连接失败: ${error.message}\n当前端点: ${API_BASE}\n（检查 backend-config.local.js 或本地 dev-server 是否就绪）`);
       return null;
     }
   }
@@ -187,8 +192,9 @@
           },
           popupTemplate: {
             title: function(feature) {
+              // Real layer fields only (DISCRIPT1 is the buildings name column)
               const attrs = feature.graphic.attributes;
-              return attrs.CommonName || attrs.NAME || attrs.BLDG_NAME || 'Feature';
+              return attrs.DISCRIPT1 || attrs.CommonName || attrs.Facility_Name || attrs.name || 'Feature';
             },
             content: function(feature) {
               const attrs = feature.graphic.attributes;

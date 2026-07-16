@@ -79,3 +79,6 @@ skills/
 
 # Lambda deploy artifacts & rollback backups (local only)
 backend/lambdas/ai-agent/dist-deploy/
+
+# Frontend prototype local backend config (contains API key)
+backend-config.local.js
