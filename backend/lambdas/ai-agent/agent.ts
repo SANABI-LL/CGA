@@ -6,7 +6,6 @@ import {
   type ContentBlock,
 } from '@aws-sdk/client-bedrock-runtime'
 import type { DocumentType } from '@smithy/types'
-import { queryArcGIS, QueryArcGISInputSchema } from './tools/campus/queryArcGIS'
 import { getShuttleArrivals, GetShuttleArrivalsInputSchema } from './tools/campus/getShuttleArrivals'
 import { getBikeStations, GetBikeStationsInputSchema } from './tools/campus/getBikeStations'
 import { findCampusNearby, FindCampusNearbyInputSchema } from './tools/campus/findCampusNearby'
@@ -27,32 +26,6 @@ const client = new BedrockRuntimeClient({ region: AWS_REGION })
 
 // Tool definitions for Bedrock
 const CAMPUS_TOOLS: Tool[] = [
-  {
-    toolSpec: {
-      name: 'query_arcgis_layer',
-      description:
-        'Query UChicago ArcGIS feature layers by attribute or spatial filter. Returns GeoJSON features for campus buildings, bike racks, electrical lines, parking, accessible paths, and dining. Use this to answer questions about campus facilities.',
-      inputSchema: {
-        json: {
-          type: 'object',
-          properties: {
-            layerName: {
-              type: 'string',
-              enum: ['bike_racks', 'buildings', 'electrical', 'parking', 'accessible', 'dining'],
-              description: 'Campus data layer to query',
-            },
-            whereClause: {
-              type: 'string',
-              description: "SQL WHERE clause for filtering. The buildings layer's name field is DISCRIPT1, e.g. DISCRIPT1 LIKE '%Regenstein%'",
-            },
-            maxResults: { type: 'number', description: 'Max features to return (1-100)', default: 20 },
-            returnGeometry: { type: 'boolean', default: true },
-          },
-          required: ['layerName'],
-        },
-      },
-    },
-  },
   {
     toolSpec: {
       name: 'get_shuttle_arrivals',
@@ -94,7 +67,7 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'find_campus_nearby',
       description:
-        'Find campus features (buildings, dining, accessible paths) within a radius of a named location. Returns sorted by distance. NOTE: bike racks and parking are not yet available in S3.',
+        'Find campus features (buildings, dining, accessible paths, bike racks, parking) within a radius of a named location. Returns sorted by distance.',
       inputSchema: {
         json: {
           type: 'object',
@@ -102,8 +75,8 @@ const CAMPUS_TOOLS: Tool[] = [
             referenceLocation: { type: 'string', description: 'Named campus location, e.g. "Regenstein Library"' },
             featureType: {
               type: 'string',
-              enum: ['building', 'dining', 'accessible'],
-              description: 'Type of feature to find nearby (bike_rack and parking temporarily unavailable)',
+              enum: ['building', 'dining', 'accessible', 'bike_rack', 'parking'],
+              description: 'Type of feature to find nearby',
             },
             radiusMeters: { type: 'number', default: 300 },
             limit: { type: 'number', default: 5 },
@@ -443,10 +416,6 @@ export async function runCampusGeoAgent(
 
 async function executeTool(name: string, rawInput: Record<string, unknown>): Promise<unknown> {
   switch (name) {
-    case 'query_arcgis_layer': {
-      const input = QueryArcGISInputSchema.parse(rawInput)
-      return queryArcGIS(input)
-    }
     case 'get_shuttle_arrivals': {
       const input = GetShuttleArrivalsInputSchema.parse(rawInput)
       return getShuttleArrivals(input)

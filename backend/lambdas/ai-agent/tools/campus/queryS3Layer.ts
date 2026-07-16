@@ -8,22 +8,20 @@ const s3 = new S3Client({
 
 import { getBucket } from './config'
 
-/**
- * S3 上的图层映射（已迁移）
- * 未迁移的图层（bike_racks, electrical, parking）仍使用 queryArcGIS
- */
 const S3_LAYER_FILES: Record<string, string> = {
   buildings: 'layers/buildings.geojson',
   dining: 'layers/Cafe__Market__Restaurant_and_Dining_Hall.geojson',
   accessible: 'layers/all-gender-restrooms.geojson',
   leed_buildings: 'layers/leed-buildings.geojson',
   trees: 'layers/trees.geojson',
+  bike_racks: 'layers/bike_racks.geojson',
+  parking: 'layers/parking.geojson',
 }
 
 // Internal helper schema (not exposed as a model tool) — outFields stays for
 // in-process callers, but inputs are still clamped defensively.
 export const QueryS3LayerInputSchema = z.object({
-  layerName: z.enum(['buildings', 'dining', 'accessible', 'leed_buildings', 'trees']),
+  layerName: z.enum(['buildings', 'dining', 'accessible', 'leed_buildings', 'trees', 'bike_racks', 'parking']),
   whereClause: z.string().max(500).optional().describe('SQL-like WHERE clause (e.g., "DISCRIPT1 LIKE \'%Library%\'")'),
   maxResults: z.number().int().min(1).max(500).optional().default(100),
   returnGeometry: z.boolean().optional().default(true),

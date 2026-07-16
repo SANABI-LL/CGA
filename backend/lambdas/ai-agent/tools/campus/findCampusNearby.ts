@@ -4,7 +4,7 @@ import { pickBuildingProps } from './buildingFields'
 
 export const FindCampusNearbyInputSchema = z.object({
   referenceLocation: z.string().max(200).describe('Named campus location or "lat,lng" coordinates'),
-  featureType: z.enum(['building', 'dining', 'accessible']),
+  featureType: z.enum(['building', 'dining', 'accessible', 'bike_rack', 'parking']),
   radiusMeters: z.number().min(1).max(2000).optional().default(300),
   limit: z.number().int().min(1).max(50).optional().default(5),
 }).strict()
@@ -70,20 +70,16 @@ export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-const LAYER_BY_FEATURE: Record<string, 'buildings' | 'accessible' | 'dining'> = {
+const LAYER_BY_FEATURE: Record<string, 'buildings' | 'accessible' | 'dining' | 'bike_racks' | 'parking'> = {
   building: 'buildings',
   dining: 'dining',
   accessible: 'accessible',
+  bike_rack: 'bike_racks',
+  parking: 'parking',
 }
 
 /**
  * 查找参考点附近的校园设施（使用 S3 数据）
- *
- * 用途：
- * - "Find dining near Regenstein Library"
- * - "Show accessible buildings near Main Quad"
- *
- * 注意：bike_rack, parking 暂未迁移到 S3，返回错误提示
  */
 export async function findCampusNearby(input: FindCampusNearbyInput) {
   const center = resolveLocation(input.referenceLocation)

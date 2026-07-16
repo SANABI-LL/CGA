@@ -123,7 +123,6 @@ import { searchDocuments, SearchDocumentsInputSchema } from '../tools/campus/sea
 import { getDataFreshness } from '../tools/campus/getDataFreshness'
 import { getShuttleArrivals, GetShuttleArrivalsInputSchema } from '../tools/campus/getShuttleArrivals'
 import { getBikeStations, GetBikeStationsInputSchema } from '../tools/campus/getBikeStations'
-import { queryArcGIS, QueryArcGISInputSchema } from '../tools/campus/queryArcGIS'
 import { findUnverifiedCitations } from '../agent'
 
 describe('get_building_info', () => {
@@ -310,34 +309,6 @@ describe('get_bike_stations', () => {
     if ('error' in r) return
     expect(r.stations.length).toBeGreaterThan(0)
     expect(r.stations[0].bikesAvailable).toBe(4)
-  })
-})
-
-describe('query_arcgis_layer', () => {
-  it('queries buildings with a DISCRIPT1 where-clause and returns features', async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [-87.5997, 41.7921] },
-            properties: { DISCRIPT1: 'Regenstein Library' },
-          },
-        ],
-      }),
-    }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    const r = await queryArcGIS(
-      QueryArcGISInputSchema.parse({ layerName: 'buildings', whereClause: "DISCRIPT1 LIKE '%Regenstein%'" })
-    )
-    expect('error' in r).toBe(false)
-    if ('error' in r) return
-    expect(r.count).toBeGreaterThan(0)
-    // the tool must pass the real field name through to the ArcGIS endpoint
-    expect(String(fetchMock.mock.calls[0][0])).toContain('DISCRIPT1')
   })
 })
 
