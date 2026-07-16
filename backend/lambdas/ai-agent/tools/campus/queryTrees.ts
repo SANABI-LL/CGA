@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getBucket } from './config'
+import { resolveLocation, haversineMeters } from './findCampusNearby'
 
 const s3 = new S3Client({
   region: 'us-east-1',
@@ -12,9 +13,11 @@ export const QueryTreesInputSchema = z.object({
   ageClass: z.string().max(200).optional().describe('Tree age class: "Young", "Semi-mature", "Mature"'),
   condition: z.string().max(200).optional().describe('Tree condition: "Good", "Fair", "Poor"'),
   minDiameter: z.number().min(0).max(10_000).optional().describe('Minimum diameter in cm'),
-  location: z.string().max(200).optional().describe('Location description (e.g., "Main Quad")'),
+  location: z.string().max(200).optional().describe('Attribute-based location tag in the tree inventory (e.g., "Main Quad"). NOT for spatial radius queries — use nearLocation for those.'),
   year: z.number().int().min(1800).max(2200).optional().describe('Year planted or last updated (e.g., 2024, 2025, 2026)'),
   notes: z.string().max(200).optional().describe('Keyword match on TreeNotes, which records planting batches like "2025 Fall" — use for "planted in fall 2025" questions'),
+  nearLocation: z.string().max(200).optional().describe('Named campus location for spatial radius search, e.g. "Keller Center", "Regenstein Library". Use this — not location — when the user asks "trees near/within X" or "trees within N ft of X".'),
+  radiusMeters: z.number().min(1).max(2000).optional().default(150).describe('Search radius in metres when nearLocation is set. 1 ft ≈ 0.305 m, so 500 ft ≈ 152 m (default 150 m).'),
 }).strict()
 
 export type QueryTreesInput = z.infer<typeof QueryTreesInputSchema>
@@ -70,6 +73,32 @@ export async function queryTrees(input: QueryTreesInput) {
 
     // 2. 应用过滤条件
     let filtered = geojson.features
+
+    // 空间过滤：nearLocation + radiusMeters（优先于属性 location 字段）
+    if (input.nearLocation) {
+      const center = resolveLocation(input.nearLocation)
+      if (!center) {
+        return {
+          error: `Unknown location "${input.nearLocation}". Try a well-known campus building name, e.g. "Regenstein Library", "Keller Center", "Main Quad".`,
+        }
+      }
+      const radiusM = input.radiusMeters ?? 150
+      filtered = filtered.filter(f => {
+        const [lng, lat] = f.geometry.coordinates
+        return haversineMeters(center.lat, center.lng, lat, lng) <= radiusM
+      })
+      // 注入距离属性供 Agent 呈现
+      filtered = filtered.map(f => {
+        const [lng, lat] = f.geometry.coordinates
+        return {
+          ...f,
+          properties: {
+            ...f.properties,
+            _distanceMeters: Math.round(haversineMeters(center.lat, center.lng, lat, lng)),
+          },
+        }
+      }) as typeof filtered
+    }
 
     // 字段名兼容：当前 S3 数据用 CommonName/AgeClass/Condition/DBH1，
     // 旧转换产物用 Common_Nam/ageClass/conditionC/Diameter

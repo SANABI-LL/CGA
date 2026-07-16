@@ -123,7 +123,10 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'query_trees',
       description:
-        'Query the campus tree inventory. Filter by species (common name like "Maple", "Ash", "Oak"), age class ("Young", "Semi-mature", "Mature"), condition ("Good", "Fair", "Poor"), minimum diameter, or notes keyword (TreeNotes records planting batches, e.g. notes "2025 Fall" answers "trees planted in fall 2025"). Returns tree locations and statistics. ALWAYS call this tool for tree counts — the inventory is updated regularly, never answer from memory.',
+        'Query the campus tree inventory. ALWAYS call this tool for tree counts — the inventory is updated regularly, never answer from memory. ' +
+        'For "trees near/within X" or "trees within N ft of X": set nearLocation to the campus building or place name and radiusMeters to the converted distance (1 ft = 0.305 m, so 500 ft → 152). ' +
+        'For attribute filters: species (common name, e.g. "Maple"), ageClass ("Young"/"Semi-mature"/"Mature"), condition ("Good"/"Fair"/"Poor"), minDiameter (cm), notes keyword (TreeNotes records planting batches like "2025 Fall"). ' +
+        'Do NOT pass a building name to the location field — that field matches an inventory attribute tag, not a spatial lookup; it will return 0 results.',
       inputSchema: {
         json: {
           type: 'object',
@@ -132,8 +135,10 @@ const CAMPUS_TOOLS: Tool[] = [
             ageClass: { type: 'string', description: 'Age class: "Young", "Semi-mature", or "Mature"' },
             condition: { type: 'string', description: 'Tree condition: "Good", "Fair", or "Poor"' },
             minDiameter: { type: 'number', description: 'Minimum trunk diameter in cm' },
-            location: { type: 'string', description: 'Location description' },
+            location: { type: 'string', description: 'Attribute-based location tag in the inventory (e.g., "Main Quad"). NOT for spatial queries.' },
             notes: { type: 'string', description: 'Keyword match on TreeNotes (planting batches, e.g. "2025 Fall")' },
+            nearLocation: { type: 'string', description: 'Named campus location for spatial radius search, e.g. "Keller Center". Use for "trees near/within X" queries.' },
+            radiusMeters: { type: 'number', description: 'Search radius in metres (default 150). 500 ft = 152 m, 200 ft = 61 m.' },
           },
         },
       },
