@@ -202,6 +202,10 @@ python convert_gdb.py --upload-core-only --bucket campusgeo-geodata-<account-id>
 
 See `QUICKSTART.md` for the S3/DynamoDB deployment sequence, `README_ARCGIS.md` for the conversion environment.
 
+## 工作日志（每日必写）
+
+每个工作会话结束前，更新当天的 `docs/worklog/YYYY-MM-DD.md`（同日多次会话追加到同一文件）。内容三段：**今日完成**（做了什么、部署了什么）、**关键决定**（为什么这么做）、**遗留 / 下一步**（checkbox 列表，次日从这里接续）。写完随代码一起 commit。新会话开始时先读最近一篇日志了解上下文。
+
 ## Repository Architecture
 
 - **`apps/web`** — React 18 + Vite + TS frontend. TanStack Router (`routes/LandingPage.tsx` → `routes/MapApp.tsx`), Zustand stores (`stores/mapStore.ts`, `stores/queryStore.ts`), ArcGIS Maps SDK (`@arcgis/core`).

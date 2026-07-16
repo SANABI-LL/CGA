@@ -76,3 +76,6 @@ backend/lambdas/**/*.zip
 
 # 本地 vendored 工具包(非项目源码)
 skills/
+
+# Lambda deploy artifacts & rollback backups (local only)
+backend/lambdas/ai-agent/dist-deploy/
