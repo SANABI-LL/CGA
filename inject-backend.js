@@ -241,7 +241,22 @@
         }
 
         const mu = pending.mapUpdate;
-        const features = mu.features || mu;
+        // stripZ 展平坐标，并裁掉校园边界外的 feature（buildings.geojson 含少量校外建筑）
+        const CAMPUS_BBOX = { minLng: -87.63, maxLng: -87.56, minLat: 41.77, maxLat: 41.81 };
+        function inCampus(f) {
+          if (!f.geometry) return false;
+          const pt = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0][0]
+                    : f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates[0][0][0]
+                    : f.geometry.type === 'Point' ? f.geometry.coordinates : null;
+          if (!pt) return true;
+          return pt[0] >= CAMPUS_BBOX.minLng && pt[0] <= CAMPUS_BBOX.maxLng &&
+                 pt[1] >= CAMPUS_BBOX.minLat && pt[1] <= CAMPUS_BBOX.maxLat;
+        }
+        const rawFc = mu.features || mu;
+        const strippedFc = stripZ(rawFc);
+        const features = strippedFc && strippedFc.features
+          ? { ...strippedFc, features: strippedFc.features.filter(inCampus) }
+          : strippedFc;
         const isTree = pending.toolName.includes('tree');
         const featureCount = (features.features || []).length;
         const sc = {
@@ -256,7 +271,7 @@
           fieldCount: 3,
           chip: isTree ? 'Campus Trees' : 'Campus Data',
           chipIcon: isTree ? 'leaf' : 'building',
-          center: mu.center || [-87.5987, 41.7886],
+          center: mu.center ? [mu.center.lng, mu.center.lat] : [-87.5987, 41.7886],
           zoom: mu.zoom || 15,
           legend: [
             { color: isTree ? '#5A7A3A' : '#800000', label: pending.userQuery.slice(0, 40), round: isTree },
