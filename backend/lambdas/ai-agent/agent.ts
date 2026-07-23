@@ -222,7 +222,11 @@ const CAMPUS_TOOLS: Tool[] = [
   },
 ]
 
-const SYSTEM_PROMPT = `You are CampusGeo, an AI geospatial assistant for the University of Chicago. You have access to real-time campus data through tools.
+function buildSystemPrompt(): string {
+  const currentYear = new Date().getFullYear()
+  return `You are CampusGeo, an AI geospatial assistant for the University of Chicago. You have access to real-time campus data through tools.
+
+Current year: ${currentYear}. Use this to resolve relative time references in queries (e.g. "at least 20 years old" means Year_Completed <= ${currentYear - 20}, "built in the last decade" means Year_Completed >= ${currentYear - 10}).
 
 Guidelines:
 - Be direct and specific. Give exact locations, distances, and counts.
@@ -235,6 +239,7 @@ Guidelines:
 - Building METRICS (RI, FCI, height, year, area) are LAYER DATA: use query_building_attributes, never the document search. Data-currency questions: use get_data_freshness.
 - To show ALL buildings (e.g. "map all buildings", "gradient by age", "color by year"), call query_building_attributes with field="year", operator=">=", value=1800 — this returns all buildings that have a year recorded. Never answer building visualization requests from memory.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
+}
 
 type SSECallback = (event: { type: string; [key: string]: unknown }) => void
 
@@ -277,7 +282,7 @@ export async function runCampusGeoAgent(
   for (let turn = 0; turn < 6; turn++) {
     const command = new ConverseStreamCommand({
       modelId: BEDROCK_MODEL,
-      system: [{ text: SYSTEM_PROMPT }],
+      system: [{ text: buildSystemPrompt() }],
       messages,
       toolConfig: { tools: CAMPUS_TOOLS },
       inferenceConfig: {

@@ -245,10 +245,14 @@
         const CAMPUS_BBOX = { minLng: -87.63, maxLng: -87.56, minLat: 41.77, maxLat: 41.81 };
         function inCampus(f) {
           if (!f.geometry) return false;
-          const pt = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0][0]
-                    : f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates[0][0][0]
-                    : f.geometry.type === 'Point' ? f.geometry.coordinates : null;
-          if (!pt) return true;
+          const c = f.geometry.coordinates;
+          let pt = null;
+          try {
+            if (f.geometry.type === 'Polygon') pt = c && c[0] && c[0][0];
+            else if (f.geometry.type === 'MultiPolygon') pt = c && c[0] && c[0][0] && c[0][0][0];
+            else if (f.geometry.type === 'Point') pt = c;
+          } catch (_) { return true; }
+          if (!pt || typeof pt[0] !== 'number') return true;
           return pt[0] >= CAMPUS_BBOX.minLng && pt[0] <= CAMPUS_BBOX.maxLng &&
                  pt[1] >= CAMPUS_BBOX.minLat && pt[1] <= CAMPUS_BBOX.maxLat;
         }
