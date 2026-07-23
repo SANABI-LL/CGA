@@ -275,9 +275,26 @@ patch(
   patch('暴露 window.__cgMap', FROM, TO)
 }
 
-// —— 11. 追加后端接线脚本 ——
-html += '<script src="backend-config.local.js"></script>\r\n<script src="inject-backend.js"></script>\r\n'
-// (patch 序号已更新为 11)
+// —— 12. bldg-hit-fill 年份渐变色 ——
+// 将固定 T.maroon 替换为 MapLibre data-driven 插值表达式：
+// 1890 前 → 深蓝，1930 → 浅蓝，1960 → 绿，1990 → 橙，2020+ → 红
+// Year_Completed 为空/0 时 fallback 中性灰 #888
+{
+  const BS = String.fromCharCode(92)
+  const FROM =
+    "{ id: 'bldg-hit-fill', type: 'fill', source: 'bldg-hit'," + BS + 'n' +
+    "          paint: { 'fill-color': T.maroon, 'fill-opacity': 0.34 } }"
+  const TO =
+    "{ id: 'bldg-hit-fill', type: 'fill', source: 'bldg-hit'," + BS + 'n' +
+    "          paint: { 'fill-color': ['case'," + BS + 'n' +
+    "              ['all', ['has', 'Year_Completed'], ['!=', ['get', 'Year_Completed'], null], ['>', ['to-number', ['get', 'Year_Completed'], 0], 0]]," + BS + 'n' +
+    "              ['interpolate', ['linear'], ['to-number', ['get', 'Year_Completed'], 1900]," + BS + 'n' +
+    "                1890, '#2166ac', 1930, '#74add1', 1960, '#a6d96a', 1990, '#fdae61', 2020, '#d73027']," + BS + 'n' +
+    "              '#888888'], 'fill-opacity': 0.72 } }"
+  patch('bldg-hit-fill 年份渐变色', FROM, TO)
+}
 
+// —— 13. 追加后端接线脚本 ——
+html += '<script src="backend-config.local.js"></script>\r\n<script src="inject-backend.js"></script>\r\n'
 writeFileSync(OUT, html)
 console.log(`[build-with-backend] 写出 ${OUT} (${html.length} bytes)`)
