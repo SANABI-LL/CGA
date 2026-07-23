@@ -100,6 +100,32 @@
   // ── 背景建筑层预加载 ────────────────────────────────────────────────────
   // 页面加载后立即从 Lambda 拉取 buildings.geojson（最多 500 条，有 1h CDN 缓存）。
   // trees / nearby 查询构建 sc 时用作 allData 背景层。
+
+  // buildings.geojson 的两个问题：
+  // 1. 坐标带 Z 值（高程 ~2e-5），MapLibre 2D 静默失败
+  // 2. 几何类型为 MultiPolygon，MapLibre GeoJSON worker 对此版本无法正确 tile 化
+  // 修复：strip2D 剥 Z 值，然后把每个 MultiPolygon 展平为独立 Polygon feature
+  function strip2D(coords) {
+    if (!Array.isArray(coords)) return coords;
+    if (typeof coords[0] === 'number') return coords.slice(0, 2);
+    return coords.map(strip2D);
+  }
+  function stripZ(geojson) {
+    if (!geojson || !geojson.features) return geojson;
+    const flatFeatures = geojson.features.flatMap((f) => {
+      if (!f.geometry || !f.geometry.coordinates) return [f];
+      if (f.geometry.type === 'MultiPolygon') {
+        return f.geometry.coordinates.map((polyCoords) => ({
+          type: 'Feature',
+          properties: f.properties,
+          geometry: { type: 'Polygon', coordinates: strip2D(polyCoords) },
+        }));
+      }
+      return [{ ...f, geometry: { ...f.geometry, coordinates: strip2D(f.geometry.coordinates) } }];
+    });
+    return { ...geojson, features: flatFeatures };
+  }
+
   let cachedBuildings = null;
   async function preloadBuildings() {
     // 最多重试 3 次（间隔 3s），应对 Lambda cold start 导致的首次超时
@@ -117,7 +143,7 @@
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         if (data && data.features) {
-          cachedBuildings = data;
+          cachedBuildings = stripZ(data);
           console.log('[CampusGeo] Buildings preloaded:', data.features.length, 'features');
           return;
         }
@@ -209,7 +235,7 @@
             });
             if (r.ok) {
               const d = await r.json();
-              if (d && d.features) { cachedBuildings = d; console.log('[CampusGeo] Buildings loaded on-demand:', d.features.length); }
+              if (d && d.features) { cachedBuildings = stripZ(d); console.log('[CampusGeo] Buildings loaded on-demand:', d.features.length); }
             }
           } catch (_) { /* fall through, allData stays empty */ }
         }

@@ -180,7 +180,7 @@ pnpm lint             # eslint (only apps/web defines lint)
 pnpm --filter @campusgeo/web typecheck   # single workspace
 ```
 
-- **主力前端是 `CampusGeo Print-a-Map.html` 原型**（`pnpm dev:print` 服务于 5173）：`CampusGeo-with-Backend.html` = 从设计稿通过 `node scripts/build-with-backend.mjs` 生成（16 个 patch 全量构建，含真实 S3 字段名注入、AI 后端接线等）。每次修改设计稿或 `inject-backend.js` 后须重新运行该脚本。`backend-config.local.js`（gitignored，端点+key，模板见 `backend-config.example.js`）必须在本地手动维护。
+- **主力前端是 `CampusGeo Print-a-Map.html` 原型**（`pnpm dev:print` 服务于 5173）：`CampusGeo-with-Backend.html` = 从设计稿通过 `node scripts/build-with-backend.mjs` 生成（19 个 patch 全量构建，含真实 S3 字段名注入、AI 后端接线等）。每次修改设计稿或 `inject-backend.js` 后须重新运行该脚本。`backend-config.local.js`（gitignored，端点+key，模板见 `backend-config.example.js`）必须在本地手动维护。
 - 旧 React 全链路（如需）= two terminals: `pnpm dev:server` + `pnpm dev`, with `apps/web/.env.local` containing `VITE_API_URL=http://localhost:3001`.
 - `dev:server` needs AWS credentials in the environment (`AWS_PROFILE` or access keys) plus `AWS_REGION`; optional `BEDROCK_MODEL_ID` overrides the default model set in `backend/lambdas/ai-agent/agent.ts`.
 - **测试**：`pnpm --filter @campusgeo/ai-agent test`（vitest，24 条）。测试文件：`backend/lambdas/ai-agent/tests/handler.test.ts`、`tools.functional.test.ts`（含真实 S3 fixture，需 AWS 凭证）。单条测试：`pnpm --filter @campusgeo/ai-agent exec vitest run --testNamePattern "test name"`。

@@ -232,9 +232,52 @@ patch(
   patch('trees map: 插入建筑背景层 bldg-ctx', FROM, TO)
 }
 
-// —— 10. 追加后端接线脚本 ——
+// —— 10. 在 overlay useEffect 前插入 bldg-ctx 动态管理 useEffect ——
+// 问题：map.on('load') 只在 map 首次创建时触发一次。
+// 第二次 trees 查询时 mapRef.current 已存在，useEffect([visible,sc]) 直接 return，
+// load 回调不再执行，bldg-ctx 层永远不会被添加。
+// 修复：用独立的 useEffect([sc,ready]) 在每次 sc 变化时动态添加/更新/清除 bldg-ctx。
+{
+  const BS = String.fromCharCode(92)
+  // 锚点：overlay useEffect 开头（唯一）
+  const FROM =
+    "useEffect(() => {" + BS + 'n' +
+    "    const map = mapRef.current;if (!map || !ready) return;" + BS + 'n' +
+    "    ['ov-ring-fill', 'ov-ring-line', 'ov-trees-halo', 'ov-trees'].forEach"
+  const TO =
+    // 新插入的 bldg-ctx useEffect
+    "useEffect(() => {" + BS + 'n' +
+    "    const map = mapRef.current;if (!map || !ready) return;" + BS + 'n' +
+    "    if (sc && sc.kind === 'trees' && sc.ctxBuildings && sc.ctxBuildings.features && sc.ctxBuildings.features.length) {" + BS + 'n' +
+    "      if (!map.getSource('bldg-ctx')) {" + BS + 'n' +
+    "        map.addSource('bldg-ctx', { type: 'geojson', data: sc.ctxBuildings });" + BS + 'n' +
+    "        map.addLayer({ id: 'bldg-ctx-fill', type: 'fill', source: 'bldg-ctx', paint: { 'fill-color': '#C9BCA6', 'fill-opacity': 0.45 } }, 'trees-old');" + BS + 'n' +
+    "        map.addLayer({ id: 'bldg-ctx-line', type: 'line', source: 'bldg-ctx', paint: { 'line-color': '#A89B86', 'line-width': 0.6 } }, 'trees-old');" + BS + 'n' +
+    "      } else { map.getSource('bldg-ctx').setData(sc.ctxBuildings); }" + BS + 'n' +
+    "    } else {" + BS + 'n' +
+    "      ['bldg-ctx-fill', 'bldg-ctx-line'].forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });" + BS + 'n' +
+    "      if (map.getSource('bldg-ctx')) map.removeSource('bldg-ctx');" + BS + 'n' +
+    "    }" + BS + 'n' +
+    "  }, [sc, ready]);" + BS + 'n' +
+    BS + 'n' +
+    // 原来的 overlay useEffect（保持不变）
+    "useEffect(() => {" + BS + 'n' +
+    "    const map = mapRef.current;if (!map || !ready) return;" + BS + 'n' +
+    "    ['ov-ring-fill', 'ov-ring-line', 'ov-trees-halo', 'ov-trees'].forEach"
+  patch('bldg-ctx 动态 useEffect（sc 变化时管理背景层）', FROM, TO)
+}
+
+// —— 调试：暴露 map 实例到 window.__cgMap（方便 console 诊断）——
+{
+  const BS = String.fromCharCode(92)
+  const FROM = 'mapRef.current = map;' + BS + 'n    map.on(' + "'load'"
+  const TO   = 'mapRef.current = map;window.__cgMap = map;' + BS + 'n    map.on(' + "'load'"
+  patch('暴露 window.__cgMap', FROM, TO)
+}
+
+// —— 11. 追加后端接线脚本 ——
 html += '<script src="backend-config.local.js"></script>\r\n<script src="inject-backend.js"></script>\r\n'
-// (patch 序号已更新为 10)
+// (patch 序号已更新为 11)
 
 writeFileSync(OUT, html)
 console.log(`[build-with-backend] 写出 ${OUT} (${html.length} bytes)`)
