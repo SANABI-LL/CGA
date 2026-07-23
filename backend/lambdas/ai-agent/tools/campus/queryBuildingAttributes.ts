@@ -85,7 +85,10 @@ function centroidOf(features: BuildingFeature[]): { lat: number; lng: number } |
   let n = 0
   const walk = (c: unknown): void => {
     if (!Array.isArray(c)) return
-    if (typeof c[0] === 'number') {
+    // A coordinate point has numeric first element; only use [0]=lng [1]=lat
+    // (ignore any Z at [2] — buildings.geojson carries a tiny elevation value
+    // that would corrupt the centroid average if treated as lat/lng)
+    if (typeof c[0] === 'number' && typeof c[1] === 'number') {
       sumLng += c[0] as number
       sumLat += c[1] as number
       n++
