@@ -259,10 +259,35 @@
           : strippedFc;
         const isTree = pending.toolName.includes('tree');
         const featureCount = (features.features || []).length;
+
+        // 判断是否为「年份渐变」查询：含 age / year / built / gradient 等关键词
+        const q = pending.userQuery.toLowerCase();
+        const isYearGradient = !isTree && /\b(age|year|built|gradient|era|decade|old|new|recent|historic)\b/.test(q);
+
+        // 自适应 title：年份渐变时用描述性标题
+        const mapTitle = isYearGradient
+          ? 'Building Age — Year Completed'
+          : pending.userQuery;
+
+        // legend：年份渐变时显示色阶，树/其他建筑保持原逻辑
+        const legend = isYearGradient
+          ? [
+              { color: '#2166ac', label: 'Pre-1920 (historic)' },
+              { color: '#74add1', label: '1920–1960' },
+              { color: '#a6d96a', label: '1960–1990' },
+              { color: '#fdae61', label: '1990–2010' },
+              { color: '#d73027', label: '2010–present' },
+              { color: '#888888', label: 'Year unknown', sub: true },
+            ]
+          : [
+              { color: isTree ? '#5A7A3A' : '#800000', label: pending.userQuery.slice(0, 40), round: isTree },
+              { color: '#C9BCA6', label: 'Campus context', sub: true },
+            ];
+
         const sc = {
           kind: isTree ? 'trees' : 'buildings',
           unit: isTree ? 'trees' : 'features',
-          title: pending.userQuery,
+          title: mapTitle,
           data: features,
           allData: { type: 'FeatureCollection', features: [] },
           ctxBuildings: cachedBuildings || { type: 'FeatureCollection', features: [] },
@@ -273,16 +298,13 @@
           chipIcon: isTree ? 'leaf' : 'building',
           center: mu.center ? [mu.center.lng, mu.center.lat] : [-87.5987, 41.7886],
           zoom: mu.zoom || 15,
-          legend: [
-            { color: isTree ? '#5A7A3A' : '#800000', label: pending.userQuery.slice(0, 40), round: isTree },
-            { color: '#C9BCA6', label: 'Campus context', sub: true },
-          ],
+          legend,
           legendSquare: !isTree,
         };
 
         // 注册按钮回调（闭包持有 React setters）
         window.__cgShowMapBtn = function () {
-          if (typeof setTitle === 'function') setTitle(pending.userQuery);
+          if (typeof setTitle === 'function') setTitle(mapTitle);
           setSc(sc);
           setPhase('composing');
           if (typeof setFitCmd === 'function') {

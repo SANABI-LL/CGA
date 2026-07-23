@@ -294,7 +294,74 @@ patch(
   patch('bldg-hit-fill 年份渐变色', FROM, TO)
 }
 
-// —— 13. 追加后端接线脚本 ——
+// —— 13. bldg-hit-fill: 去掉描边层（渐变模式下 bldg-hit-line 造成视觉噪点）——
+{
+  const BS = String.fromCharCode(92)
+  const FROM =
+    "map.addLayer({ id: 'bldg-hit-line', type: 'line', source: 'bldg-hit'," + BS + 'n' +
+    "          paint: { 'line-color': T.maroon, 'line-width': 1.7 } });"
+  const TO = ''
+  patch('bldg-hit-line 去轮廓线', FROM, TO)
+}
+
+// —— 14. buildings popup: hover 触发 + 只显示楼名和年份 ——
+// 原始 click popup 含 RI 字段且点击触发，改为 hover 弹出楼名+年份
+// FROM 用两段小锚点分两次 patch，避免跨行特殊字符匹配问题
+{
+  const BS = String.fromCharCode(92)
+  const EM = String.fromCharCode(8212)  // — U+2014
+  const DQ = String.fromCharCode(34)    // "
+
+  // patch 14a：把 mouseenter/mouseleave/click 三个 handler 的 mouseenter 行改为带 event 参数
+  //   并删掉整个 click handler（替换为空），在 mouseleave 前插入新 hover handler
+  const FROM_A =
+    "map.on('mouseenter', 'bldg-hit-fill', () => map.getCanvas().style.cursor = 'pointer');" + BS + 'n' +
+    "        map.on('mouseleave', 'bldg-hit-fill', () => {map.getCanvas().style.cursor = '';pop.remove();});" + BS + 'n' +
+    "        map.on('click', 'bldg-hit-fill', (e) => {" + BS + 'n' +
+    "          const p = e.features[0].properties;" + BS + 'n' +
+    "          const ri = typeof p.RI_ === 'number' ? (+p.RI_).toFixed(2) : '" + EM + "';" + BS + 'n' +
+    "          const bits = [`RI ${ri}`];" + BS + 'n' +
+    "          if (p.Year_Completed) bits.push('built ' + Math.round(p.Year_Completed));" + BS + 'n' +
+    "          if ((p.CHRS || '').trim()) bits.push(p.CHRS.trim());"
+
+  const TO_A =
+    "map.on('mouseenter', 'bldg-hit-fill', (e) => {" + BS + 'n' +
+    "          map.getCanvas().style.cursor = 'pointer';" + BS + 'n' +
+    "          const p = e.features[0].properties;" + BS + 'n' +
+    "          const yr = p.Year_Completed ? Math.round(p.Year_Completed) : null;" + BS + 'n' +
+    "          const sub = yr ? 'Built ' + yr : (p.DISCRIPT2 || '').trim() || '';"
+
+  patch('buildings popup 14a: 替换 mouseenter/click 为 hover', FROM_A, TO_A)
+}
+
+{
+  const BS = String.fromCharCode(92)
+  const MD = String.fromCharCode(183)   // · U+00B7
+  const DQ = String.fromCharCode(34)    // "
+  const BT = String.fromCharCode(96)    // `
+
+  // patch 14b：替换 setHTML 内容（原含 RI bits.join）为简洁楼名+年份
+  const FROM_B =
+    "          pop.setLngLat(e.lngLat).setHTML(" +
+    BT + "<div class=" + BS + DQ + "pop-title" + BS + DQ + ">${(p.DISCRIPT1 || 'Building').trim()}<" +
+    BS + "u002Fdiv><div class=" + BS + DQ + "pop-sub" + BS + DQ + ">${bits.join(' " + MD + " ')}<" +
+    BS + "u002Fdiv><div class=" + BS + DQ + "pop-coord" + BS + DQ + ">${(p.BD_ID || '').trim() || (p.ADDRESS || '').trim()}<" +
+    BS + "u002Fdiv>" + BT + ").addTo(map);" + BS + 'n' +
+    "        });"
+
+  // TO_B: 嵌套模板字符串用字符串拼接避免语法歧义
+  const TO_B =
+    "          pop.setLngLat(e.lngLat).setHTML(" +
+    BT + "<div class=" + BS + DQ + "pop-title" + BS + DQ + ">${(p.DISCRIPT1 || p.name || 'Building').trim()}<" +
+    BS + "u002Fdiv>${sub ? " + BT + "<div class=" + BS + DQ + "pop-sub" + BS + DQ + ">${sub}<" +
+    BS + "u002Fdiv>" + BT + " : ''}" + BT + ").addTo(map);" + BS + 'n' +
+    "        });" + BS + 'n' +
+    "        map.on('mousemove', 'bldg-hit-fill', (e) => { pop.setLngLat(e.lngLat); });"
+
+  patch('buildings popup 14b: setHTML 楼名/年份', FROM_B, TO_B)
+}
+
+// —— 15. 追加后端接线脚本 ——
 html += '<script src="backend-config.local.js"></script>\r\n<script src="inject-backend.js"></script>\r\n'
 writeFileSync(OUT, html)
 console.log(`[build-with-backend] 写出 ${OUT} (${html.length} bytes)`)
