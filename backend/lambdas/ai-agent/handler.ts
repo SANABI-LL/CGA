@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
 import { runCampusGeoAgent } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
+import { queryS3Layer } from './tools/campus/queryS3Layer'
 
 const MAX_QUERY_LENGTH = 2000
 
@@ -79,6 +80,35 @@ async function bufferedHandler(
         statusCode: 200,
         headers: { ...corsHeaders(), 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
         body: JSON.stringify(await readDigestReport()),
+      }
+    } catch (err) {
+      const ref = logInternalError(err)
+      return {
+        statusCode: 500,
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Internal error', ref }),
+      }
+    }
+  }
+
+  // Lightweight S3 layer fetch — no AI, no auth beyond the shared secret.
+  // Frontend calls this on page load to pre-fetch buildings for map context.
+  // Supported: { layerData: 'buildings' } (and other queryS3Layer layerNames).
+  if (typeof peekBody.layerData === 'string') {
+    try {
+      const result = await queryS3Layer({
+        layerName: peekBody.layerData as Parameters<typeof queryS3Layer>[0]['layerName'],
+        maxResults: 500,
+        returnGeometry: true,
+      })
+      return {
+        statusCode: 200,
+        headers: {
+          ...corsHeaders(),
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=3600',
+        },
+        body: JSON.stringify(result),
       }
     } catch (err) {
       const ref = logInternalError(err)

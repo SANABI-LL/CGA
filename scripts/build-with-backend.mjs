@@ -210,8 +210,31 @@ patch(
   console.log(`  ✓ trees popup 字段修复 (${count} 处)`)
 }
 
-// —— 9. 追加后端接线脚本 ——
+// —— 9. trees 地图路径插入建筑背景层 ——
+// inject-backend.js 把 cachedBuildings 存入 sc.ctxBuildings。
+// 设计稿 trees 路径没有 buildings 背景层；这里在 trees-old source 之前
+// 插入 bldg-ctx（fill + line），让建筑轮廓作为背景显示。
+{
+  const BS = String.fromCharCode(92)
+  const FROM =
+    "map.addSource('trees-old', { type: 'geojson', data: sc.allData });" + BS + 'n' +
+    "        map.addLayer({ id: 'trees-old', type: 'circle', source: 'trees-old',"
+  const TO =
+    "if (sc.ctxBuildings && sc.ctxBuildings.features && sc.ctxBuildings.features.length) {" + BS + 'n' +
+    "          if (!map.getSource('bldg-ctx')) {" + BS + 'n' +
+    "            map.addSource('bldg-ctx', { type: 'geojson', data: sc.ctxBuildings });" + BS + 'n' +
+    "            map.addLayer({ id: 'bldg-ctx-fill', type: 'fill', source: 'bldg-ctx', paint: { 'fill-color': '#C9BCA6', 'fill-opacity': 0.45 } });" + BS + 'n' +
+    "            map.addLayer({ id: 'bldg-ctx-line', type: 'line', source: 'bldg-ctx', paint: { 'line-color': '#A89B86', 'line-width': 0.6 } });" + BS + 'n' +
+    "          } else { map.getSource('bldg-ctx').setData(sc.ctxBuildings); }" + BS + 'n' +
+    "        }" + BS + 'n' +
+    "        map.addSource('trees-old', { type: 'geojson', data: sc.allData });" + BS + 'n' +
+    "        map.addLayer({ id: 'trees-old', type: 'circle', source: 'trees-old',"
+  patch('trees map: 插入建筑背景层 bldg-ctx', FROM, TO)
+}
+
+// —— 10. 追加后端接线脚本 ——
 html += '<script src="backend-config.local.js"></script>\r\n<script src="inject-backend.js"></script>\r\n'
+// (patch 序号已更新为 10)
 
 writeFileSync(OUT, html)
 console.log(`[build-with-backend] 写出 ${OUT} (${html.length} bytes)`)

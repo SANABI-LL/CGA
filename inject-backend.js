@@ -97,6 +97,37 @@
     return html;
   }
 
+  // ── 背景建筑层预加载 ────────────────────────────────────────────────────
+  // 页面加载后立即从 Lambda 拉取 buildings.geojson（最多 500 条，有 1h CDN 缓存）。
+  // trees / nearby 查询构建 sc 时用作 allData 背景层。
+  let cachedBuildings = null;
+  async function preloadBuildings() {
+    // 最多重试 3 次（间隔 3s），应对 Lambda cold start 导致的首次超时
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+        const resp = await fetch(`${API_BASE}/api/agent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(API_KEY ? { 'X-Api-Key': API_KEY } : {}),
+          },
+          body: JSON.stringify({ layerData: 'buildings' }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        if (data && data.features) {
+          cachedBuildings = data;
+          console.log('[CampusGeo] Buildings preloaded:', data.features.length, 'features');
+          return;
+        }
+      } catch (err) {
+        console.warn('[CampusGeo] Buildings preload attempt', attempt + 1, 'failed:', err.message);
+      }
+    }
+  }
+  preloadBuildings();
+
   // ── AI 查询核心 ─────────────────────────────────────────────────────────
   // 被 React submit() 调用。reactSetters 是 { setUnrecMsg, setSubmitted,
   // setQuery, setPhase }，由 build-with-backend.mjs patch 传入。
@@ -168,6 +199,21 @@
         const pending = window.__cgPendingMapUpdate;
         window.__cgPendingMapUpdate = null;
 
+        // 如果 preload 还没完成，立即发一次同步请求
+        if (!cachedBuildings) {
+          try {
+            const r = await fetch(`${API_BASE}/api/agent`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...(API_KEY ? { 'X-Api-Key': API_KEY } : {}) },
+              body: JSON.stringify({ layerData: 'buildings' }),
+            });
+            if (r.ok) {
+              const d = await r.json();
+              if (d && d.features) { cachedBuildings = d; console.log('[CampusGeo] Buildings loaded on-demand:', d.features.length); }
+            }
+          } catch (_) { /* fall through, allData stays empty */ }
+        }
+
         const mu = pending.mapUpdate;
         const features = mu.features || mu;
         const isTree = pending.toolName.includes('tree');
@@ -178,6 +224,7 @@
           title: pending.userQuery,
           data: features,
           allData: { type: 'FeatureCollection', features: [] },
+          ctxBuildings: cachedBuildings || { type: 'FeatureCollection', features: [] },
           matchCount: featureCount,
           recordCount: featureCount,
           fieldCount: 3,
@@ -233,7 +280,7 @@
 
   // 判断查询是否为地图/打印请求——这类查询交还本地引擎处理（MapLibre 渲染）
   window.__cgIsMapQuery = function (q) {
-    return /\b(map|print|plot|show.{0,30}on|layer|scale)\b/i.test(q);
+    return /\b(map|print|plot|layer|scale)\b/i.test(q) || /\bon (a |the )?(map|screen|canvas)\b/i.test(q);
   };
 
   // 供调试用：window.testBackend("query") 仍可在 console 里使用
