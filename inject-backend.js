@@ -306,7 +306,7 @@
 
   // 判断查询是否为地图/打印请求——这类查询交还本地引擎处理（MapLibre 渲染）
   window.__cgIsMapQuery = function (q) {
-    return /\b(map|print|plot|layer|scale)\b/i.test(q) || /\bon (a |the )?(map|screen|canvas)\b/i.test(q);
+    return /\b(print|plot|layer|scale)\b/i.test(q) || /\bon (a |the )?(map|screen|canvas)\b/i.test(q);
   };
 
   // 供调试用：window.testBackend("query") 仍可在 console 里使用
