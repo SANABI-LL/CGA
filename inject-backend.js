@@ -160,10 +160,22 @@
   async function callAIBackend(userQuery, reactSetters) {
     const { setUnrecMsg, setSubmitted, setQuery, setPhase, setSc, setTitle, setFitCmd } = reactSetters;
 
-    // 立即切换到 unrecognized 面板并显示 loading 提示
+    // 立即切换到 unrecognized 面板并显示 loading 动画
     setSubmitted(userQuery);
     setQuery('');
-    setUnrecMsg('Querying campus data…');
+    setUnrecMsg(
+      '<style>' +
+        '@keyframes __cgBounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}' +
+        '@keyframes __cgPulse{0%,100%{opacity:0.35}50%{opacity:1}}' +
+        '.__cg-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#8C7A60;margin:0 3px;animation:__cgBounce 1.2s ease-in-out infinite}' +
+        '.__cg-dot:nth-child(2){animation-delay:0.15s}.__cg-dot:nth-child(3){animation-delay:0.3s}' +
+        '.__cg-status{font-size:12px;color:#8C7A60;letter-spacing:0.04em;animation:__cgPulse 1.8s ease-in-out infinite;margin-top:10px}' +
+      '</style>' +
+      '<div style="display:flex;flex-direction:column;align-items:center;padding:18px 0 6px">' +
+        '<div><span class="__cg-dot"></span><span class="__cg-dot"></span><span class="__cg-dot"></span></div>' +
+        '<div class="__cg-status">Querying campus data…</div>' +
+      '</div>'
+    );
     setPhase('unrecognized');
 
     console.log('[CampusGeo] AI query:', userQuery);

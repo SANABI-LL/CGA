@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "CampusGeo Print",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev:print"],
+      "port": 5173
+    }
+  ]
+}
