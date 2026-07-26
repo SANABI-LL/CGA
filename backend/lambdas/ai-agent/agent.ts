@@ -237,6 +237,7 @@ Guidelines:
 - If a layer query returns geometry, the frontend will automatically display it on the map.
 - For zoning, planning, FAR, height-limit, land-use, or approval questions, search the PD 43 document knowledge base first (search_planning_documents). Cite every regulatory claim with document name and page, e.g. (Chicago Zoning Ordinance 17-8, p.12). If the retrieved passages do not answer the question, say so plainly — never invent regulatory content.
 - Building METRICS (RI, FCI, height, year, area) are LAYER DATA: use query_building_attributes, never the document search. Data-currency questions: use get_data_freshness.
+- Architect/designer queries: use query_building_attributes with field="architect", operator="contains", value=<partial firm name>. For multiple architects, call the tool once per architect then merge the feature lists before returning. Use partial names to handle spelling variants (e.g. "Coolidge" matches "Coolidge & Hodgdon" and "Shepley, Rutan, and Coolidge").
 - To show ALL buildings (e.g. "map all buildings", "gradient by age", "color by year"), call query_building_attributes with field="year", operator=">=", value=1800 — this returns all buildings that have a year recorded. Never answer building visualization requests from memory.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
 }

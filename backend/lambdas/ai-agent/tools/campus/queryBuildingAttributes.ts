@@ -29,13 +29,15 @@ const FIELD_ALIASES = new Map<string, string[]>([
   ['name', ['DISCRIPT1']],
   ['use', ['DISCRIPT2']],
   ['ownership', ['PROPERTY_S']],
+  ['architect', ['Architects']],
+  ['architects', ['Architects']],
 ])
 
 export const QueryBuildingAttributesInputSchema = z.object({
   field: z
     .string()
     .max(100)
-    .describe('Attribute to filter on: "RI" (resilience index), "FCI", "height", "year", "area", "use", "ownership", or an exact field name'),
+    .describe('Attribute to filter on: "RI" (resilience index), "FCI", "height", "year", "area", "use", "ownership", "architect" (building architect/firm name), or an exact field name'),
   operator: z.enum(['>', '>=', '<', '<=', '=', 'contains']),
   value: z.union([z.number(), z.string().max(200)]),
   maxResults: z.number().int().min(1).max(400).optional().default(300),

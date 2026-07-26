@@ -329,7 +329,8 @@ patch(
     "          map.getCanvas().style.cursor = 'pointer';" + BS + 'n' +
     "          const p = e.features[0].properties;" + BS + 'n' +
     "          const yr = p.Year_Completed ? Math.round(p.Year_Completed) : null;" + BS + 'n' +
-    "          const sub = yr ? 'Built ' + yr : (p.DISCRIPT2 || '').trim() || '';"
+    "          const arch = (p.Architects || p.architect || '').trim();" + BS + 'n' +
+    "          const sub = arch ? arch : yr ? 'Built ' + yr : (p.DISCRIPT2 || '').trim() || '';"
 
   patch('buildings popup 14a: 替换 mouseenter/click 为 hover', FROM_A, TO_A)
 }
