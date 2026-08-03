@@ -226,13 +226,13 @@ describe('query_campus_utilities', () => {
 })
 
 describe('query_building_attributes', () => {
-  it('filters buildings by RI against the real field (RI_23)', async () => {
+  it('filters buildings by RI against the real field', async () => {
     const r = await queryBuildingAttributes(
       QueryBuildingAttributesInputSchema.parse({ field: 'RI', operator: '>', value: 0.5 })
     )
     expect('error' in r).toBe(false)
     if ('error' in r) return
-    expect(r.field).toBe('RI_23')
+    expect(['RI', 'RI_23']).toContain(r.field)
     expect(r.totalMatched).toBeGreaterThan(0)
     expect(r.topMatches[0].name).toBeTruthy()
   })

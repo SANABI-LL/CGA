@@ -97,6 +97,32 @@
     return html;
   }
 
+  // ── PDF export ──────────────────────────────────────────────────────────
+  window.__cgPrintReport = function () {
+    const el = document.getElementById('__cg-report-content');
+    if (!el) return;
+    const win = window.open('', '_blank', 'width=800,height=1000');
+    win.document.write(
+      '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+      '<title>CampusGeo Report</title>' +
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono&display=swap">' +
+      '<style>' +
+        'body { font-family: "IBM Plex Sans", sans-serif; max-width: 700px; margin: 40px auto; padding: 0 24px; color: #1a1a1a; line-height: 1.6; }' +
+        'h1,h2,h3 { font-family: Fraunces, serif; }' +
+        'hr { border: none; border-top: 1px solid #d4cfc0; margin: 14px 0; }' +
+        'table { border-collapse: collapse; width: 100%; margin: 12px 0; }' +
+        'th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #d4cfc0; font-size: 13px; }' +
+        'th { font-weight: 500; color: #4a4a48; }' +
+        'button { display: none; }' +
+        '@media print { body { margin: 20px; } }' +
+      '</style></head><body>' +
+      el.innerHTML +
+      '</body></html>'
+    );
+    win.document.close();
+    setTimeout(() => { win.print(); }, 600);
+  };
+
   // ── 背景建筑层预加载 ────────────────────────────────────────────────────
   // 页面加载后立即从 Lambda 拉取 buildings.geojson（最多 500 条，有 1h CDN 缓存）。
   // trees / nearby 查询构建 sc 时用作 allData 背景层。
@@ -160,6 +186,10 @@
   async function callAIBackend(userQuery, reactSetters) {
     const { setUnrecMsg, setSubmitted, setQuery, setPhase, setSc, setTitle, setFitCmd } = reactSetters;
 
+    // Clean up any lingering back button from previous map view
+    const oldBackBtn = document.getElementById('__cg-back-btn');
+    if (oldBackBtn) oldBackBtn.remove();
+
     // 立即切换到 unrecognized 面板并显示 loading 动画
     setSubmitted(userQuery);
     setQuery('');
@@ -179,6 +209,7 @@
     setPhase('unrecognized');
 
     console.log('[CampusGeo] AI query:', userQuery);
+    window.__cgPendingMapUpdate = null;
 
     try {
       const response = await fetch(`${API_BASE}/api/agent`, {
@@ -221,8 +252,19 @@
             // 流式更新：渲染 Markdown 后写入 React 主界面
             setUnrecMsg(mdToHtml(aiText));
           } else if (event.type === 'tool_result' && event.mapUpdate && typeof setSc === 'function') {
-            // Lambda 返回了地图数据：存起来，等 AI 文字摘要完整后再切换地图视图
-            window.__cgPendingMapUpdate = { mapUpdate: event.mapUpdate, toolName: event.toolName || '', userQuery };
+            if (!window.__cgPendingMapUpdate) {
+              window.__cgPendingMapUpdate = { mapUpdate: event.mapUpdate, toolName: event.toolName || '', userQuery };
+            } else {
+              // 多次工具调用（如多建筑师查询）：合并 features
+              const prevMu = window.__cgPendingMapUpdate.mapUpdate;
+              const newMu = event.mapUpdate;
+              const prevFc = prevMu.features || prevMu;
+              const newFc = newMu.features || newMu;
+              if (prevFc && prevFc.features && newFc && newFc.features) {
+                prevFc.features = prevFc.features.concat(newFc.features);
+              }
+              window.__cgPendingMapUpdate.toolName = event.toolName || window.__cgPendingMapUpdate.toolName;
+            }
           } else if (event.type === 'error') {
             setUnrecMsg(`Error: ${event.message || 'Unknown error'}`);
             return;
@@ -231,6 +273,22 @@
       }
 
       if (!aiText) setUnrecMsg('No response from AI.');
+
+      // Append "Save as PDF" for text-only responses (no map data)
+      if (aiText && !window.__cgPendingMapUpdate) {
+        const pdfBtn =
+          '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #d4cfc0">' +
+            '<button onclick="window.__cgPrintReport()" style="' +
+              'font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;font-weight:500;' +
+              'color:#4a4a48;background:none;border:1px solid #d4cfc0;cursor:pointer;' +
+              'padding:7px 16px;border-radius:2px;letter-spacing:0.01em' +
+            '">Save as PDF</button>' +
+          '</div>';
+        setUnrecMsg((prev) => {
+          const base = typeof prev === 'string' ? prev : mdToHtml(aiText);
+          return base + pdfBtn;
+        });
+      }
 
       // 如果 Lambda 返回了地图数据，在摘要末尾追加 "Map results" 按钮
       if (window.__cgPendingMapUpdate && typeof setSc === 'function') {
@@ -274,18 +332,136 @@
           ? { ...strippedFc, features: strippedFc.features.filter(inCampus) }
           : strippedFc;
         const isTree = pending.toolName.includes('tree');
-        const featureCount = (features.features || []).length;
 
-        // 判断是否为「年份渐变」查询：含 age / year / built / gradient 等关键词
         const q = pending.userQuery.toLowerCase();
         const isYearGradient = !isTree && /\b(age|year|built|gradient|era|decade|old|new|recent|historic)\b/.test(q);
+        const isArchitectQuery = !isTree && /\b(architect|designer|firm|designed by|built by)\b/.test(q);
 
-        // 自适应 title：年份渐变时用描述性标题
+        // 建筑师查询：规范化分组（处理 S3 数据里同一事务所的多种拼写变体）
+        const ARCH_COLORS = ['#c0392b', '#2980b9', '#27ae60', '#8e44ad', '#e67e22', '#16a085'];
+
+        let archValues = [];
+        let coloredFeatures = features;
+        let archGroupLegend = [];  // [{color, label}] 去重后的图例
+        if (isArchitectQuery && features.features && features.features.length) {
+          function normArch(name) {
+            return name.toLowerCase()
+              .replace(/[^a-z ]/g, ' ')
+              .replace(/\b(and|the|of|associates?)\b/g, '')
+              .split(/\s+/).filter(Boolean).sort().join(' ');
+          }
+
+          function editDist(a, b) {
+            if (a === b) return 0;
+            if (a.length > b.length) { const t = a; a = b; b = t; }
+            const row = Array.from({ length: a.length + 1 }, (_, i) => i);
+            for (let j = 1; j <= b.length; j++) {
+              let prev = row[0]; row[0] = j;
+              for (let i = 1; i <= a.length; i++) {
+                const tmp = row[i];
+                row[i] = a[i-1] === b[j-1] ? prev : 1 + Math.min(prev, row[i], row[i-1]);
+                prev = tmp;
+              }
+            }
+            return row[a.length];
+          }
+
+          function tokensFuzzyMatch(ta, tb) {
+            const fuzzy = (s, t) => s === t || (s.length > 3 && t.length > 3 && editDist(s, t) <= 1);
+            const shorter = ta.length <= tb.length ? ta : tb;
+            const longer = ta.length <= tb.length ? tb : ta;
+            const matched = shorter.filter(s => longer.some(t => fuzzy(s, t)));
+            return matched.length === shorter.length;
+          }
+
+          // Group raw Architects values by normalized key
+          const normToRaws = {};
+          features.features.forEach((f) => {
+            const a = (f.properties && (f.properties.Architects || f.properties.architect || '')).trim();
+            if (!a) return;
+            const key = normArch(a);
+            if (!normToRaws[key]) normToRaws[key] = [];
+            if (!normToRaws[key].includes(a)) normToRaws[key].push(a);
+          });
+
+          // Fuzzy merge: merge keys whose tokens are subsets with edit-distance ≤ 1
+          const rawKeys = Object.keys(normToRaws);
+          const canonical = {};  // key → canonical representative
+          rawKeys.forEach(k => { canonical[k] = k; });
+          for (let i = 0; i < rawKeys.length; i++) {
+            for (let j = i + 1; j < rawKeys.length; j++) {
+              const a = rawKeys[i], b = rawKeys[j];
+              let ca = a, cb = b;
+              while (canonical[ca] !== ca) ca = canonical[ca];
+              while (canonical[cb] !== cb) cb = canonical[cb];
+              if (ca === cb) continue;
+              const ta = a.split(' '), tb = b.split(' ');
+              if (tokensFuzzyMatch(ta, tb)) {
+                const keep = ta.length >= tb.length ? ca : cb;
+                const drop = keep === ca ? cb : ca;
+                canonical[drop] = keep;
+              }
+            }
+          }
+          // Resolve chains and merge raws
+          const mergedGroups = {};
+          rawKeys.forEach(k => {
+            let c = k;
+            while (canonical[c] !== c) c = canonical[c];
+            if (!mergedGroups[c]) mergedGroups[c] = [];
+            normToRaws[k].forEach(r => { if (!mergedGroups[c].includes(r)) mergedGroups[c].push(r); });
+          });
+
+          // Assign one color per merged group
+          const firmKeys = Object.keys(mergedGroups);
+          const firmColorMap = {};
+          const firmLabelMap = {};
+          firmKeys.forEach((key, i) => {
+            firmColorMap[key] = ARCH_COLORS[i % ARCH_COLORS.length];
+            const raws = mergedGroups[key];
+            const best = raws.reduce((a, b) => b.length > a.length ? b : a, raws[0]);
+            firmLabelMap[key] = best.length > 38 ? best.slice(0, 36) + '…' : best;
+          });
+
+          archGroupLegend = firmKeys.map((key) => ({
+            color: firmColorMap[key],
+            label: firmLabelMap[key],
+          }));
+
+          // Resolve any key to its canonical group
+          function resolveCanonical(k) {
+            let c = k;
+            while (canonical[c] !== c) c = canonical[c];
+            return c;
+          }
+
+          coloredFeatures = {
+            ...features,
+            features: features.features.map((f) => {
+              const a = (f.properties && (f.properties.Architects || f.properties.architect || '')).trim();
+              const key = a ? resolveCanonical(normArch(a)) : '';
+              return {
+                ...f,
+                properties: {
+                  ...f.properties,
+                  _cgColor: (key && firmColorMap[key]) || '#888888',
+                },
+              };
+            }),
+          };
+          archValues = firmKeys;
+        }
+
+        const featureCount = (coloredFeatures.features || []).length;
+
+        // 自适应 title
         const mapTitle = isYearGradient
           ? 'Building Age — Year Completed'
-          : pending.userQuery;
+          : isArchitectQuery
+            ? 'Buildings by Architects'
+            : pending.userQuery;
 
-        // legend：年份渐变时显示色阶，树/其他建筑保持原逻辑
+        // legend
         const legend = isYearGradient
           ? [
               { color: '#2166ac', label: 'Pre-1920 (historic)' },
@@ -295,16 +471,18 @@
               { color: '#d73027', label: '2010–present' },
               { color: '#888888', label: 'Year unknown', sub: true },
             ]
-          : [
-              { color: isTree ? '#5A7A3A' : '#800000', label: pending.userQuery.slice(0, 40), round: isTree },
-              { color: '#C9BCA6', label: 'Campus context', sub: true },
-            ];
+          : isArchitectQuery && archGroupLegend.length
+            ? archGroupLegend
+            : [
+                { color: isTree ? '#5A7A3A' : '#800000', label: pending.userQuery.slice(0, 40), round: isTree },
+                { color: '#C9BCA6', label: 'Campus context', sub: true },
+              ];
 
         const sc = {
           kind: isTree ? 'trees' : 'buildings',
           unit: isTree ? 'trees' : 'features',
           title: mapTitle,
-          data: features,
+          data: coloredFeatures,
           allData: { type: 'FeatureCollection', features: [] },
           ctxBuildings: cachedBuildings || { type: 'FeatureCollection', features: [] },
           matchCount: featureCount,
@@ -326,24 +504,94 @@
           if (typeof setFitCmd === 'function') {
             setTimeout(() => setFitCmd({ ts: Date.now() }), 300);
           }
+          // Inject "Back to report" floating button
+          setTimeout(() => {
+            if (document.getElementById('__cg-back-btn')) return;
+            const btn = document.createElement('button');
+            btn.id = '__cg-back-btn';
+            btn.textContent = '← Back to report';
+            btn.style.cssText =
+              'position:fixed;top:16px;left:16px;z-index:9999;' +
+              'font-family:"IBM Plex Sans",sans-serif;font-size:13px;font-weight:500;' +
+              'color:#4a4a48;background:#f4f1ea;border:1px solid #d4cfc0;' +
+              'padding:8px 14px;border-radius:4px;cursor:pointer;' +
+              'box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:background 0.2s';
+            btn.onmouseenter = () => { btn.style.background = '#e8e3d6'; };
+            btn.onmouseleave = () => { btn.style.background = '#f4f1ea'; };
+            btn.onclick = () => {
+              setPhase('unrecognized');
+              btn.remove();
+            };
+            document.body.appendChild(btn);
+            // Auto-remove when composing view disappears (Cancel/reset)
+            const check = setInterval(() => {
+              if (!document.getElementById('__cg-back-btn')) { clearInterval(check); return; }
+              const printBar = document.querySelector('[data-print-frame]');
+              if (!printBar && !document.querySelector('canvas.maplibregl-canvas')) {
+                btn.remove();
+                clearInterval(check);
+              }
+            }, 500);
+          }, 100);
+        };
+
+        // Back-to-report：从地图视图返回文字报告
+        window.__cgBackToReport = function () {
+          setPhase('unrecognized');
+          const btn = document.getElementById('__cg-back-btn');
+          if (btn) btn.remove();
         };
 
         const count = (features.features || []).length;
         const btnHtml =
-          '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #d4cfc0">' +
+          '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #d4cfc0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
             '<button onclick="window.__cgShowMapBtn()" style="' +
               'font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;font-weight:500;' +
               'color:#f4f1ea;background:#800000;border:none;cursor:pointer;' +
               'padding:7px 16px;border-radius:2px;letter-spacing:0.01em' +
             '">Map results</button>' +
-            '<span style="margin-left:10px;font-size:12px;color:#8a8a85;font-family:\'IBM Plex Mono\',monospace">' +
+            '<button onclick="window.__cgPrintReport()" style="' +
+              'font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;font-weight:500;' +
+              'color:#4a4a48;background:none;border:1px solid #d4cfc0;cursor:pointer;' +
+              'padding:7px 16px;border-radius:2px;letter-spacing:0.01em' +
+            '">Save as PDF</button>' +
+            '<span style="font-size:12px;color:#8a8a85;font-family:\'IBM Plex Mono\',monospace">' +
               count + ' feature' + (count !== 1 ? 's' : '') +
             '</span>' +
           '</div>';
 
+        // For architect queries, build a complete roster grouped by firm
+        let archRosterHtml = '';
+        if (isArchitectQuery && archGroupLegend.length && coloredFeatures.features) {
+          const groupedNames = {};
+          archGroupLegend.forEach(g => { groupedNames[g.label] = { color: g.color, names: [] }; });
+          coloredFeatures.features.forEach(f => {
+            const name = (f.properties && (f.properties.DISCRIPT1 || f.properties.name || '')).trim();
+            const color = (f.properties && f.properties._cgColor) || '#888888';
+            const group = archGroupLegend.find(g => g.color === color);
+            if (group && name && !groupedNames[group.label].names.includes(name)) {
+              groupedNames[group.label].names.push(name);
+            }
+          });
+          const sections = Object.entries(groupedNames).map(([label, g]) => {
+            const swatch = '<span style="display:inline-block;width:12px;height:12px;background:' +
+              g.color + ';margin-right:8px;vertical-align:middle;border-radius:1px"></span>';
+            const heading = '<h3 style="font-family:Fraunces,serif;font-size:18px;margin:18px 0 8px;font-weight:500">' +
+              swatch + label + ' — ' + g.names.length + ' building' + (g.names.length !== 1 ? 's' : '') + '</h3>';
+            const list = g.names.map(n =>
+              '<div style="font-family:\'IBM Plex Sans\',sans-serif;font-size:14px;color:#1a1a1a;padding:3px 0 3px 20px">' + n + '</div>'
+            ).join('');
+            return heading + list;
+          }).join('<hr style="border:none;border-top:1px solid #d4cfc0;margin:14px 0">');
+          archRosterHtml = '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #d4cfc0">' +
+            '<p style="font-family:Fraunces,serif;font-size:24px;line-height:1.15;margin:0 0 8px;font-weight:400">' +
+              count + ' buildings across ' + archGroupLegend.length + ' firm' + (archGroupLegend.length !== 1 ? 's' : '') +
+            '</p>' + sections + '</div>';
+        }
+
         setUnrecMsg((prev) => {
           const base = typeof prev === 'string' ? prev : mdToHtml(aiText);
-          return base + btnHtml;
+          return base + archRosterHtml + btnHtml;
         });
       }
 
@@ -358,8 +606,9 @@
   window.__cgBackend = callAIBackend;
 
   // 判断查询是否为地图/打印请求——这类查询交还本地引擎处理（MapLibre 渲染）
+  // 只拦截明确的打印/渲染操作指令，不拦截含 "layer" 的一般提问
   window.__cgIsMapQuery = function (q) {
-    return /\b(print|plot|layer|scale)\b/i.test(q) || /\bon (a |the )?(map|screen|canvas)\b/i.test(q);
+    return /\b(print|plot)\b/i.test(q) && /\b(map|layout|scale|paper)\b/i.test(q);
   };
 
   // 供调试用：window.testBackend("query") 仍可在 console 里使用

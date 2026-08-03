@@ -11,10 +11,15 @@
 export const BUILDING_FIELD_ALLOWLIST: ReadonlySet<string> = new Set([
   // identity / descriptive
   'BD_ID', 'Building_Code', 'DISCRIPT1', 'DISCRIPT2', 'OtherNames',
-  'Facility_Name', 'ADDRESS', 'PROPERTY_S',
-  // metrics intentionally exposed (RI / FCI / height / year / area)
-  'RI_23', 'RI_', 'FCI_23', 'FCI__', 'BLDG_HGT', 'Area_AC',
-  'Gross_Area__s_f__', 'Year_Opened', 'Year_Completed',
+  'ADDRESS', 'PROPERTY_S',
+  // metrics — current snapshot
+  'RI_23', 'FCI_23', 'BLDG_HGT', 'Area_AC',
+  'Gross_Area_SF', 'Year_Opened', 'Year_Completed',
+  // metrics — FCI/RI from 2026 join (cleaned names)
+  'FCI', 'FCI_Cost', 'RI', 'RI_Cost_Total', 'Replacement',
+  // metrics — 10-year capital forecast (2026-2035)
+  'F2026', 'F2027', 'F2028', 'F2029', 'F2030',
+  'F2031', 'F2032', 'F2033', 'F2034', 'F2035',
   // narrative
   'Architects', 'Heritage', 'Notes',
 ])

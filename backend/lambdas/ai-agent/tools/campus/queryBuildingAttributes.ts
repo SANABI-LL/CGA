@@ -20,17 +20,20 @@ const s3 = new S3Client({ region: AWS_REGION })
 // verified to exist in the layer). RI = Resilience Index, FCI = Facility
 // Condition Index. A Map so lookups can never hit prototype-chain keys.
 const FIELD_ALIASES = new Map<string, string[]>([
-  ['ri', ['RI_23', 'RI_']],
-  ['fci', ['FCI_23', 'FCI__']],
+  ['ri', ['RI', 'RI_23']],
+  ['fci', ['FCI', 'FCI_23']],
   ['height', ['BLDG_HGT']],
   ['year', ['Year_Completed', 'Year_Opened']],
   ['area', ['Area_AC']],
-  ['sqft', ['Gross_Area__s_f__']],
+  ['sqft', ['Gross_Area_SF']],
   ['name', ['DISCRIPT1']],
   ['use', ['DISCRIPT2']],
   ['ownership', ['PROPERTY_S']],
   ['architect', ['Architects']],
   ['architects', ['Architects']],
+  ['cost', ['FCI_Cost']],
+  ['replacement', ['Replacement']],
+  ['ricost', ['RI_Cost_Total']],
 ])
 
 export const QueryBuildingAttributesInputSchema = z.object({

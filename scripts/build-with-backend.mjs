@@ -133,9 +133,10 @@ patch(
     '{unrecMsg || (/[\x5C\x5Cu4e00-\x5C\x5Cu9fff]/.test(submitted) ? UNRECOGNIZED_MSGS[1] : UNRECOGNIZED_MSGS[0])}\x5Cn' +
     '                <\x5Cu002Fdiv>'
   )
-  // TO：去掉 > 之前的空格，加 dangerouslySetInnerHTML
+  // TO：去掉 > 之前的空格，加 id + dangerouslySetInnerHTML
   const TO_BUF = Buffer.from(
     'lineHeight: 1.6 }}\x5Cn' +
+    '                  id=\'__cg-report-content\'\x5Cn' +
     '                  dangerouslySetInnerHTML={{ __html: (unrecMsg && typeof unrecMsg === \'string\' && unrecMsg.startsWith(\'<\')) ? unrecMsg : (unrecMsg ? `<p>${unrecMsg}<\x5C/p>` : (/[\x5C\x5Cu4e00-\x5C\x5Cu9fff]/.test(submitted) ? UNRECOGNIZED_MSGS[1] : UNRECOGNIZED_MSGS[0])) }}\x5Cn' +
     '                ><\x5Cu002Fdiv>'
   )
@@ -176,6 +177,24 @@ patch(
   patch('followUp trees → AI backend', FROM, TO)
 }
 
+// —— 6b. followUp() 本地无法处理时 fallback 到 AI 后端（而非显示硬编码错误）——
+// 原来：applyFollowUp 只支持树操作，其余全部返回 "I can overlay the tree layer…" 固定文案
+// 现在：当 applyFollowUp 返回 err 且 __cgBackend 可用时，把 follow-up 当作新查询发给后端
+{
+  const BS = String.fromCharCode(92)
+  const FROM =
+    "if (res.err) {setFollowState({ phase: 'err', msg: res.err });return;}"
+  const TO =
+    "if (res.err) {" + BS + "n" +
+    "        if (typeof window.__cgBackend === 'function') {" + BS + "n" +
+    "          window.__cgBackend(q, { setUnrecMsg, setSubmitted, setQuery, setPhase, setSc, setTitle, setFitCmd });" + BS + "n" +
+    "          return;" + BS + "n" +
+    "        }" + BS + "n" +
+    "        setFollowState({ phase: 'err', msg: res.err });return;" + BS + "n" +
+    "      }"
+  patch('followUp fallback → AI backend', FROM, TO)
+}
+
 // —— 7. 去掉 "Available layers" footer 提示行 ——
 {
   const BS = String.fromCharCode(92)
@@ -203,6 +222,7 @@ patch(
     .replace('${p.species}', "${p.CommonName || p.Common_Nam || 'Unknown'}")
     .replace('Planted ${p.year_planted} \xb7 ${p.dbh_in}\\" DBH \xb7 ${p.condition}',
              "${p.Condition || p.conditionC || '—'} \xb7 canopy ${p.CanRadius ? p.CanRadius + 'ft radius' : '—'}")
+    .replace('OBJECTID ${p.OBJECTID}', 'TreeID ${p.TreeID || p.OBJECTID}')
 
   const count = (html.split(OLD)).length - 1
   if (NEW === OLD) throw new Error('[build-with-backend] trees popup NEW 与 OLD 相同，替换无效')
@@ -275,10 +295,9 @@ patch(
   patch('暴露 window.__cgMap', FROM, TO)
 }
 
-// —— 12. bldg-hit-fill 年份渐变色 ——
-// 将固定 T.maroon 替换为 MapLibre data-driven 插值表达式：
-// 1890 前 → 深蓝，1930 → 浅蓝，1960 → 绿，1990 → 橙，2020+ → 红
-// Year_Completed 为空/0 时 fallback 中性灰 #888
+// —— 12. bldg-hit-fill data-driven 颜色 ——
+// 优先级：_cgColor（建筑师分色）> Year_Completed 渐变 > 灰色 fallback
+// _cgColor 由 inject-backend.js 在建筑师查询时注入每个 feature 的 properties
 {
   const BS = String.fromCharCode(92)
   const FROM =
@@ -287,11 +306,12 @@ patch(
   const TO =
     "{ id: 'bldg-hit-fill', type: 'fill', source: 'bldg-hit'," + BS + 'n' +
     "          paint: { 'fill-color': ['case'," + BS + 'n' +
+    "              ['has', '_cgColor'], ['get', '_cgColor']," + BS + 'n' +
     "              ['all', ['has', 'Year_Completed'], ['!=', ['get', 'Year_Completed'], null], ['>', ['to-number', ['get', 'Year_Completed'], 0], 0]]," + BS + 'n' +
     "              ['interpolate', ['linear'], ['to-number', ['get', 'Year_Completed'], 1900]," + BS + 'n' +
     "                1890, '#2166ac', 1930, '#74add1', 1960, '#a6d96a', 1990, '#fdae61', 2020, '#d73027']," + BS + 'n' +
     "              '#888888'], 'fill-opacity': 0.72 } }"
-  patch('bldg-hit-fill 年份渐变色', FROM, TO)
+  patch('bldg-hit-fill data-driven 颜色', FROM, TO)
 }
 
 // —— 13. bldg-hit-fill: 去掉描边层（渐变模式下 bldg-hit-line 造成视觉噪点）——

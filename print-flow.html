@@ -108,7 +108,9 @@ function normalizeTrees(gj) {
   return { ...gj, features: gj.features.map((f, i) => ({
     ...f,
     properties: {
+      ...f.properties,
       OBJECTID:    f.properties.TreeID     ?? (i + 1001),
+      TreeID:      f.properties.TreeID     ?? (i + 1001),
       species:     f.properties.CommonName  ?? 'Unknown',
       condition:   f.properties.Condition   ?? '',
       year_planted: f.properties.year_planted ?? null, // TODO:year_planted
@@ -1088,7 +1090,7 @@ const PrintComposer = ({ sc, mpp, title, setTitle, onZoom, onPrint, onCancel, on
   return (
     <>
       {/* The page frame — spotlight mask via huge box-shadow; pointer-events pass through to map */}
-      <div style={{ position: 'absolute', top: '50%', left: '50%', width: w, height: h,
+      <div data-print-frame style={{ position: 'absolute', top: '50%', left: '50%', width: w, height: h,
         transform: `translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,
         boxShadow: '0 0 0 9999px rgba(240,236,227,0.78)', outline: `1px solid rgba(255,255,255,0.9)`,
         pointerEvents: 'none', zIndex: 40, animation: 'ccFade 0.4s ease-out both', transition: 'width 0.25s,height 0.25s' }}>
@@ -1870,19 +1872,41 @@ const App = () => {
   }, []);
 
   const onPrint = useCallback(() => {
+    // Snapshot the print frame rect BEFORE hiding it (PrintComposer unmounts when printing is set)
+    const frameEl = document.querySelector('[data-print-frame]');
+    const mapCanvas = document.querySelector('.maplibregl-canvas');
+    const dpr = window.devicePixelRatio || 1;
+    let crop = null;
+    if (frameEl && mapCanvas) {
+      const fr = frameEl.getBoundingClientRect();
+      const mr = mapCanvas.getBoundingClientRect();
+      crop = {
+        sx: Math.max(0, Math.round((fr.left - mr.left) * dpr)),
+        sy: Math.max(0, Math.round((fr.top - mr.top) * dpr)),
+        sw: Math.round(fr.width * dpr),
+        sh: Math.round(fr.height * dpr)
+      };
+      crop.sw = Math.min(crop.sw, mapCanvas.width - crop.sx);
+      crop.sh = Math.min(crop.sh, mapCanvas.height - crop.sy);
+    }
+
     setPrinting('sending');
     // capture map canvas and composite print furniture, then download
     const doCapture = () => {
       try {
         const mapCanvas = document.querySelector('.maplibregl-canvas');
         if (!mapCanvas) {setPrinting('sent');timers.current.push(setTimeout(() => reset(), 2000));return;}
-        const W = mapCanvas.width,H = mapCanvas.height;
-        const dpr = window.devicePixelRatio || 1;
+
+        const sx = crop ? crop.sx : 0;
+        const sy = crop ? crop.sy : 0;
+        const sw = crop ? crop.sw : mapCanvas.width;
+        const sh = crop ? crop.sh : mapCanvas.height;
+        const W = sw, H = sh;
         const c = document.createElement('canvas');
         c.width = W;c.height = H;
         const ctx = c.getContext('2d');
-        // draw map
-        ctx.drawImage(mapCanvas, 0, 0);
+        // draw cropped map region
+        ctx.drawImage(mapCanvas, sx, sy, sw, sh, 0, 0, W, H);
         // semi-transparent vignette
         ctx.fillStyle = 'rgba(26,21,14,0.08)';
         ctx.fillRect(0, 0, W, H);
@@ -2069,7 +2093,7 @@ const App = () => {
       {/* Idle hero + thinking trace + unrecognized (centered column) */}
       {phase !== 'composing' && phase !== 'editing' &&
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', padding: '74px 24px 40px', overflowY: 'auto' }}>
+        justifyContent: phase === 'unrecognized' ? 'flex-start' : 'center', padding: '74px 24px 40px', overflowY: 'auto' }}>
           {phase === 'unrecognized' ?
         <div style={{ width: '100%', maxWidth: 560, textAlign: 'center', animation: 'ccFadeUp 0.4s ease-out both' }}>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>

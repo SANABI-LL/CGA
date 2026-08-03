@@ -1,0 +1,124 @@
+# Production deployment: build → S3 → CloudFront invalidation → Slack notification
+# Triggered on push to master (only when frontend-relevant files change)
+name: Deploy Production
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'CampusGeo Print-a-Map.html'
+      - 'inject-backend.js'
+      - 'scripts/build-with-backend.mjs'
+      - 'print-flow.html'
+      - 'apps/web/**'
+      - '.github/workflows/deploy-prod.yml'
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET_PROD: campusgeo-frontend-prod-${{ secrets.AWS_ACCOUNT_ID }}
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_PROD_DISTRIBUTION_ID }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build CampusGeo-with-Backend.html
+        run: node scripts/build-with-backend.mjs
+
+      - name: Prepare deployment artifact
+        run: |
+          mkdir -p dist-prod
+          cp CampusGeo-with-Backend.html dist-prod/index.html
+          # Static assets needed by the single-page app
+          cp -r assets dist-prod/assets 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-prod
+          path: dist-prod/
+          retention-days: 7
+
+  deploy:
+    name: Deploy to S3 + CloudFront
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-prod
+          path: dist-prod/
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync dist-prod/ s3://${{ env.S3_BUCKET_PROD }}/ \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "index.html"
+          # index.html: no-cache so users always get latest
+          aws s3 cp dist-prod/index.html s3://${{ env.S3_BUCKET_PROD }}/index.html \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --content-type "text/html"
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*" \
+            --query 'Invalidation.Id' --output text
+
+      - name: Get deployment URL
+        id: url
+        run: |
+          DOMAIN=$(aws cloudfront get-distribution \
+            --id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --query 'Distribution.DomainName' --output text)
+          echo "url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Slack
+        if: always()
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "${{ job.status == 'success' && '✓' || '✗' }} *CampusGeo Production Deploy* — ${{ job.status }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "${{ job.status == 'success' && '✓' || '✗' }} *Production deploy ${{ job.status }}*\n• Commit: `${{ github.sha }}` by ${{ github.actor }}\n• Message: ${{ github.event.head_commit.message }}\n${{ job.status == 'success' && format('• URL: {0}', steps.url.outputs.url) || '' }}"
+                  }
+                }
+              ]
+            }

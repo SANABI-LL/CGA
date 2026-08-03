@@ -1,0 +1,120 @@
+# PR Preview: build and deploy to staging S3 prefix for each pull request
+# Each PR gets its own URL: https://<staging-cf>.cloudfront.net/pr-<number>/
+name: Deploy PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'CampusGeo Print-a-Map.html'
+      - 'inject-backend.js'
+      - 'scripts/build-with-backend.mjs'
+      - 'print-flow.html'
+      - 'apps/web/**'
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET_STAGING: campusgeo-frontend-staging-${{ secrets.AWS_ACCOUNT_ID }}
+  CLOUDFRONT_STAGING_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_STAGING_DISTRIBUTION_ID }}
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    name: Build & deploy preview
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build CampusGeo-with-Backend.html
+        run: node scripts/build-with-backend.mjs
+
+      - name: Prepare preview artifact
+        run: |
+          mkdir -p dist-preview
+          cp CampusGeo-with-Backend.html dist-preview/index.html
+          cp -r assets dist-preview/assets 2>/dev/null || true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to S3 (PR prefix)
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          PREFIX="pr-${PR_NUMBER}"
+          aws s3 sync dist-preview/ "s3://${{ env.S3_BUCKET_STAGING }}/${PREFIX}/" \
+            --delete \
+            --cache-control "no-cache"
+
+      - name: Invalidate staging CloudFront
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ env.CLOUDFRONT_STAGING_DISTRIBUTION_ID }} \
+            --paths "/pr-${PR_NUMBER}/*"
+
+      - name: Get preview URL
+        id: url
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          DOMAIN=$(aws cloudfront get-distribution \
+            --id ${{ env.CLOUDFRONT_STAGING_DISTRIBUTION_ID }} \
+            --query 'Distribution.DomainName' --output text)
+          echo "url=https://$DOMAIN/pr-${PR_NUMBER}/" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URL on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: preview-url
+          message: |
+            ## Preview deployed
+
+            | | |
+            |---|---|
+            | **URL** | ${{ steps.url.outputs.url }} |
+            | **Commit** | `${{ github.event.pull_request.head.sha }}` |
+            | **Updated** | ${{ github.event.pull_request.updated_at }} |
+
+            > Preview auto-updates on each push. Cleaned up when PR is closed.
+
+  cleanup:
+    name: Clean up preview on PR close
+    if: github.event.action == 'closed' || github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Remove PR prefix from S3
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          aws s3 rm "s3://${{ env.S3_BUCKET_STAGING }}/pr-${PR_NUMBER}/" --recursive
