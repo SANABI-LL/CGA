@@ -3,15 +3,14 @@
 name: Deploy Production
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - 'CampusGeo Print-a-Map.html'
-      - 'inject-backend.js'
-      - 'scripts/build-with-backend.mjs'
-      - 'print-flow.html'
-      - 'apps/web/**'
-      - '.github/workflows/deploy-prod.yml'
+  # Phase 2 认证上线前禁止自动部署到 S3/CloudFront（见 CLAUDE.md 安全约束）
+  # 准备好后把下面两行还原为 push 触发器
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '确认部署到生产（输入 yes）'
+        required: true
+        default: 'no'
 
 concurrency:
   group: deploy-prod

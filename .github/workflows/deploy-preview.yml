@@ -3,14 +3,8 @@
 name: Deploy PR Preview
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'CampusGeo Print-a-Map.html'
-      - 'inject-backend.js'
-      - 'scripts/build-with-backend.mjs'
-      - 'print-flow.html'
-      - 'apps/web/**'
+  # Phase 2 认证上线前禁止自动 PR preview 部署（见 CLAUDE.md 安全约束）
+  workflow_dispatch:
 
 concurrency:
   group: preview-${{ github.event.pull_request.number }}
