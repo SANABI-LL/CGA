@@ -295,9 +295,10 @@ patch(
   patch('暴露 window.__cgMap', FROM, TO)
 }
 
-// —— 12. bldg-hit-fill data-driven 颜色 ——
-// 优先级：_cgColor（建筑师分色）> Year_Completed 渐变 > 灰色 fallback
-// _cgColor 由 inject-backend.js 在建筑师查询时注入每个 feature 的 properties
+// —— 12. bldg-hit-fill 默认着色 ——
+// 基础状态：_cgColor（建筑师分色）> 栗红默认值。
+// 年代渐变由 inject-backend.js 在 __cgShowMapBtn 里通过 setPaintProperty 动态切换，
+// 查询结束后重置回此默认值，确保图例与地图着色始终同步。
 {
   const BS = String.fromCharCode(92)
   const FROM =
@@ -305,13 +306,8 @@ patch(
     "          paint: { 'fill-color': T.maroon, 'fill-opacity': 0.34 } }"
   const TO =
     "{ id: 'bldg-hit-fill', type: 'fill', source: 'bldg-hit'," + BS + 'n' +
-    "          paint: { 'fill-color': ['case'," + BS + 'n' +
-    "              ['has', '_cgColor'], ['get', '_cgColor']," + BS + 'n' +
-    "              ['all', ['has', 'Year_Completed'], ['!=', ['get', 'Year_Completed'], null], ['>', ['to-number', ['get', 'Year_Completed'], 0], 0]]," + BS + 'n' +
-    "              ['interpolate', ['linear'], ['to-number', ['get', 'Year_Completed'], 1900]," + BS + 'n' +
-    "                1890, '#2166ac', 1930, '#74add1', 1960, '#a6d96a', 1990, '#fdae61', 2020, '#d73027']," + BS + 'n' +
-    "              '#888888'], 'fill-opacity': 0.72 } }"
-  patch('bldg-hit-fill data-driven 颜色', FROM, TO)
+    "          paint: { 'fill-color': ['coalesce', ['get', '_cgColor'], T.maroon], 'fill-opacity': 0.34 } }"
+  patch('bldg-hit-fill 默认着色', FROM, TO)
 }
 
 // —— 13. bldg-hit-fill: 去掉描边层（渐变模式下 bldg-hit-line 造成视觉噪点）——
@@ -382,7 +378,36 @@ patch(
   patch('buildings popup 14b: setHTML 楼名/年份', FROM_B, TO_B)
 }
 
-// —— 15. 追加后端接线脚本 ——
+// —— 15. 替换 landing page suggestions ——
+{
+  const BS = String.fromCharCode(92)
+  const DPP = '″'  // ″ double prime
+  const SP = '′'   // ′ single prime
+  patch(
+    'landing page suggestions',
+    "'Show me buildings with an RI value higher than 0.52'," + BS + "n'Show me a 1" + DPP + " = 50" + SP + " scale map near Keller Center'," + BS + "n'Print a map of the trees we planted last year',",
+    "'Show me bike racks near Regenstein Library'," + BS + "n'Buildings constructed before 1930'," + BS + "n'Trees planted near the Quad in the last 5 years',"
+  )
+}
+
+// —— 16. 去掉 "47 layers · synced..." 行 ——
+{
+  const BS = String.fromCharCode(92)
+  const MD = String.fromCharCode(183)  // · middle dot
+  const CL = '<' + BS + 'u002Fbutton>'  // closing </button> as it appears in source
+  const FROM =
+    "<button onClick={() => submit('When was the campus data last updated?')}" + BS + 'n' +
+    "          style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 42, background: 'none', border: 'none', padding: 0," + BS + 'n' +
+    "            fontSize: 10.5, color: T.inkXlt, letterSpacing: '0.03em', transition: 'color 0.15s' }}" + BS + 'n' +
+    "          onMouseEnter={(e) => e.currentTarget.style.color = T.inkLt} onMouseLeave={(e) => e.currentTarget.style.color = T.inkXlt}>" + BS + 'n' +
+    "                <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.green, boxShadow: `0 0 0 3px ${T.greenBg}` }} />" + BS + 'n' +
+    '                47 layers ' + MD + ' synced from the campus ArcGIS web map ' + MD + ' updated today 02:00 CT' + BS + 'n' +
+    '              ' + CL + BS + 'n' +
+    '        '
+  patch('remove 47-layers status row', FROM, '')
+}
+
+// —— 17. 追加后端接线脚本 ——
 html += '<script src="backend-config.local.js"></script>\r\n<script src="inject-backend.js"></script>\r\n'
 writeFileSync(OUT, html)
 console.log(`[build-with-backend] 写出 ${OUT} (${html.length} bytes)`)

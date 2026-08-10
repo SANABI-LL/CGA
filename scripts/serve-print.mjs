@@ -4,7 +4,9 @@
  * 为什么是 5173：生产 Lambda 的 CORS（ALLOWED_ORIGIN）只放行这个源，
  * 原型页面里的 inject-backend.js 才能直连生产 API（方式 B）。
  *
- * 启动：pnpm dev:print   →  自动服务 CampusGeo-with-Backend.html
+ * 启动：pnpm dev:print   →  http://localhost:5173 (Landing page → 主 app)
+ *   /                           → CampusGeo-Landing.html
+ *   /CampusGeo-with-Backend.html → 主查询 app
  */
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
@@ -13,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..')
 const PORT = Number(process.env.PORT ?? 5173)
-const INDEX = '/CampusGeo-with-Backend.html'
+const INDEX = '/CampusGeo-Landing.html'
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -68,6 +70,6 @@ server.on('error', (err) => {
 })
 
 server.listen(PORT, () => {
-  console.log(`[serve-print] CampusGeo Print-a-Map UI → http://localhost:${PORT}`)
+  console.log(`[serve-print] CampusGeo → http://localhost:${PORT}`)
   console.log(`[serve-print] 后端配置读取自 backend-config.local.js（缺省回退 localhost:3001）`)
 })

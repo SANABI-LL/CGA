@@ -15,12 +15,33 @@
   const API_BASE = cfg.apiBase || 'http://localhost:3001';
   const API_KEY = cfg.apiKey || '';
 
+  // 全局 HTML 转义——所有外部数据（LLM 文本、SSE 字段、S3 属性）插入 HTML 前必须经过此函数
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  // 演示数据角标：cfg.isDemo = true 时在右上角显示固定标注，
+  // 防止演示时听众误将假数据当作真实数据。
+  if (cfg.isDemo === true) {
+    const badge = document.createElement('div');
+    badge.id = '__cg-demo-badge';
+    badge.textContent = 'DEMO DATA';
+    badge.style.cssText =
+      'position:fixed;top:10px;right:12px;z-index:9998;' +
+      'font-family:"Gotham",monospace;font-size:10px;font-weight:700;' +
+      'letter-spacing:0.08em;color:#f4f1ea;background:#8C7A60;' +
+      'padding:3px 8px;border-radius:2px;pointer-events:none;' +
+      'opacity:0.85;';
+    document.addEventListener('DOMContentLoaded', () => {
+      if (!document.getElementById('__cg-demo-badge')) document.body.appendChild(badge);
+    });
+    if (document.readyState !== 'loading') {
+      if (!document.getElementById('__cg-demo-badge')) document.body.appendChild(badge);
+    }
+  }
+
   // ── 轻量 Markdown → HTML 渲染器 ────────────────────────────────────────
   // 处理 Lambda 返回的 AI 回答格式：加粗、表格、段落换行、斜体、行内代码。
   // 不引入第三方库，仅覆盖实际输出中出现的语法。
   function mdToHtml(md) {
-    // 安全：转义 HTML 特殊字符（dangerouslySetInnerHTML 信任我们输出的 HTML）
-    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     const lines = md.split('\n');
     const out = [];
@@ -43,7 +64,7 @@
       return s
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/`(.+?)`/g, '<code style="font-family:\'IBM Plex Mono\',monospace;font-size:0.92em;background:#f0ece0;padding:1px 4px;border-radius:3px">$1</code>');
+        .replace(/`(.+?)`/g, '<code style="font-family:\'Gotham\',monospace;font-size:0.92em;background:#f0ece0;padding:1px 4px;border-radius:3px">$1</code>');
     }
 
     for (let i = 0; i < lines.length; i++) {
@@ -105,10 +126,10 @@
     win.document.write(
       '<!DOCTYPE html><html><head><meta charset="utf-8">' +
       '<title>CampusGeo Report</title>' +
-      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono&display=swap">' +
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gotham:opsz,wght@9..144,400;9..144,500&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono&display=swap">' +
       '<style>' +
-        'body { font-family: "IBM Plex Sans", sans-serif; max-width: 700px; margin: 40px auto; padding: 0 24px; color: #1a1a1a; line-height: 1.6; }' +
-        'h1,h2,h3 { font-family: Fraunces, serif; }' +
+        'body { font-family: "Gotham", sans-serif; max-width: 700px; margin: 40px auto; padding: 0 24px; color: #1a1a1a; line-height: 1.6; }' +
+        'h1,h2,h3 { font-family: Gotham, serif; }' +
         'hr { border: none; border-top: 1px solid #d4cfc0; margin: 14px 0; }' +
         'table { border-collapse: collapse; width: 100%; margin: 12px 0; }' +
         'th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #d4cfc0; font-size: 13px; }' +
@@ -180,6 +201,155 @@
   }
   preloadBuildings();
 
+  // ── 工具调用可视化 ──────────────────────────────────────────────────────
+  // 把 agent 的多步推理过程以终端日志风格呈现，让用户看见"思考链"
+
+  const TOOL_META = {
+    'query_building_attributes': 'Searching buildings database',
+    'query_trees':               'Searching tree inventory',
+    'find_campus_nearby':        'Finding nearby features',
+    'get_building_info':         'Looking up building record',
+    'search_planning_documents': 'Scanning planning documents',
+    'get_data_freshness':        'Checking data freshness',
+    'get_shuttle_arrivals':      'Fetching shuttle schedule',
+    'get_bike_stations':         'Checking Divvy stations',
+    'check_hours':               'Checking hours of operation',
+    'query_campus_utilities':    'Querying campus utilities',
+  };
+
+  // ── Trace UI ────────────────────────────────────────────────────────────
+  // 共享 keyframes + 基础类（每次调用都内联，React dangerouslySetInnerHTML 无全局 <head>）
+  var __cgTrStyleBlock = (
+    '<style id="__cg-tr-styles">' +
+    // 进入动画：从左侧微移淡入
+    '@keyframes __cgTrIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}' +
+    // pending 图标脉冲（柔和呼吸感）
+    '@keyframes __cgTrBreath{0%,100%{opacity:0.25;transform:scale(0.85)}50%{opacity:1;transform:scale(1)}}' +
+    // 扫描横线（pending 行背景）
+    '@keyframes __cgTrScan{0%{background-position:200% 0}100%{background-position:-200% 0}}' +
+    // 打点动画（Composing 行）
+    '@keyframes __cgTrDot{0%,80%,100%{transform:translateY(0);opacity:0.3}40%{transform:translateY(-3px);opacity:1}}' +
+    // 完成行缩进淡出（颜色从深→浅）
+    '@keyframes __cgTrDone{from{color:#4a4a48}to{color:#8a8a85}}' +
+    // 竖线脉冲
+    '@keyframes __cgBarPulse{0%,100%{opacity:0.4}50%{opacity:1}}' +
+    // 容器
+    '.__cg-tr{padding:12px 0 12px 16px;margin:6px 0 2px;position:relative}' +
+    // 竖线：动态脉冲，完成后变静态
+    '.__cg-tr-bar{position:absolute;left:0;top:0;bottom:0;width:2px;background:#d4cfc0;border-radius:1px}' +
+    '.__cg-tr-bar.pulsing{background:linear-gradient(180deg,#8C7A60 0%,#d4cfc0 60%);animation:__cgBarPulse 1.8s ease-in-out infinite}' +
+    // 行
+    '.__cg-tr-row{display:flex;align-items:center;gap:10px;font-family:"Gotham",monospace;font-size:12px;padding:5px 0;animation:__cgTrIn 0.22s cubic-bezier(0.4,0,0.2,1) both}' +
+    // pending 行：背景扫描光
+    '.__cg-tr-row.pend{background:linear-gradient(90deg,transparent 30%,rgba(140,122,96,0.06) 50%,transparent 70%);background-size:200% 100%;animation:__cgTrIn 0.22s cubic-bezier(0.4,0,0.2,1) both,__cgTrScan 2.2s linear infinite}' +
+    // pending 图标（呼吸点）
+    '.__cg-ic-p{width:8px;height:8px;border-radius:50%;background:#8C7A60;flex-shrink:0;animation:__cgTrBreath 1.6s ease-in-out infinite}' +
+    // done 图标（绿勾，scale in）
+    '.__cg-ic-d{width:14px;text-align:center;color:#5a9a6e;flex-shrink:0;font-size:11px}' +
+    // pending 标签
+    '.__cg-lbl-p{color:#4a4a48;letter-spacing:0.01em;flex:1}' +
+    // done 标签（淡化）
+    '.__cg-lbl-d{color:#9a9690;flex:1;text-decoration:none}' +
+    // 结果数量（右侧）
+    '.__cg-tr-res{color:#7a9a7e;font-size:11px;padding-left:12px;white-space:nowrap;opacity:0;animation:__cgTrIn 0.3s 0.1s ease both,__cgTrDone 0s forwards}' +
+    // 小计时器标签
+    '.__cg-tr-ms{color:#b5ada0;font-size:10px;padding-left:8px;white-space:nowrap}' +
+    // Composing 行的三个点
+    '.__cg-dots span{display:inline-block;width:4px;height:4px;border-radius:50%;background:#8C7A60;margin:0 1.5px;animation:__cgTrDot 1.2s ease-in-out infinite}' +
+    '.__cg-dots span:nth-child(2){animation-delay:0.2s}' +
+    '.__cg-dots span:nth-child(3){animation-delay:0.4s}' +
+    '</style>'
+  );
+
+  // 步骤开始时间戳（用于显示耗时）
+  var __cgStepTimers = {};
+
+  // 完整 trace（工具进行中）
+  function buildTraceHtml(steps, composing) {
+    var hasPending = steps.some(function(s) { return s.status === 'pending'; });
+    var rows = steps.map(function(step, i) {
+      var pending = step.status === 'pending';
+      var label = esc(TOOL_META[step.toolName] || step.toolName.replace(/_/g, ' '));
+      var elapsed = '';
+      if (!pending && __cgStepTimers[step.toolName + '_' + i]) {
+        var ms = Date.now() - __cgStepTimers[step.toolName + '_' + i];
+        elapsed = '<span class="__cg-tr-ms">' + (ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's') + '</span>';
+      }
+      var res = step.resultSummary
+        ? '<span class="__cg-tr-res">' + esc(step.resultSummary) + '</span>'
+        : '';
+      if (pending) {
+        return (
+          '<div class="__cg-tr-row pend" style="animation-delay:' + (i * 0.07) + 's">' +
+            '<span class="__cg-ic-p" style="animation-delay:' + (i * 0.3) + 's"></span>' +
+            '<span class="__cg-lbl-p">' + label + '</span>' +
+          '</div>'
+        );
+      } else {
+        return (
+          '<div class="__cg-tr-row" style="animation-delay:' + (i * 0.07) + 's">' +
+            '<span class="__cg-ic-d">✓</span>' +
+            '<span class="__cg-lbl-d">' + label + '</span>' +
+            res + elapsed +
+          '</div>'
+        );
+      }
+    }).join('');
+
+    // 初始占位行：还没有任何工具调用
+    var initialRow = (!steps.length && !composing)
+      ? '<div class="__cg-tr-row pend">' +
+          '<span class="__cg-ic-p"></span>' +
+          '<span class="__cg-lbl-p">Reading your query</span>' +
+        '</div>'
+      : '';
+
+    // Composing 行：工具完成后、文字流式前
+    var composingRow = composing
+      ? '<div class="__cg-tr-row" style="animation-delay:' + (steps.length * 0.07) + 's;gap:8px">' +
+          '<span class="__cg-dots"><span></span><span></span><span></span></span>' +
+          '<span class="__cg-lbl-p" style="color:#6a6a65">Composing answer</span>' +
+        '</div>'
+      : '';
+
+    var barClass = (hasPending || composing || !steps.length) ? '__cg-tr-bar pulsing' : '__cg-tr-bar';
+    return (
+      __cgTrStyleBlock +
+      '<div class="__cg-tr">' +
+        '<div class="' + barClass + '"></div>' +
+        initialRow + rows + composingRow +
+      '</div>'
+    );
+  }
+
+  // 折叠 header（AI 文字开始后显示在正文上方）
+  function buildTraceHeaderHtml(steps) {
+    var done = steps.filter(function(s) { return s.status === 'done'; });
+    if (!done.length) return '';
+    var totalFeatures = done.reduce(function(n, s) { return n + (s.featureCount || 0); }, 0);
+    var seen = {}, labels = [];
+    done.forEach(function(s) {
+      var l = TOOL_META[s.toolName] || s.toolName;
+      if (!seen[l]) { seen[l] = 1; labels.push(l); }
+    });
+    var label = labels.length <= 2 ? labels.map(esc).join(' · ') : (labels.length + ' data queries');
+    var featStr = totalFeatures ? ' · ' + totalFeatures + ' feature' + (totalFeatures !== 1 ? 's' : '') : '';
+    // 每个工具名一个小芯片
+    var chips = labels.map(function(l) {
+      return '<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 7px;' +
+        'border-radius:2px;border:1px solid #d4cfc0;color:#8a8a85;margin-right:5px;' +
+        'font-size:10px;letter-spacing:0.02em">' + esc(l) + '</span>';
+    }).join('');
+    return (
+      '<div style="font-family:\'Gotham\',monospace;display:flex;flex-wrap:wrap;align-items:center;gap:4px;' +
+        'margin:0 0 16px;padding-bottom:12px;border-bottom:1px solid #d4cfc0;' +
+        'animation:__cgTrIn 0.3s ease both">' +
+        chips +
+        (featStr ? '<span style="font-size:11px;color:#b5ada0;margin-left:2px">' + esc(featStr) + '</span>' : '') +
+      '</div>'
+    );
+  }
+
   // ── AI 查询核心 ─────────────────────────────────────────────────────────
   // 被 React submit() 调用。reactSetters 是 { setUnrecMsg, setSubmitted,
   // setQuery, setPhase }，由 build-with-backend.mjs patch 传入。
@@ -190,22 +360,12 @@
     const oldBackBtn = document.getElementById('__cg-back-btn');
     if (oldBackBtn) oldBackBtn.remove();
 
-    // 立即切换到 unrecognized 面板并显示 loading 动画
+    // 立即切换到 unrecognized 面板并显示 trace UI（工具调用可视化）
     setSubmitted(userQuery);
     setQuery('');
-    setUnrecMsg(
-      '<style>' +
-        '@keyframes __cgBounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}' +
-        '@keyframes __cgPulse{0%,100%{opacity:0.35}50%{opacity:1}}' +
-        '.__cg-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#8C7A60;margin:0 3px;animation:__cgBounce 1.2s ease-in-out infinite}' +
-        '.__cg-dot:nth-child(2){animation-delay:0.15s}.__cg-dot:nth-child(3){animation-delay:0.3s}' +
-        '.__cg-status{font-size:12px;color:#8C7A60;letter-spacing:0.04em;animation:__cgPulse 1.8s ease-in-out infinite;margin-top:10px}' +
-      '</style>' +
-      '<div style="display:flex;flex-direction:column;align-items:center;padding:18px 0 6px">' +
-        '<div><span class="__cg-dot"></span><span class="__cg-dot"></span><span class="__cg-dot"></span></div>' +
-        '<div class="__cg-status">Querying campus data…</div>' +
-      '</div>'
-    );
+    var traceSteps = [];          // {toolName, status:'pending'|'done', resultSummary, featureCount}
+    var textStarted = false;      // 第一个 text 事件后切换到 header 模式
+    setUnrecMsg(buildTraceHtml(traceSteps, false));
     setPhase('unrecognized');
 
     console.log('[CampusGeo] AI query:', userQuery);
@@ -247,23 +407,58 @@
 
           console.log('[CampusGeo] Event:', event.type, event.toolName || '');
 
-          if (event.type === 'text' && event.content) {
+          if (event.type === 'tool_call' && event.toolName) {
+            // 新工具被调用：追加一个 pending 步骤，记录开始时间
+            var stepIdx = traceSteps.length;
+            __cgStepTimers[event.toolName + '_' + stepIdx] = Date.now();
+            traceSteps.push({ toolName: event.toolName, status: 'pending' });
+            setUnrecMsg(buildTraceHtml(traceSteps, false));
+
+          } else if (event.type === 'text' && event.content) {
             aiText += event.content;
-            // 流式更新：渲染 Markdown 后写入 React 主界面
-            setUnrecMsg(mdToHtml(aiText));
-          } else if (event.type === 'tool_result' && event.mapUpdate && typeof setSc === 'function') {
-            if (!window.__cgPendingMapUpdate) {
-              window.__cgPendingMapUpdate = { mapUpdate: event.mapUpdate, toolName: event.toolName || '', userQuery };
-            } else {
-              // 多次工具调用（如多建筑师查询）：合并 features
-              const prevMu = window.__cgPendingMapUpdate.mapUpdate;
-              const newMu = event.mapUpdate;
-              const prevFc = prevMu.features || prevMu;
-              const newFc = newMu.features || newMu;
-              if (prevFc && prevFc.features && newFc && newFc.features) {
-                prevFc.features = prevFc.features.concat(newFc.features);
+            if (!textStarted) {
+              // 第一个文字流：trace 折叠为 header，正文开始
+              textStarted = true;
+            }
+            // trace header + 正文 Markdown
+            setUnrecMsg(buildTraceHeaderHtml(traceSteps) + mdToHtml(aiText));
+
+          } else if (event.type === 'tool_result') {
+            // 把对应 pending 步骤标记为 done，附加结果摘要
+            var tn = event.toolName || '';
+            var pendingIdx = -1;
+            for (var pi = traceSteps.length - 1; pi >= 0; pi--) {
+              if (traceSteps[pi].toolName === tn && traceSteps[pi].status === 'pending') {
+                pendingIdx = pi; break;
               }
-              window.__cgPendingMapUpdate.toolName = event.toolName || window.__cgPendingMapUpdate.toolName;
+            }
+            if (pendingIdx >= 0) {
+              var fc = event.mapUpdate && event.mapUpdate.features && event.mapUpdate.features.features;
+              var cnt = fc ? fc.length : 0;
+              traceSteps[pendingIdx].status = 'done';
+              traceSteps[pendingIdx].featureCount = cnt;
+              traceSteps[pendingIdx].resultSummary = cnt
+                ? cnt + ' feature' + (cnt !== 1 ? 's' : '')
+                : (event.data && event.data.error ? 'error' : 'done');
+              // 所有工具完成但文字还没开始 → 显示 "Composing summary"
+              var allDone = traceSteps.every(function(s) { return s.status === 'done'; });
+              setUnrecMsg(buildTraceHtml(traceSteps, allDone && !textStarted));
+            }
+
+            if (event.mapUpdate && typeof setSc === 'function') {
+              if (!window.__cgPendingMapUpdate) {
+                window.__cgPendingMapUpdate = { mapUpdate: event.mapUpdate, toolName: event.toolName || '', userQuery };
+              } else {
+                // 多次工具调用（如多建筑师查询）：合并 features
+                var prevMu = window.__cgPendingMapUpdate.mapUpdate;
+                var newMu = event.mapUpdate;
+                var prevFc2 = prevMu.features || prevMu;
+                var newFc2 = newMu.features || newMu;
+                if (prevFc2 && prevFc2.features && newFc2 && newFc2.features) {
+                  prevFc2.features = prevFc2.features.concat(newFc2.features);
+                }
+                window.__cgPendingMapUpdate.toolName = event.toolName || window.__cgPendingMapUpdate.toolName;
+              }
             }
           } else if (event.type === 'error') {
             setUnrecMsg(`Error: ${event.message || 'Unknown error'}`);
@@ -279,7 +474,7 @@
         const pdfBtn =
           '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #d4cfc0">' +
             '<button onclick="window.__cgPrintReport()" style="' +
-              'font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;font-weight:500;' +
+              'font-family:\'Gotham\',sans-serif;font-size:13px;font-weight:500;' +
               'color:#4a4a48;background:none;border:1px solid #d4cfc0;cursor:pointer;' +
               'padding:7px 16px;border-radius:2px;letter-spacing:0.01em' +
             '">Save as PDF</button>' +
@@ -332,6 +527,28 @@
           ? { ...strippedFc, features: strippedFc.features.filter(inCampus) }
           : strippedFc;
         const isTree = pending.toolName.includes('tree');
+        // Point 要素检测（bike rack、parking 等 nearby 查询）—— 用 features（已定义）
+        const firstGeomType = features && features.features && features.features[0]
+          ? (features.features[0].geometry && features.features[0].geometry.type)
+          : null;
+        const isPointLayer = firstGeomType === 'Point' || firstGeomType === 'MultiPoint';
+        // Point 要素渐变配色：找数值字段（Spaces / Count 等），计算实际值域
+        let pointColorField = null;
+        let pointMin = 0;
+        let pointMax = 1;
+        if (isPointLayer && features && features.features && features.features.length) {
+          const _fp = features.features[0].properties || {};
+          for (const _c of ['Spaces', 'spaces', 'Count', 'count', 'Capacity', 'capacity', 'SPACES']) {
+            if (typeof _fp[_c] === 'number') {
+              pointColorField = _c;
+              const _vals = features.features.map(f => Number((f.properties || {})[_c] || 0)).filter(v => v > 0);
+              pointMin = Math.min.apply(null, _vals);
+              pointMax = Math.max.apply(null, _vals);
+              if (pointMax <= pointMin) pointMax = pointMin + 1;
+              break;
+            }
+          }
+        }
 
         const q = pending.userQuery.toLowerCase();
         const isYearGradient = !isTree && /\b(age|year|built|gradient|era|decade|old|new|recent|historic)\b/.test(q);
@@ -471,6 +688,14 @@
               { color: '#d73027', label: '2010–present' },
               { color: '#888888', label: 'Year unknown', sub: true },
             ]
+          : isPointLayer && pointColorField
+            ? [
+                { color: '#f4e4c1', label: String(Math.round(pointMin)) + ' ' + pointColorField },
+                { color: '#e9b674', label: '' },
+                { color: '#c97d3e', label: '' },
+                { color: '#8b4513', label: '' },
+                { color: '#4a2818', label: String(Math.round(pointMax)) + ' ' + pointColorField, round: true },
+              ]
           : isArchitectQuery && archGroupLegend.length
             ? archGroupLegend
             : [
@@ -479,8 +704,8 @@
               ];
 
         const sc = {
-          kind: isTree ? 'trees' : 'buildings',
-          unit: isTree ? 'trees' : 'features',
+          kind: isTree ? 'trees' : isPointLayer ? 'nearby' : 'buildings',
+          unit: isTree ? 'trees' : isPointLayer ? 'locations' : 'features',
           title: mapTitle,
           data: coloredFeatures,
           allData: { type: 'FeatureCollection', features: [] },
@@ -493,7 +718,7 @@
           center: mu.center ? [mu.center.lng, mu.center.lat] : [-87.5987, 41.7886],
           zoom: mu.zoom || 15,
           legend,
-          legendSquare: !isTree,
+          legendSquare: !isTree && !isPointLayer,
         };
 
         // 注册按钮回调（闭包持有 React setters）
@@ -504,6 +729,104 @@
           if (typeof setFitCmd === 'function') {
             setTimeout(() => setFitCmd({ ts: Date.now() }), 300);
           }
+          if (isPointLayer) {
+            // Point 要素（bike rack、parking 等）：circle 图层 + 数值字段渐变色 + hover tooltip
+            (function addPointLayer(attempts) {
+              const m = window.__cgMap;
+              if (!m || !m.isStyleLoaded()) {
+                if (attempts < 30) setTimeout(() => addPointLayer(attempts + 1), 200);
+                return;
+              }
+              // 清除上次遗留的 nearby 层
+              if (m.getLayer('nearby-hover')) m.removeLayer('nearby-hover');
+              if (m.getLayer('nearby-circle')) m.removeLayer('nearby-circle');
+              if (m.getSource('nearby-src')) m.removeSource('nearby-src');
+              m.addSource('nearby-src', { type: 'geojson', data: sc.data });
+
+              // 渐变色表达式：有数值字段时按值插值，否则统一栗红
+              const colorExpr = pointColorField
+                ? ['interpolate', ['linear'], ['to-number', ['get', pointColorField], pointMin],
+                    pointMin, '#f4e4c1',
+                    pointMin + (pointMax - pointMin) * 0.25, '#e9b674',
+                    pointMin + (pointMax - pointMin) * 0.5,  '#c97d3e',
+                    pointMin + (pointMax - pointMin) * 0.75, '#8b4513',
+                    pointMax, '#4a2818']
+                : '#800000';
+              // 圆点半径：值大的稍大（6-10px）
+              const radiusExpr = pointColorField
+                ? ['interpolate', ['linear'], ['to-number', ['get', pointColorField], pointMin],
+                    pointMin, 6, pointMax, 10]
+                : 7;
+
+              m.addLayer({
+                id: 'nearby-circle',
+                type: 'circle',
+                source: 'nearby-src',
+                paint: {
+                  'circle-radius': radiusExpr,
+                  'circle-color': colorExpr,
+                  'circle-opacity': 0.9,
+                  'circle-stroke-width': 1.5,
+                  'circle-stroke-color': '#3a1a00',
+                },
+              });
+
+              // hover tooltip
+              var nearbyPopup = new window.maplibregl.Popup({
+                closeButton: false,
+                closeOnClick: false,
+                className: '__cg-nearby-popup',
+              });
+              m.on('mouseenter', 'nearby-circle', function(e) {
+                m.getCanvas().style.cursor = 'pointer';
+                if (!e.features || !e.features[0]) return;
+                var p = e.features[0].properties;
+                // 构建 tooltip 内容
+                var lines = [];
+                if (pointColorField && p[pointColorField] != null) {
+                  lines.push('<strong>' + Number(p[pointColorField]) + '</strong> ' + pointColorField);
+                }
+                if (p['Type']) lines.push(p['Type']);
+                if (p['Name']) lines.push(p['Name']);
+                if (p['Address']) lines.push(p['Address']);
+                if (p['distanceMeters'] != null) lines.push(Math.round(p['distanceMeters']) + ' m away');
+                if (!lines.length) lines.push('Feature ' + (p['FID'] || p['OBJECTID'] || ''));
+                nearbyPopup
+                  .setLngLat(e.features[0].geometry.coordinates)
+                  .setHTML(
+                    '<div style="font-family:\'Gotham\',sans-serif;font-size:12px;' +
+                    'color:#1a1a1a;line-height:1.5;padding:4px 2px">' +
+                    lines.join('<br>') + '</div>'
+                  )
+                  .addTo(m);
+              });
+              m.on('mouseleave', 'nearby-circle', function() {
+                m.getCanvas().style.cursor = '';
+                nearbyPopup.remove();
+              });
+            })(0);
+          } else {
+            // 动态切换 bldg-hit-fill 着色，确保地图与图例同步
+            // 用 retry 轮询等待层加载完毕，避免 150ms 竞态
+            (function applyPaint(attempts) {
+              const m = window.__cgMap;
+              if (!m || !m.getLayer('bldg-hit-fill')) {
+                if (attempts < 30) setTimeout(() => applyPaint(attempts + 1), 200);
+                return;
+              }
+              if (isYearGradient) {
+                m.setPaintProperty('bldg-hit-fill', 'fill-color',
+                  ['interpolate', ['linear'], ['to-number', ['get', 'Year_Completed'], 1900],
+                    1890, '#2166ac', 1930, '#74add1', 1960, '#a6d96a', 1990, '#fdae61', 2020, '#d73027']);
+                m.setPaintProperty('bldg-hit-fill', 'fill-opacity', 0.72);
+              } else {
+                // 非年代查询：coalesce(_cgColor, maroon) —— 建筑师分色或统一栗红
+                m.setPaintProperty('bldg-hit-fill', 'fill-color',
+                  ['coalesce', ['get', '_cgColor'], '#800000']);
+                m.setPaintProperty('bldg-hit-fill', 'fill-opacity', 0.34);
+              }
+            })(0);
+          }
           // Inject "Back to report" floating button
           setTimeout(() => {
             if (document.getElementById('__cg-back-btn')) return;
@@ -512,7 +835,7 @@
             btn.textContent = '← Back to report';
             btn.style.cssText =
               'position:fixed;top:16px;left:16px;z-index:9999;' +
-              'font-family:"IBM Plex Sans",sans-serif;font-size:13px;font-weight:500;' +
+              'font-family:"Gotham",sans-serif;font-size:13px;font-weight:500;' +
               'color:#4a4a48;background:#f4f1ea;border:1px solid #d4cfc0;' +
               'padding:8px 14px;border-radius:4px;cursor:pointer;' +
               'box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:background 0.2s';
@@ -546,16 +869,16 @@
         const btnHtml =
           '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #d4cfc0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
             '<button onclick="window.__cgShowMapBtn()" style="' +
-              'font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;font-weight:500;' +
+              'font-family:\'Gotham\',sans-serif;font-size:13px;font-weight:500;' +
               'color:#f4f1ea;background:#800000;border:none;cursor:pointer;' +
               'padding:7px 16px;border-radius:2px;letter-spacing:0.01em' +
             '">Map results</button>' +
             '<button onclick="window.__cgPrintReport()" style="' +
-              'font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;font-weight:500;' +
+              'font-family:\'Gotham\',sans-serif;font-size:13px;font-weight:500;' +
               'color:#4a4a48;background:none;border:1px solid #d4cfc0;cursor:pointer;' +
               'padding:7px 16px;border-radius:2px;letter-spacing:0.01em' +
             '">Save as PDF</button>' +
-            '<span style="font-size:12px;color:#8a8a85;font-family:\'IBM Plex Mono\',monospace">' +
+            '<span style="font-size:12px;color:#8a8a85;font-family:\'Gotham\',monospace">' +
               count + ' feature' + (count !== 1 ? 's' : '') +
             '</span>' +
           '</div>';
@@ -575,16 +898,16 @@
           });
           const sections = Object.entries(groupedNames).map(([label, g]) => {
             const swatch = '<span style="display:inline-block;width:12px;height:12px;background:' +
-              g.color + ';margin-right:8px;vertical-align:middle;border-radius:1px"></span>';
-            const heading = '<h3 style="font-family:Fraunces,serif;font-size:18px;margin:18px 0 8px;font-weight:500">' +
-              swatch + label + ' — ' + g.names.length + ' building' + (g.names.length !== 1 ? 's' : '') + '</h3>';
+              esc(g.color) + ';margin-right:8px;vertical-align:middle;border-radius:1px"></span>';
+            const heading = '<h3 style="font-family:Gotham,serif;font-size:18px;margin:18px 0 8px;font-weight:500">' +
+              swatch + esc(label) + ' — ' + g.names.length + ' building' + (g.names.length !== 1 ? 's' : '') + '</h3>';
             const list = g.names.map(n =>
-              '<div style="font-family:\'IBM Plex Sans\',sans-serif;font-size:14px;color:#1a1a1a;padding:3px 0 3px 20px">' + n + '</div>'
+              '<div style="font-family:\'Gotham\',sans-serif;font-size:14px;color:#1a1a1a;padding:3px 0 3px 20px">' + esc(n) + '</div>'
             ).join('');
             return heading + list;
           }).join('<hr style="border:none;border-top:1px solid #d4cfc0;margin:14px 0">');
           archRosterHtml = '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #d4cfc0">' +
-            '<p style="font-family:Fraunces,serif;font-size:24px;line-height:1.15;margin:0 0 8px;font-weight:400">' +
+            '<p style="font-family:Gotham,serif;font-size:24px;line-height:1.15;margin:0 0 8px;font-weight:400">' +
               count + ' buildings across ' + archGroupLegend.length + ' firm' + (archGroupLegend.length !== 1 ? 's' : '') +
             '</p>' + sections + '</div>';
         }
@@ -691,6 +1014,64 @@
 
   loadFreshness();
   window.reloadFreshness = loadFreshness;
+
+  // ── Landing page 跳转自动触发查询 ──────────────────────────────────────────
+  // landing page 通过 ?q=<encoded> 传递初始查询。
+  // React 应用需要约 500ms 完成挂载，用 poll 等待 __cgBackend 就绪后再触发。
+  (function autoQuery() {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get('q');
+    if (!q || !q.trim()) return;
+
+    // 清除 URL 参数，避免刷新时重复触发
+    try {
+      const cleanUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, '', cleanUrl);
+    } catch (_) {}
+
+    let attempts = 0;
+    const MAX = 40; // 最多等 4 秒
+    function tryFire() {
+      attempts++;
+      // 等待 React setters 就绪（__cgBackend 由 inject-backend 注册，
+      // 但 React setters 由组件挂载后才注入 —— 用 __cgMap 存在作为 ready 信号
+      // 不可靠；改为直接尝试触发，失败则重试）
+      const fakeInput = document.querySelector('input[placeholder*="CampusGeo"]');
+      if (fakeInput && typeof window.__cgBackend === 'function') {
+        // 把 query 填入输入框（视觉反馈）
+        try {
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          nativeInputValueSetter.call(fakeInput, q.trim());
+          fakeInput.dispatchEvent(new Event('input', { bubbles: true }));
+        } catch (_) {}
+        // 延迟 80ms 让 React state 同步，再调用后端
+        setTimeout(function () {
+          // 直接构造 fakeSetters 和 callAIBackend 等价路径：
+          // 找 React submit 按钮并 click，这样能正确触发所有 React state
+          const submitBtn = document.querySelector('button[data-cg-submit], button.cg-submit');
+          if (submitBtn) {
+            submitBtn.click();
+          } else {
+            // fallback：直接调用 __cgBackend（需要 setters，若 React 未挂载则跳过）
+            // 在 with-backend.html 中 __cgBackend 由 inject-backend.js 注册，
+            // React setters 通过 build-with-backend patch 的 submit() 传入；
+            // 此处用 keyboard Enter 事件模拟 submit
+            fakeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          }
+          console.log('[CampusGeo] Auto-query triggered:', q.trim());
+        }, 80);
+        return;
+      }
+      if (attempts < MAX) setTimeout(tryFire, 100);
+      else console.warn('[CampusGeo] Auto-query timeout — could not find input or __cgBackend');
+    }
+    // 等 DOM 就绪后开始轮询
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function() { setTimeout(tryFire, 300); });
+    } else {
+      setTimeout(tryFire, 300);
+    }
+  })();
 
   console.log('[CampusGeo] inject-backend ready. Test: window.testBackend("your query")');
 })();

@@ -427,6 +427,40 @@ This is a self-healing data pipeline with an LLM QA step — present it as a sta
 - AWS Bedrock quota: request increase if default limits too low
 - UChicago GIS team: coordinate geodatabase access and update schedule
 
+---
+
+## Bundle 注入规则（2026-08-10 经验）
+
+Landing page 是 Design Canvas 输出的 bundler 格式（`__bundler/manifest` + `__bundler/template`），与 `CampusGeo-with-Backend.html`（React + text/babel）架构完全不同。以下规则必须遵守：
+
+### 注入位置
+**唯一安全位置：外层 HTML 的 `<head>` 里，bundler `<script>` 之前。**
+
+- Bundler 在 `DOMContentLoaded` 里执行 `document.documentElement.replaceWith()`，把整个 `<html>` 替换。注入在外层 `</body>` 或 template JSON 里的脚本会被丢弃或被 React reconciliation 失效。
+- `document` 对象本身在 `replaceWith` 后不变，挂在它上面的监听器永久有效。
+- `build-landing.mjs` 负责把 `backend-config.local.js` + `inject-backend.js` + `inject-landing.js` 注入到外层 `</head>` 之前。
+
+### 事件绑定
+**必须用 `document` 级 capture 事件委托，不能绑定到具体 DOM 元素。**
+
+- dc-runtime 用 React 异步渲染 `<x-dc>` 内容，React reconciliation 会重建按钮节点，元素级绑定随时失效。
+- 正确写法：`document.addEventListener('click', handler, true)` + `e.target.closest('button')`。
+
+### template JSON 修改
+**修改 `__bundler/template` JSON 后，必须把所有 `</script>` 转义为 `</script>`。**
+
+- 原始 bundle 已做此转义。`JSON.stringify()` 不自动转义 `/`，裸露的 `</script>` 会让浏览器在 JSON 中间截断，导致 bundler 解包失败、图标/资源全部丢失。
+- 修复：`JSON.stringify(template).replace(/<\/script>/gi, '<\\u002Fscript>')`
+
+### 架构分离
+- `CampusGeo Landing.html` / `CampusGeo-Landing.html` 是新的主入口，查询结果通过 in-page overlay 显示，`CampusGeo-with-Backend.html` 保留但不再作为入口。
+- `build-with-backend.mjs` 的 26 个锚点只适用于 `CampusGeo Print-a-Map.html`（React bundle），**不能**用于 landing page。
+- landing page 的构建脚本是 `scripts/build-landing.mjs`。
+
+### CORS / 测试
+- Lambda 只放行 `http://localhost:5173`。必须通过 `pnpm dev:print` 走 HTTP 服务器，**不能**直接双击 `file://` 打开测试。
+- `serve-print.mjs` 的 index 已设为 `CampusGeo-Landing.html`，`http://localhost:5173` 直接进 landing page。
+
 <!-- SPECKIT START -->
 Project constitution (governing principles, tech stack, workflow rules): `.specify/memory/constitution.md`
 For feature specs and implementation plans, see `specs/` directory (created per feature via /speckit-specify).
