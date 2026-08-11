@@ -6,6 +6,13 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev:print"],
       "port": 5173
+    },
+    {
+      "name": "Trace Demo",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["exec", "npx", "serve", "-l", "5174", "-s", "."],
+      "port": 5174,
+      "url": "http://localhost:5174/trace-demo.html"
     }
   ]
 }

@@ -248,11 +248,11 @@ const CAMPUSGEO_API = (window.CAMPUSGEO_API_URL || '').replace(/\/$/, '');
 
 /* ── Suggestions (one per scenario the agent can resolve) ───── */
 const SUGGESTIONS_EN = [
-'Show me buildings with an RI value higher than 0.52',
-'Show me a 1″ = 50′ scale map near Keller Center',
-'Print a map of the trees we planted last year',
-'Change the building name of 5460 University Ave to ‘Lorraine and Yuji Suzuki Center’',
-'What changed in the campus data this week?'];
+‘Show me bike racks near Regenstein Library’,
+‘Buildings constructed before 1930’,
+‘Trees planted near the Quad in the last 5 years’,
+‘Parking near Booth School of Business’,
+‘What changed in the campus data this week?’];
 
 const SUGGESTIONS_ZH = '帮我打印一张去年种植的树木位置地图';
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -2143,13 +2143,6 @@ const App = () => {
                   </button>
             )}
               </div>
-              <button onClick={() => submit('When was the campus data last updated?')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 42, background: 'none', border: 'none', padding: 0,
-            fontSize: 10.5, color: T.inkXlt, letterSpacing: '0.03em', transition: 'color 0.15s' }}
-          onMouseEnter={(e) => e.currentTarget.style.color = T.inkLt} onMouseLeave={(e) => e.currentTarget.style.color = T.inkXlt}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.green, boxShadow: `0 0 0 3px ${T.greenBg}` }} />
-                47 layers · synced from the campus ArcGIS web map · updated today 02:00 CT
-              </button>
             </div> :
         phase === 'docanswer' && docAns ?
         <DocAnswer ans={docAns} query={query} setQuery={setQuery} onSubmit={() => submit()} /> :
