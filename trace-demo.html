@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampusGeo — Tool Trace UI Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --paper:      #f4f1ea;
+    --paper-deep: #e8e3d6;
+    --ink:        #1a1a1a;
+    --ink-soft:   #4a4a48;
+    --ink-faded:  #8a8a85;
+    --maroon:     #800000;
+    --rule:       #d4cfc0;
+    --green:      #5a9a6e;
+    --amber:      #8C7A60;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 48px 24px 80px;
+  }
+
+  .page {
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+
+  /* ── Page header ── */
+  .page-header {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 16px;
+  }
+  .page-header h1 {
+    font-family: 'Fraunces', serif;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faded);
+  }
+  .page-header p {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-faded);
+    margin-top: 4px;
+  }
+
+  /* ── Scenario block ── */
+  .scenario {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .scenario-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-faded);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  /* ── Query chip ── */
+  .query-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--paper-deep);
+    border: 1px solid var(--rule);
+    padding: 8px 14px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    color: var(--ink-soft);
+    border-radius: 2px;
+    width: fit-content;
+  }
+  .query-chip .icon {
+    color: var(--maroon);
+    font-size: 11px;
+  }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    padding: 20px 22px;
+    min-height: 120px;
+  }
+
+  /* ── PHASE A: Live trace ── */
+  .trace-block {
+    border-left: 2px solid var(--rule);
+    padding: 8px 0 8px 16px;
+  }
+  .trace-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+  }
+  .trace-row .t-icon {
+    width: 14px;
+    flex-shrink: 0;
+  }
+  .trace-row .t-label { color: var(--ink-soft); }
+  .trace-row .t-result {
+    color: var(--ink-faded);
+    margin-left: auto;
+    padding-left: 16px;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+
+  /* pending: pulse */
+  .pending .t-icon { color: var(--amber); }
+  .pending .t-label { color: var(--ink-soft); }
+
+  /* done */
+  .done .t-icon { color: var(--green); }
+  .done .t-label { color: var(--ink-faded); }
+
+  /* composing */
+  .composing .t-icon { color: var(--amber); }
+  .composing .t-label { color: var(--ink-soft); font-style: italic; }
+
+  /* ── PHASE B: Collapsed header ── */
+  .trace-header {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-faded);
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--rule);
+    letter-spacing: 0.02em;
+  }
+
+  /* ── Body prose ── */
+  .answer-body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+  }
+  .answer-body p { margin-bottom: 10px; }
+  .answer-body strong { color: var(--ink); font-weight: 500; }
+
+  /* ── Map button ── */
+  .map-btn-row {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .map-btn {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--paper);
+    background: var(--maroon);
+    border: none;
+    cursor: pointer;
+    padding: 7px 16px;
+    border-radius: 2px;
+    letter-spacing: 0.01em;
+  }
+  .map-btn-count {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-faded);
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateX(-6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.35; }
+    50%       { opacity: 1; }
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 1; }
+  }
+
+  .anim-in {
+    animation: fadeUp 0.2s cubic-bezier(0.4,0,0.2,1) both;
+  }
+  .pulse { animation: pulse 1.5s ease-in-out infinite; }
+  .blink { animation: blink 1.0s ease-in-out infinite; }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 6px 14px;
+    border: 1px solid var(--rule);
+    background: none;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-radius: 2px;
+    letter-spacing: 0.03em;
+    transition: background 0.15s, color 0.15s;
+  }
+  .btn:hover { background: var(--paper-deep); }
+  .btn.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--rule);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="page-header">
+    <h1>CampusGeo — Tool Trace UI</h1>
+    <p>inject-backend.js · loading state design exploration</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCENARIO 1 — Single tool, pending -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="scenario">
+    <div class="scenario-label">Phase 1 — First tool dispatched</div>
+    <div class="query-chip">
+      <span class="icon">⚡</span>
+      Show me buildings by Shepley, Rutan &amp; Coolidge
+    </div>
+    <div class="panel">
+      <div class="trace-block">
+        <div class="trace-row pending anim-in" style="animation-delay:0s">
+          <span class="t-icon pulse">○</span>
+          <span class="t-label">Searching buildings database</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCENARIO 2 — Multi-tool, all pending -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="scenario">
+    <div class="scenario-label">Phase 2 — Three tools dispatched (architect query)</div>
+    <div class="query-chip">
+      <span class="icon">⚡</span>
+      Buildings by Coolidge &amp; Hodgdon; Shepley, Rutan &amp; Coolidge; Ike Colburn
+    </div>
+    <div class="panel">
+      <div class="trace-block">
+        <div class="trace-row pending anim-in" style="animation-delay:0s">
+          <span class="t-icon pulse">○</span>
+          <span class="t-label">Searching buildings database</span>
+        </div>
+        <div class="trace-row pending anim-in" style="animation-delay:0.055s">
+          <span class="t-icon pulse">○</span>
+          <span class="t-label">Searching buildings database</span>
+        </div>
+        <div class="trace-row pending anim-in" style="animation-delay:0.11s">
+          <span class="t-icon pulse">○</span>
+          <span class="t-label">Searching buildings database</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCENARIO 3 — Tools done, composing -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="scenario">
+    <div class="scenario-label">Phase 3 — Tools resolved, AI composing answer</div>
+    <div class="panel">
+      <div class="trace-block">
+        <div class="trace-row done anim-in" style="animation-delay:0s">
+          <span class="t-icon">✓</span>
+          <span class="t-label">Searching buildings database</span>
+          <span class="t-result">12 features</span>
+        </div>
+        <div class="trace-row done anim-in" style="animation-delay:0.055s">
+          <span class="t-icon">✓</span>
+          <span class="t-label">Searching buildings database</span>
+          <span class="t-result">6 features</span>
+        </div>
+        <div class="trace-row done anim-in" style="animation-delay:0.11s">
+          <span class="t-icon">✓</span>
+          <span class="t-label">Searching buildings database</span>
+          <span class="t-result">1 feature</span>
+        </div>
+        <div class="trace-row composing anim-in" style="animation-delay:0.165s">
+          <span class="t-icon blink">⋯</span>
+          <span class="t-label">Composing summary</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCENARIO 4 — Answer streaming, trace collapsed -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="scenario">
+    <div class="scenario-label">Phase 4 — Answer streaming, trace collapses to header</div>
+    <div class="panel">
+      <div class="trace-header anim-in">
+        Searching buildings database · 3 queries · 19 features
+      </div>
+      <div class="answer-body">
+        <p>
+          <strong>Nineteen buildings</strong> on the Hyde Park campus are attributed to
+          these three early firms, spanning the period from 1892 to 1932.
+        </p>
+        <p>
+          Shepley, Rutan &amp; Coolidge contributed twelve structures including Ryerson
+          Physical Laboratory (1894) and Haskell Hall. Coolidge &amp; Hodgdon designed
+          six buildings in the 1920s, while I.W. Colburn is credited with one.
+        </p>
+      </div>
+      <div class="map-btn-row">
+        <button class="map-btn">Map results</button>
+        <span class="map-btn-count">19 features</span>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SCENARIO 5 — Single tool, text-only (no map) -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="scenario">
+    <div class="scenario-label">Phase 4 (text-only) — No map data returned</div>
+    <div class="query-chip">
+      <span class="icon">⚡</span>
+      When does Regenstein Library close today?
+    </div>
+    <div class="panel">
+      <div class="trace-header anim-in">
+        Checking hours of operation · 1 query
+      </div>
+      <div class="answer-body">
+        <p>Regenstein Library is open until <strong>midnight</strong> today (Friday).
+        Weekend hours are 9am–10pm Saturday and 10am–midnight Sunday.</p>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- INTERACTIVE — playback demo -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="scenario">
+    <div class="scenario-label">Interactive — playback animation</div>
+    <div class="query-chip">
+      <span class="icon">⚡</span>
+      <span id="demo-query">Buildings by Coolidge &amp; Hodgdon; Shepley, Rutan &amp; Coolidge</span>
+    </div>
+
+    <div class="controls">
+      <button class="btn active" id="btn-play" onclick="runDemo()">▶ Play sequence</button>
+      <button class="btn" id="btn-reset" onclick="resetDemo()">↺ Reset</button>
+    </div>
+
+    <div class="panel" id="demo-panel">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-faded);padding:8px 0">
+        Press "Play sequence" to watch the live trace animation.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Interactive demo ─────────────────────────────────────────────────────────
+
+const STEPS = [
+  { toolName: 'query_building_attributes', label: 'Searching buildings database', result: '12 features', count: 12 },
+  { toolName: 'query_building_attributes', label: 'Searching buildings database', result: '6 features',  count: 6  },
+];
+
+const ANSWER = `
+  <p><strong>Eighteen buildings</strong> across the Hyde Park campus are attributed
+  to Shepley, Rutan &amp; Coolidge and Coolidge &amp; Hodgdon, spanning a
+  construction period from 1892 to 1928.</p>
+  <p>Shepley, Rutan &amp; Coolidge completed twelve structures in the earlier
+  period, establishing the Collegiate Gothic character of the main quadrangles.
+  Coolidge &amp; Hodgdon contributed six additional buildings through the 1920s.</p>
+`;
+
+let demoState = 'idle';
+let timers = [];
+
+function clearTimers() {
+  timers.forEach(clearTimeout);
+  timers = [];
+}
+
+function resetDemo() {
+  clearTimers();
+  demoState = 'idle';
+  document.getElementById('btn-play').classList.add('active');
+  document.getElementById('demo-panel').innerHTML =
+    '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:12px;color:var(--ink-faded);padding:8px 0">' +
+    'Press "Play sequence" to watch the live trace animation.</div>';
+}
+
+function t(ms, fn) {
+  timers.push(setTimeout(fn, ms));
+}
+
+function buildRow(step, i, status) {
+  const icon     = status === 'done' ? '✓' : (status === 'composing' ? '⋯' : '○');
+  const iconCls  = status === 'done'  ? 'done' : (status === 'composing' ? 'composing' : 'pending');
+  const animCls  = status === 'composing' ? 'blink' : (status === 'pending' ? 'pulse' : '');
+  const resultHtml = (status === 'done' && step.result)
+    ? '<span class="t-result">' + step.result + '</span>' : '';
+  return (
+    '<div class="trace-row ' + iconCls + ' anim-in" style="animation-delay:' + (i * 0.055) + 's">' +
+      '<span class="t-icon ' + animCls + '">' + icon + '</span>' +
+      '<span class="t-label">' + step.label + '</span>' +
+      resultHtml +
+    '</div>'
+  );
+}
+
+function renderTrace(steps, showComposing) {
+  const rows = steps.map(function(s, i) { return buildRow(s, i, s.status); }).join('');
+  const composingRow = showComposing
+    ? buildRow({ label: 'Composing summary' }, steps.length, 'composing')
+    : '';
+  return '<div class="trace-block">' + rows + composingRow + '</div>';
+}
+
+function renderAnswer(completedSteps) {
+  const total = completedSteps.reduce(function(n, s) { return n + (s.count || 0); }, 0);
+  const header =
+    '<div class="trace-header anim-in">' +
+      'Searching buildings database · ' + completedSteps.length + ' queries · ' + total + ' features' +
+    '</div>';
+  const body = '<div class="answer-body">' + ANSWER + '</div>';
+  const btn  =
+    '<div class="map-btn-row">' +
+      '<button class="map-btn">Map results</button>' +
+      '<span class="map-btn-count">' + total + ' features</span>' +
+    '</div>';
+  return header + body + btn;
+}
+
+function runDemo() {
+  if (demoState !== 'idle') return;
+  demoState = 'running';
+  document.getElementById('btn-play').classList.remove('active');
+
+  const panel = document.getElementById('demo-panel');
+  const active = [];  // steps that have been dispatched
+
+  // 0ms — tool 1 dispatched
+  t(0, function() {
+    active.push({ ...STEPS[0], status: 'pending' });
+    panel.innerHTML = renderTrace(active, false);
+  });
+
+  // 900ms — tool 2 dispatched
+  t(900, function() {
+    active.push({ ...STEPS[1], status: 'pending' });
+    panel.innerHTML = renderTrace(active, false);
+  });
+
+  // 1800ms — tool 1 done
+  t(1800, function() {
+    active[0].status = 'done';
+    panel.innerHTML = renderTrace(active, false);
+  });
+
+  // 2300ms — tool 2 done → all done, show "Composing summary"
+  t(2300, function() {
+    active[1].status = 'done';
+    panel.innerHTML = renderTrace(active, true);
+  });
+
+  // 3000ms — AI starts streaming → trace collapses to header, answer begins
+  t(3000, function() {
+    const done = active.filter(function(s) { return s.status === 'done'; });
+    panel.innerHTML = renderAnswer(done);
+  });
+
+  // 5000ms — done, re-enable play button (for repeat)
+  t(5000, function() {
+    demoState = 'idle';
+    document.getElementById('btn-play').classList.add('active');
+  });
+}
+</script>
+
+</body>
+</html>
