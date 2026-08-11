@@ -153,7 +153,10 @@ function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): G
     const [, field, op, value] = numMatch
     const numValue = parseFloat(value)
     return features.filter(f => {
-      const fieldValue = parseFloat(String(f.properties[field] || '0'))
+      const raw = f.properties[field]
+      if (raw == null || raw === '') return false
+      const fieldValue = parseFloat(String(raw))
+      if (Number.isNaN(fieldValue)) return false
       if (op === '>') return fieldValue > numValue
       if (op === '<') return fieldValue < numValue
       if (op === '>=') return fieldValue >= numValue
@@ -170,9 +173,9 @@ function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): G
     return features.filter(f => f.properties[field] != null && f.properties[field] !== '')
   }
 
-  // Fallback: return all (treat as '1=1')
-  console.warn(`Unsupported WHERE clause: ${clause}, returning all features`)
-  return features
+  // Fail-closed: unsupported clause returns empty so the model rewrites the condition
+  console.warn(`Unsupported WHERE clause: ${clause}`)
+  return []
 }
 
 /**

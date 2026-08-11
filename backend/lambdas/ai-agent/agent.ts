@@ -16,6 +16,7 @@ import { searchDocuments, SearchDocumentsInputSchema } from './tools/campus/sear
 import { queryUtilities, QueryUtilitiesInputSchema } from './tools/campus/queryUtilities'
 import { queryBuildingAttributes, QueryBuildingAttributesInputSchema } from './tools/campus/queryBuildingAttributes'
 import { getDataFreshness, GetDataFreshnessInputSchema } from './tools/campus/getDataFreshness'
+import { findBuildingsByYear, FindBuildingsByYearInputSchema } from './tools/campus/findBuildingsByYear'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -196,6 +197,23 @@ const CAMPUS_TOOLS: Tool[] = [
             maxResults: { type: 'number', default: 300 },
           },
           required: ['utilityType'],
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'find_buildings_by_year',
+      description:
+        'Find campus buildings filtered by construction year. Use for queries like "buildings before 1930", "buildings built after 2000", "oldest buildings on campus". Both before and after are exclusive bounds. Buildings with no year data are excluded and their count is reported separately.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            before: { type: 'integer', description: 'Return buildings completed before this year (exclusive), e.g. 1930' },
+            after:  { type: 'integer', description: 'Return buildings completed after this year (exclusive), e.g. 2000' },
+            maxResults: { type: 'integer', default: 60 },
+          },
         },
       },
     },
@@ -396,7 +414,11 @@ export async function runCampusGeoAgent(
         // Tools may provide a compact _modelSummary: the full geometry payload
         // reaches the map via the mapUpdate event above, while the model only
         // reasons over the summary — keeps token usage flat for dense layers.
-        const modelResult = (resultObj?._modelSummary as DocumentType | undefined) ?? (result as DocumentType)
+        // Bedrock requires { json: <object> } — never a primitive. Wrap strings/arrays defensively.
+        const rawSummary = (resultObj?._modelSummary as DocumentType | undefined) ?? (result as DocumentType)
+        const modelResult: DocumentType = (rawSummary !== null && typeof rawSummary === 'object' && !Array.isArray(rawSummary))
+          ? rawSummary
+          : { value: rawSummary }
 
         toolResults.push({
           toolResult: {
@@ -463,6 +485,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'query_building_attributes': {
       const input = QueryBuildingAttributesInputSchema.parse(rawInput)
       return queryBuildingAttributes(input)
+    }
+    case 'find_buildings_by_year': {
+      const input = FindBuildingsByYearInputSchema.parse(rawInput)
+      return findBuildingsByYear(input)
     }
     case 'get_data_freshness': {
       const input = GetDataFreshnessInputSchema.parse(rawInput)

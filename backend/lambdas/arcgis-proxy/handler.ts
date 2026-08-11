@@ -6,7 +6,7 @@ const LAYER_ENDPOINTS: Record<string, string> = {
   bike_racks:  `${ARCGIS_BASE}/2022_06_23_Web_Map_WFL1/FeatureServer/395`,
   buildings:   `${ARCGIS_BASE}/UoC_Properties/FeatureServer/2509`,
   electrical:  `${ARCGIS_BASE}/2022_06_23_Web_Map_WFL1/FeatureServer/0`,
-  parking:     `${ARCGIS_BASE}/2022_06_23_Web_Map_WFL1/FeatureServer/10`,
+  parking:     `${ARCGIS_BASE}/2022_06_23_Web_Map_WFL1/FeatureServer/259`,
   accessible:  `${ARCGIS_BASE}/2022_06_23_Web_Map_WFL1/FeatureServer/20`,
   dining:      `${ARCGIS_BASE}/2022_06_23_Web_Map_WFL1/FeatureServer/30`,
 }
