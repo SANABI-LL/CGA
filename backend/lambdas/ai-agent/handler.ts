@@ -37,6 +37,8 @@ function logInternalError(err: unknown): string {
 async function bufferedHandler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyStructuredResultV2> {
+  rememberOrigin(event)
+
   // EventBridge daily schedule (no requestContext on scheduled events)
   if ((event as unknown as { source?: string }).source === 'aws.events') {
     try {
@@ -311,6 +313,8 @@ function capMapUpdate(eventObj: MapUpdateEvent, maxFeatures: number): MapUpdateE
 
 const streamingHandler = () => awslambda.streamifyResponse(
   async (event: APIGatewayProxyEventV2, responseStream) => {
+    rememberOrigin(event)
+
     // CORS preflight
     if (event.requestContext.http.method === 'OPTIONS') {
       const headers = {
@@ -418,14 +422,31 @@ const streamingHandler = () => awslambda.streamifyResponse(
 
 export const handler = process.env.BUFFERED === '1' ? bufferedHandler : streamingHandler()
 
+// Origin of the request being handled (scheduled events carry no headers, so
+// this stays undefined for them).
+let currentRequestOrigin: string | undefined
+function rememberOrigin(event: APIGatewayProxyEventV2) {
+  currentRequestOrigin = event.headers?.origin ?? event.headers?.Origin
+}
+
 function corsHeaders() {
-  // No wildcard fallback: default to the local dev origin; production sets
-  // ALLOWED_ORIGIN explicitly on the Lambda.
-  const origin = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
+  // No wildcard fallback: ALLOWED_ORIGIN is an explicit comma-separated
+  // allowlist, defaulting to the local dev origin. Echo back the request's
+  // Origin only when it is on the list; otherwise fall back to the first entry
+  // so the browser sees a mismatch and blocks the response.
+  const allowed = (process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const origin =
+    currentRequestOrigin && allowed.includes(currentRequestOrigin)
+      ? currentRequestOrigin
+      : allowed[0]
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
   }
 }
 
