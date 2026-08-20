@@ -37,11 +37,41 @@ interface WatchedLayer {
 }
 
 const WATCHED: Record<string, WatchedLayer> = {
+  // Core layers
   'layers/trees.geojson': { label: 'Campus Trees', icon: 'leaf', nameFields: ['CommonName', 'Common_Nam', 'ScientName', 'TreeNotes'] },
   'layers/buildings.geojson': { label: 'Campus Buildings', icon: 'building', nameFields: ['DISCRIPT1'] },
   'layers/Cafe__Market__Restaurant_and_Dining_Hall.geojson': { label: 'Dining', icon: 'building', nameFields: ['Name', 'NAME'] },
   'layers/all-gender-restrooms.geojson': { label: 'All-Gender Restrooms', icon: 'building', nameFields: ['Building', 'Name'] },
   'layers/leed-buildings.geojson': { label: 'LEED Buildings', icon: 'building', nameFields: ['Name', 'DISCRIPT1'] },
+  // Campus amenities & furniture
+  'layers/bike_racks.geojson': { label: 'Bike Racks', icon: 'diff', nameFields: ['Type', 'FID'] },
+  'layers/emergency_phone.geojson': { label: 'Emergency Phones', icon: 'diff', nameFields: ['Location', 'Number'] },
+  'layers/trash_can.geojson': { label: 'Trash Cans', icon: 'diff', nameFields: ['Type', 'FID'] },
+  'layers/benches.geojson': { label: 'Benches', icon: 'diff', nameFields: ['Type', 'Feature_ID', 'FID'] },
+  'layers/seating.geojson': { label: 'Outdoor Seating Areas', icon: 'diff', nameFields: ['FID'] },
+  'layers/public_arts.geojson': { label: 'Public Art', icon: 'pen', nameFields: ['Title', 'Author'] },
+  'layers/green_roof.geojson': { label: 'Green Roofs', icon: 'leaf', nameFields: ['Type', 'FID'] },
+  // Accessibility
+  'layers/ada_route.geojson': { label: 'ADA Routes', icon: 'diff', nameFields: ['Name'] },
+  'layers/accessible_public_entrance.geojson': { label: 'Accessible Public Entrances', icon: 'building', nameFields: ['Orientation', 'OBJECTID'] },
+  'layers/accessible_controlled_access_entrance.geojson': { label: 'Accessible Controlled Entrances', icon: 'building', nameFields: ['Orientation', 'OBJECTID'] },
+  'layers/accessibility_information.geojson': { label: 'Building Accessibility Info', icon: 'building', nameFields: ['Building', 'Address'] },
+  'layers/inaccessible_main_entrance.geojson': { label: 'Inaccessible Main Entrances', icon: 'diff', nameFields: ['OBJECTID'] },
+  'layers/inaccessible_building.geojson': { label: 'Inaccessible Buildings', icon: 'building', nameFields: ['Building', 'Alias', 'OBJECTID'] },
+  // Fire & safety
+  'layers/hydrant.geojson': { label: 'Fire Hydrants', icon: 'diff', nameFields: ['ASSET_ID', 'TYPE', 'FID'] },
+  'layers/fire_escape.geojson': { label: 'Fire Escapes', icon: 'diff', nameFields: ['FID'] },
+  'layers/sprinkler.geojson': { label: 'Fire Sprinklers', icon: 'diff', nameFields: ['FID'] },
+  'layers/standpipe.geojson': { label: 'Standpipes', icon: 'diff', nameFields: ['FID'] },
+  'layers/fire_lane.geojson': { label: 'Fire Lanes', icon: 'diff', nameFields: ['FID'] },
+  'layers/post_indicator_valve.geojson': { label: 'Post Indicator Valves', icon: 'diff', nameFields: ['FID'] },
+  // Landmarks & heritage
+  'layers/individual_landmark.geojson': { label: 'City Landmarks', icon: 'pen', nameFields: ['LANDMARK_N', 'ADDRESS'] },
+  'layers/nrhp.geojson': { label: 'NRHP Historic Places', icon: 'pen', nameFields: ['Name'] },
+  'layers/nhl.geojson': { label: 'National Historic Landmarks', icon: 'pen', nameFields: ['LANDMARK_N', 'ADDRESS'] },
+  // Parking & transit
+  'layers/surface_parking.geojson': { label: 'Surface Parking Lots', icon: 'diff', nameFields: ['SFPARK_ID', 'FID'] },
+  'layers/metrastations.geojson': { label: 'Metra Train Stations', icon: 'building', nameFields: ['NAME', 'LINES', 'ADDRESS'] },
 }
 // The 22 utility layers share one config each
 for (const name of [

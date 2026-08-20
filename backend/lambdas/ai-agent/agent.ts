@@ -6,6 +6,7 @@ import {
   type ContentBlock,
 } from '@aws-sdk/client-bedrock-runtime'
 import type { DocumentType } from '@smithy/types'
+import type { SessionTurn } from './session.js'
 import { getShuttleArrivals, GetShuttleArrivalsInputSchema } from './tools/campus/getShuttleArrivals'
 import { getBikeStations, GetBikeStationsInputSchema } from './tools/campus/getBikeStations'
 import { findCampusNearby, FindCampusNearbyInputSchema } from './tools/campus/findCampusNearby'
@@ -17,6 +18,9 @@ import { queryUtilities, QueryUtilitiesInputSchema } from './tools/campus/queryU
 import { queryBuildingAttributes, QueryBuildingAttributesInputSchema } from './tools/campus/queryBuildingAttributes'
 import { getDataFreshness, GetDataFreshnessInputSchema } from './tools/campus/getDataFreshness'
 import { findBuildingsByYear, FindBuildingsByYearInputSchema } from './tools/campus/findBuildingsByYear'
+import { getCampusEvents, GetCampusEventsInputSchema } from './tools/campus/getCampusEvents'
+import { getBuildingUpdates, GetBuildingUpdatesInputSchema } from './tools/campus/getBuildingUpdates'
+import { queryCampusLayer, QueryCampusLayerInputSchema } from './tools/campus/queryCampusLayer'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -107,7 +111,10 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'check_hours',
       description:
-        'Check if a campus location (library, dining hall, athletics center) is currently open, and when it opens/closes.',
+        'Check if a campus location is currently open, and when it opens/closes. ' +
+        'Libraries (Regenstein, Crerar, Eckhart, Mansueto) fetch live hours from the UChicago LibCal API — accurate for holiday closures and special hours. ' +
+        'Non-library locations (Ratner Athletics, Hutchinson Commons, Harper Memorial Library) use a static schedule. ' +
+        'Response includes: isOpen (bool), todayHours ({open:"HH:MM",close:"HH:MM"}), renderedHours (e.g. "8am–10pm"), source ("libcal"|"static").',
       inputSchema: {
         json: {
           type: 'object',
@@ -220,6 +227,85 @@ const CAMPUS_TOOLS: Tool[] = [
   },
   {
     toolSpec: {
+      name: 'get_campus_events',
+      description:
+        'Fetch upcoming events from the University of Chicago official events calendar (events.uchicago.edu), sourced from the live iCal feed. ' +
+        'Use for questions about lectures, performances, exhibitions, public talks, or anything happening on campus. Results are cached for 6 hours. ' +
+        'Supports keyword filtering (e.g. "physics", "jazz", "public lecture"). ' +
+        'Each event includes: id, title, date, startTime (HH:MM|null), endTime (HH:MM|null), location (building name|null), url, isOnline, isCanceled, summary (plain text), ' +
+        'geo ({lat,lon}|null — coordinate of the event venue), categories (string[]), isAllDay (bool).',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            daysAhead: { type: 'integer', minimum: 1, maximum: 30, default: 7, description: 'Days ahead to search (default 7)' },
+            limit: { type: 'integer', minimum: 1, maximum: 20, default: 10, description: 'Max events to return' },
+            keyword: { type: 'string', description: 'Filter by keyword in title, summary, or location' },
+          },
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'get_building_updates',
+      description:
+        'Report recent changes to campus building, tree, dining, or utility layer data — additions, removals, or modifications detected by the nightly data sync. Use for questions like "what changed recently on campus?", "were any new buildings added?", "has the tree inventory been updated?". Data comes from the automated daily diff pipeline.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            days: { type: 'integer', minimum: 1, maximum: 30, default: 7, description: 'How many days back to look (default 7)' },
+            layer: {
+              type: 'string',
+              enum: ['buildings', 'trees', 'dining', 'utilities', 'all'],
+              default: 'all',
+              description: 'Which layer to filter changes for',
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'query_campus_layer',
+      description:
+        'Query campus point-of-interest and infrastructure layers from S3. Set nearLocation to filter by proximity. ' +
+        'Layer catalog (key → key fields):\n' +
+        '  Amenities: emergency_phone (OBJECTID,Number,Location) | trash_can (FID,Type) | benches (FID,Type,Donor,Text) | seating (FID,Area_AC) | public_arts (Title,Author,Date,Content)\n' +
+        '  Sustainability: green_roof (FID,Type,Shape__Area)\n' +
+        '  Accessibility: ada_route (Name,PopupInfo) | accessible_entrance (OBJECTID,AutomaticDoor,Orientation) | controlled_entrance (OBJECTID,Auto,Orientation) | accessibility_info (Building,Address,Elevator,Restroom,Notes) | inaccessible_entrance (OBJECTID,AutomaticDoor) | inaccessible_building (OBJECTID,Building,Alias)\n' +
+        '  Fire & safety: hydrant (FID,TYPE,ASSET_ID) | fire_escape (FID) | sprinkler (FID) | standpipe (FID) | fire_lane (FID,Shape__Area) | post_indicator_valve (FID)\n' +
+        '  Landmarks: landmark (LANDMARK_N,ID,ADDRESS,DATE_BUILT,ARCHITECT,HISTORY) | nrhp (Name,NRHP) | nhl (LANDMARK_N,ID,ADDRESS,DATE_BUILT,ARCHITECT,HISTORY)\n' +
+        '  Parking & transit: surface_parking (FID,SFPARK_ID,Area_AC) | metra_station (NAME,LINES,ADA,FAREZONE,ADDRESS,STATUS)',
+      inputSchema: {
+        json: {
+          type: 'object',
+          required: ['layerName'],
+          properties: {
+            layerName: {
+              type: 'string',
+              enum: [
+                'emergency_phone', 'trash_can', 'benches', 'seating', 'public_arts', 'green_roof',
+                'ada_route', 'accessible_entrance', 'controlled_entrance',
+                'accessibility_info', 'inaccessible_entrance', 'inaccessible_building',
+                'hydrant', 'fire_escape', 'sprinkler', 'standpipe', 'fire_lane', 'post_indicator_valve',
+                'landmark', 'nrhp', 'nhl',
+                'surface_parking', 'metra_station',
+              ],
+              description: 'Which campus layer to query',
+            },
+            nearLocation: { type: 'string', description: 'Optional campus location name to filter by proximity' },
+            radiusMeters: { type: 'number', minimum: 1, maximum: 2000, default: 400, description: 'Radius in meters when nearLocation is set' },
+            limit: { type: 'integer', minimum: 1, maximum: 200, default: 50, description: 'Max features to return' },
+          },
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
       name: 'search_planning_documents',
       description:
         'Semantic search over the PD 43 (Planned Development 43, the UChicago campus zoning district) document knowledge base: Chicago Zoning Ordinance chapters 17-8 and 17-17, PD 43 statements and amendments, City Council proceedings, Woodlawn Avenue plans, traffic management plan. Use for questions about zoning rules, FAR, height limits, permitted uses, setbacks, approvals, or planning history. The query must be an English keyword phrase — translate the user question if needed.',
@@ -240,12 +326,23 @@ const CAMPUS_TOOLS: Tool[] = [
   },
 ]
 
-function buildSystemPrompt(): string {
+function buildSessionContext(turns: SessionTurn[]): string {
+  if (!turns.length) return ''
+  const lines = turns
+    .map(
+      (t, i) =>
+        `  [${i + 1}] User: "${t.query}" → ${t.featureCount} features. Summary: ${t.summary}`
+    )
+    .join('\n')
+  return `\nSession history (${turns.length} prior ${turns.length === 1 ? 'query' : 'queries'} — use for follow-up context, e.g. filter/refine previous results):\n${lines}\n`
+}
+
+function buildSystemPrompt(sessionHistory: SessionTurn[] = []): string {
   const currentYear = new Date().getFullYear()
+  const sessionContext = buildSessionContext(sessionHistory)
   return `You are CampusGeo, an AI geospatial assistant for the University of Chicago. You have access to real-time campus data through tools.
 
-Current year: ${currentYear}. Use this to resolve relative time references in queries (e.g. "at least 20 years old" means Year_Completed <= ${currentYear - 20}, "built in the last decade" means Year_Completed >= ${currentYear - 10}).
-
+Current year: ${currentYear}. Use this to resolve relative time references in queries (e.g. "at least 20 years old" means Year_Completed <= ${currentYear - 20}, "built in the last decade" means Year_Completed >= ${currentYear - 10}).${sessionContext}
 Guidelines:
 - Be direct and specific. Give exact locations, distances, and counts.
 - Use tools to look up live data before answering spatial questions.
@@ -292,7 +389,8 @@ export function findUnverifiedCitations(text: string, retrieved: RetrievedCitati
 export async function runCampusGeoAgent(
   userQuery: string,
   sessionId: string,
-  onEvent: SSECallback
+  onEvent: SSECallback,
+  sessionHistory: SessionTurn[] = []
 ): Promise<void> {
   const messages: Message[] = [{ role: 'user', content: [{ text: userQuery }] }]
   const retrievedCitations: RetrievedCitation[] = []
@@ -301,7 +399,7 @@ export async function runCampusGeoAgent(
   for (let turn = 0; turn < 6; turn++) {
     const command = new ConverseStreamCommand({
       modelId: BEDROCK_MODEL,
-      system: [{ text: buildSystemPrompt() }],
+      system: [{ text: buildSystemPrompt(sessionHistory) }],
       messages,
       toolConfig: { tools: CAMPUS_TOOLS },
       inferenceConfig: {
@@ -493,6 +591,18 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'get_data_freshness': {
       const input = GetDataFreshnessInputSchema.parse(rawInput)
       return getDataFreshness(input)
+    }
+    case 'get_campus_events': {
+      const input = GetCampusEventsInputSchema.parse(rawInput)
+      return getCampusEvents(input)
+    }
+    case 'get_building_updates': {
+      const input = GetBuildingUpdatesInputSchema.parse(rawInput)
+      return getBuildingUpdates(input)
+    }
+    case 'query_campus_layer': {
+      const input = QueryCampusLayerInputSchema.parse(rawInput)
+      return queryCampusLayer(input)
     }
     default:
       return { error: `Unknown tool: ${name}` }

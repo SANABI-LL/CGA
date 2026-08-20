@@ -3,8 +3,14 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from '
 import { runCampusGeoAgent } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
 import { queryS3Layer } from './tools/campus/queryS3Layer'
+import { getSessionHistory, appendSessionTurn } from './session'
 
 const MAX_QUERY_LENGTH = 2000
+
+// tool_result events on the "data" path (no mapUpdate) are forwarded only for
+// these tools — the frontend uses them to render structured cards directly.
+// All other data-only tool_results are suppressed to keep payload small.
+const PASSTHROUGH_DATA_TOOLS = new Set(['check_hours', 'get_campus_events'])
 
 // Shared-secret gate: the API must never be anonymously callable, whichever
 // front door (CloudFront, API Gateway, Function URL) the request came through.
@@ -143,16 +149,45 @@ async function bufferedHandler(
     }
   }
 
+  const sessionHistory = await getSessionHistory(sessionId)
+
   const events: string[] = []
+  const turnAcc = { toolsUsed: new Set<string>(), featureCount: 0, answerText: '' }
   try {
-    await runCampusGeoAgent(query, sessionId, (eventObj) => {
-      const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
-      events.push(`data: ${JSON.stringify(capMapUpdate(eventObj, cap))}\n\n`)
-    })
+    await runCampusGeoAgent(
+      query,
+      sessionId,
+      (eventObj) => {
+        if (eventObj.type === 'tool_call' && typeof eventObj.toolName === 'string') {
+          turnAcc.toolsUsed.add(eventObj.toolName)
+        }
+        if (eventObj.type === 'text' && typeof eventObj.content === 'string') {
+          turnAcc.answerText += eventObj.content
+        }
+        // Suppress data-only tool_result events for all but the passthrough tools.
+        // mapUpdate tool_results (GeoJSON) are always forwarded for the map.
+        if (eventObj.type === 'tool_result' && !(eventObj as MapUpdateEvent).mapUpdate) {
+          if (!PASSTHROUGH_DATA_TOOLS.has((eventObj as { toolName?: string }).toolName ?? '')) return
+        }
+        const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
+        const capped = capMapUpdate(eventObj, cap)
+        const feats = (capped as MapUpdateEvent).mapUpdate?.features?.features
+        if (Array.isArray(feats)) turnAcc.featureCount += feats.length
+        events.push(`data: ${JSON.stringify(capped)}\n\n`)
+      },
+      sessionHistory
+    )
   } catch (err) {
     const ref = logInternalError(err)
     events.push(`data: ${JSON.stringify({ type: 'error', message: 'Internal error', ref })}\n\n`)
   }
+
+  await appendSessionTurn(sessionId, {
+    query,
+    toolsUsed: [...turnAcc.toolsUsed],
+    featureCount: turnAcc.featureCount,
+    summary: turnAcc.answerText.slice(0, 150),
+  })
 
   let body = events.join('')
   // Lambda's buffered response limit is 6 MB; retry with a tighter feature cap
@@ -365,6 +400,8 @@ const streamingHandler = () => awslambda.streamifyResponse(
       return
     }
 
+    const sessionHistory = await getSessionHistory(sessionId)
+
     // Stream SSE response
     const metadata = awslambda.HttpResponseStream.from(responseStream, {
       statusCode: 200,
@@ -388,8 +425,21 @@ const streamingHandler = () => awslambda.streamifyResponse(
     const MAX_BYTES = 5_000_000
     const TERMINAL_EVENT_TYPES = new Set(['done', 'citation_warning', 'error'])
 
+    const streamTurnAcc = { toolsUsed: new Set<string>(), featureCount: 0, answerText: '' }
+
     try {
       await runCampusGeoAgent(query, sessionId, (eventObj) => {
+        if (eventObj.type === 'tool_call' && typeof eventObj.toolName === 'string') {
+          streamTurnAcc.toolsUsed.add(eventObj.toolName)
+        }
+        if (eventObj.type === 'text' && typeof eventObj.content === 'string') {
+          streamTurnAcc.answerText += eventObj.content
+        }
+        // Suppress data-only tool_result events for all but the passthrough tools.
+        // mapUpdate tool_results (GeoJSON) are always forwarded for the map.
+        if (eventObj.type === 'tool_result' && !(eventObj as MapUpdateEvent).mapUpdate) {
+          if (!PASSTHROUGH_DATA_TOOLS.has((eventObj as { toolName?: string }).toolName ?? '')) return
+        }
         const isTerminal = TERMINAL_EVENT_TYPES.has(eventObj.type)
         if (!isTerminal) {
           if (truncated) return
@@ -400,19 +450,30 @@ const streamingHandler = () => awslambda.streamifyResponse(
           }
         }
         const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
-        const line = `data: ${JSON.stringify(capMapUpdate(eventObj as MapUpdateEvent, cap))}\n\n`
+        const capped = capMapUpdate(eventObj as MapUpdateEvent, cap)
+        const feats = capped.mapUpdate?.features?.features
+        if (Array.isArray(feats)) streamTurnAcc.featureCount += feats.length
+        const line = `data: ${JSON.stringify(capped)}\n\n`
         // Text deltas are numerous but tiny — the byte budget bounds them;
         // only payload-bearing events count toward the event cap.
         if (eventObj.type === 'tool_result' || (eventObj as MapUpdateEvent).mapUpdate) eventCount++
         bytesSent += line.length
         metadata.write(line)
-      })
+      }, sessionHistory)
     } catch (err) {
       const ref = logInternalError(err)
       metadata.write(`data: ${JSON.stringify({ type: 'error', message: 'Internal error', ref })}\n\n`)
     }
 
     metadata.end()
+
+    // Write session turn after stream closes so DynamoDB latency doesn't delay the client.
+    await appendSessionTurn(sessionId, {
+      query,
+      toolsUsed: [...streamTurnAcc.toolsUsed],
+      featureCount: streamTurnAcc.featureCount,
+      summary: streamTurnAcc.answerText.slice(0, 150),
+    })
   }
 )
 

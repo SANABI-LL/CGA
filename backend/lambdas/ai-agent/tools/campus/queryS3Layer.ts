@@ -9,19 +9,56 @@ const s3 = new S3Client({
 import { getBucket } from './config'
 
 const S3_LAYER_FILES: Record<string, string> = {
+  // Core layers
   buildings: 'layers/buildings.geojson',
   dining: 'layers/Cafe__Market__Restaurant_and_Dining_Hall.geojson',
   accessible: 'layers/all-gender-restrooms.geojson',
   leed_buildings: 'layers/leed-buildings.geojson',
   trees: 'layers/trees.geojson',
-  bike_racks: 'layers/bike_racks.geojson',
   parking: 'layers/parking.geojson',
+  bike_racks: 'layers/bike_racks.geojson',
+  // Campus amenities & furniture
+  emergency_phone: 'layers/emergency_phone.geojson',
+  trash_can: 'layers/trash_can.geojson',
+  benches: 'layers/benches.geojson',
+  seating: 'layers/seating.geojson',
+  public_arts: 'layers/public_arts.geojson',
+  green_roof: 'layers/green_roof.geojson',
+  // Accessibility
+  ada_route: 'layers/ada_route.geojson',
+  accessible_entrance: 'layers/accessible_public_entrance.geojson',
+  controlled_entrance: 'layers/accessible_controlled_access_entrance.geojson',
+  accessibility_info: 'layers/accessibility_information.geojson',
+  inaccessible_entrance: 'layers/inaccessible_main_entrance.geojson',
+  inaccessible_building: 'layers/inaccessible_building.geojson',
+  // Fire & safety
+  hydrant: 'layers/hydrant.geojson',
+  fire_escape: 'layers/fire_escape.geojson',
+  sprinkler: 'layers/sprinkler.geojson',
+  standpipe: 'layers/standpipe.geojson',
+  fire_lane: 'layers/fire_lane.geojson',
+  post_indicator_valve: 'layers/post_indicator_valve.geojson',
+  // Landmarks & heritage
+  landmark: 'layers/individual_landmark.geojson',
+  nrhp: 'layers/nrhp.geojson',
+  nhl: 'layers/nhl.geojson',
+  // Parking & transit
+  surface_parking: 'layers/surface_parking.geojson',
+  metra_station: 'layers/metrastations.geojson',
 }
 
 // Internal helper schema (not exposed as a model tool) — outFields stays for
 // in-process callers, but inputs are still clamped defensively.
 export const QueryS3LayerInputSchema = z.object({
-  layerName: z.enum(['buildings', 'dining', 'accessible', 'leed_buildings', 'trees', 'bike_racks', 'parking']),
+  layerName: z.enum([
+    'buildings', 'dining', 'accessible', 'leed_buildings', 'trees', 'bike_racks', 'parking',
+    'trash_can', 'benches', 'seating', 'public_arts', 'green_roof', 'emergency_phone',
+    'ada_route', 'accessible_entrance', 'controlled_entrance',
+    'accessibility_info', 'inaccessible_entrance', 'inaccessible_building',
+    'hydrant', 'fire_escape', 'sprinkler', 'standpipe', 'fire_lane', 'post_indicator_valve',
+    'landmark', 'nrhp', 'nhl',
+    'surface_parking', 'metra_station',
+  ]),
   whereClause: z.string().max(500).optional().describe('SQL-like WHERE clause (e.g., "DISCRIPT1 LIKE \'%Library%\'")'),
   maxResults: z.number().int().min(1).max(500).optional().default(100),
   returnGeometry: z.boolean().optional().default(true),
@@ -78,7 +115,11 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
     let features = geojson.features || []
 
     if (input.whereClause && input.whereClause !== '1=1') {
-      features = filterByWhereClause(features, input.whereClause)
+      const filtered = filterByWhereClause(features, input.whereClause)
+      if (filtered === null) {
+        return { error: `Unsupported filter: ${input.whereClause}` }
+      }
+      features = filtered
     }
 
     // 3. 限制结果数量
@@ -126,7 +167,7 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
  *
  * 不支持：复杂的 AND/OR、嵌套括号
  */
-function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): GeoJSONFeature[] {
+function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): GeoJSONFeature[] | null {
   const clause = whereClause.trim()
 
   // LIKE pattern: FIELD LIKE '%value%'
@@ -173,9 +214,10 @@ function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): G
     return features.filter(f => f.properties[field] != null && f.properties[field] !== '')
   }
 
-  // Fail-closed: unsupported clause returns empty so the model rewrites the condition
+  // Unsupported clause: return null so the caller can surface a structured error
+  // to the model instead of silently returning 0 or all features.
   console.warn(`Unsupported WHERE clause: ${clause}`)
-  return []
+  return null
 }
 
 /**
