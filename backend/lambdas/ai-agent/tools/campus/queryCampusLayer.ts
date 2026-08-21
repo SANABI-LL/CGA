@@ -17,6 +17,9 @@ export const QueryCampusLayerInputSchema = z.object({
     .describe('Search radius in meters when nearLocation is set (default 400)'),
   limit: z.number().int().min(1).max(200).optional().default(50)
     .describe('Max features to return (default 50)'),
+  sortBy: z.string().optional().describe('Property name to sort features by'),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
+  topN: z.number().int().min(1).max(200).optional().describe('Return only the top N after sorting'),
 }).strict()
 
 export type QueryCampusLayerInput = z.infer<typeof QueryCampusLayerInputSchema>
@@ -95,7 +98,24 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
     })
   }
 
-  const trimmed = features.slice(0, input.limit ?? 50)
+  let sorted = features
+  if (input.sortBy) {
+    const sk = input.sortBy
+    sorted = features
+      .map((f) => {
+        const v = f.properties[sk]
+        const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+        return { f, n: Number.isFinite(n) ? n : null }
+      })
+      .sort((a, b) => {
+        if (a.n === null && b.n === null) return 0
+        if (a.n === null) return 1
+        if (b.n === null) return -1
+        return input.sortOrder === 'asc' ? a.n - b.n : b.n - a.n
+      })
+      .map((x) => x.f)
+  }
+  const trimmed = sorted.slice(0, input.topN ?? input.limit ?? 50)
 
   return {
     type: 'FeatureCollection' as const,

@@ -44,6 +44,11 @@ export const QueryBuildingAttributesInputSchema = z.object({
   operator: z.enum(['>', '>=', '<', '<=', '=', 'contains']),
   value: z.union([z.number(), z.string().max(200)]),
   maxResults: z.number().int().min(1).max(400).optional().default(300),
+  sortBy: z.string().optional()
+    .describe('Numeric attribute to sort by, e.g. "FCI", "height", "year", "RI". Required for ranking questions.'),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+  topN: z.number().int().min(1).max(100).optional()
+    .describe('Return only the top N after sorting. Use for "top 3 / highest / lowest / oldest / newest" questions.'),
 }).strict()
 
 export type QueryBuildingAttributesInput = z.infer<typeof QueryBuildingAttributesInputSchema>
@@ -138,15 +143,31 @@ export async function queryBuildingAttributes(input: QueryBuildingAttributesInpu
       }
     })
 
-    // Sort by the filtered field (desc for >/>=, asc otherwise) so "top" answers read naturally
-    const dir = input.operator === '<' || input.operator === '<=' ? 1 : -1
-    matches.sort((a, b) => {
-      const av = parseFloat(String(a.properties[field]))
-      const bv = parseFloat(String(b.properties[field]))
-      return (Number.isNaN(av) ? 0 : av) > (Number.isNaN(bv) ? 0 : bv) ? dir : -dir
-    })
+    // Sort: explicit sortBy takes precedence; otherwise sort by the queried field.
+    // Missing values sort to the end — null-last, never treated as 0.
+    const sortField = input.sortBy
+      ? (resolveField(input.sortBy, buildings[0].properties) ?? input.sortBy)
+      : field
+    const sortDir = input.sortBy
+      ? (input.sortOrder === 'asc' ? 1 : -1)
+      : (input.operator === '<' || input.operator === '<=' ? 1 : -1)
+    const numVal = (f: BuildingFeature) => {
+      const v = f.properties[sortField]
+      const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+      return Number.isFinite(n) ? n : null
+    }
+    const ordered = matches
+      .map((f) => ({ f, n: numVal(f) }))
+      .sort((a, b) => {
+        if (a.n === null && b.n === null) return 0
+        if (a.n === null) return 1
+        if (b.n === null) return -1
+        return a.n < b.n ? -sortDir : a.n > b.n ? sortDir : 0
+      })
+      .map((x) => x.f)
 
-    const kept = matches.slice(0, input.maxResults)
+    const cap = input.topN ?? input.maxResults
+    const kept = ordered.slice(0, cap)
     const outFeatures = kept.map((f) => ({
       type: 'Feature' as const,
       geometry: f.geometry,
@@ -163,6 +184,8 @@ export async function queryBuildingAttributes(input: QueryBuildingAttributesInpu
       field,
       operator: input.operator,
       value: input.value,
+      sortedBy: input.sortBy ?? field,
+      sortOrder: input.sortBy ? input.sortOrder : (input.operator === '<' || input.operator === '<=' ? 'asc' : 'desc'),
       totalMatched: matches.length,
       returned: kept.length,
       topMatches: kept.slice(0, 12).map((f) => ({

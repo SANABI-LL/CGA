@@ -63,6 +63,9 @@ export const QueryS3LayerInputSchema = z.object({
   maxResults: z.number().int().min(1).max(500).optional().default(100),
   returnGeometry: z.boolean().optional().default(true),
   outFields: z.array(z.string()).optional().describe('Fields to return (default: all)'),
+  sortBy: z.string().optional().describe('Property name to sort results by'),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
+  topN: z.number().int().min(1).max(500).optional().describe('Return only the top N after sorting'),
 }).strict()
 
 export type QueryS3LayerInput = z.infer<typeof QueryS3LayerInputSchema>
@@ -122,9 +125,26 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
       features = filtered
     }
 
-    // 3. 限制结果数量
-    if (input.maxResults && features.length > input.maxResults) {
-      features = features.slice(0, input.maxResults)
+    // 3. Sort (if requested) then cap — missing values sort to end, never as 0
+    if (input.sortBy) {
+      const sk = input.sortBy
+      features = features
+        .map((f) => {
+          const v = f.properties[sk]
+          const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+          return { f, n: Number.isFinite(n) ? n : null }
+        })
+        .sort((a, b) => {
+          if (a.n === null && b.n === null) return 0
+          if (a.n === null) return 1
+          if (b.n === null) return -1
+          return input.sortOrder === 'asc' ? a.n - b.n : b.n - a.n
+        })
+        .map((x) => x.f)
+    }
+    const cap = input.topN ?? input.maxResults
+    if (cap && features.length > cap) {
+      features = features.slice(0, cap)
     }
 
     // 4. 字段选择

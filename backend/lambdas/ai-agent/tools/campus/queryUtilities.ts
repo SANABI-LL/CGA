@@ -87,6 +87,8 @@ export const QueryUtilitiesInputSchema = z.object({
     .describe('Named campus location or "lat,lng" — limits results to a radius around it'),
   radiusMeters: z.number().min(1).max(2000).optional().default(150),
   maxResults: z.number().int().min(1).max(500).optional().default(300),
+  topN: z.number().int().min(1).max(100).optional()
+    .describe('Return only the top N features after sorting (by distance when nearLocation is set).'),
 }).strict()
 
 export type QueryUtilitiesInput = z.infer<typeof QueryUtilitiesInputSchema>
@@ -331,8 +333,8 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
     }
 
     const totalMatched = selected.length
-    if (center) selected.sort((a, b) => a.distance! - b.distance!)
-    selected = selected.slice(0, input.maxResults)
+    if (center) selected.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))
+    selected = selected.slice(0, input.topN ?? input.maxResults)
 
     const outFeatures = selected.flatMap(({ layer, feature, distance }) => {
       let geometry = feature.geometry

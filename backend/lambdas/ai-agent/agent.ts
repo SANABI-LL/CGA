@@ -156,7 +156,7 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'query_building_attributes',
       description:
-        'Filter campus buildings by a numeric or text attribute and map the matches. Use for building METRICS: RI (resilience index, 0-1.2), FCI (facility condition index), height (ft), year opened/completed, area, use type, ownership. Example: buildings with RI above 0.52 → field "RI", operator ">", value 0.52. This is layer data — never answer these from planning documents.',
+        'Filter campus buildings by a numeric or text attribute and map the matches. Use for building METRICS: RI (resilience index, 0-1.2), FCI (facility condition index), height (ft), year opened/completed, area, use type, ownership. Example: buildings with RI above 0.52 → field "RI", operator ">", value 0.52. This is layer data — never answer these from planning documents. IMPORTANT: for ranking questions ("top 3 highest FCI", "tallest buildings", "oldest"), you MUST pass sortBy + sortOrder + topN — the map renders exactly the features this tool returns, so omitting them shows ALL matching buildings instead of the ranked subset.',
       inputSchema: {
         json: {
           type: 'object',
@@ -168,6 +168,9 @@ const CAMPUS_TOOLS: Tool[] = [
             operator: { type: 'string', enum: ['>', '>=', '<', '<=', '=', 'contains'] },
             value: { description: 'Number for metric comparisons, string for contains/=' },
             maxResults: { type: 'number', default: 300 },
+            sortBy: { type: 'string', description: 'Numeric field to sort by (e.g. "FCI", "height", "year", "RI"). Required for ranking questions.' },
+            sortOrder: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
+            topN: { type: 'number', description: 'Return only the top N features after sorting. Use for "top 3 / highest / lowest / oldest / newest" questions.' },
           },
           required: ['field', 'operator', 'value'],
         },
