@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="assets/fonts/gotham.css">
+  <link rel="stylesheet" href="assets/ds-tokens.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="backend-config.local.js"></script>
+  <script src="_ds/campusgeo-uchicago-ai-geo-agent-design-s-eaeaa8e8-9f71-4b29-ad3a-396d97a7435e/_ds_bundle.js"></script>
+  <style>
+    body { margin: 0;
+      --ns-bg-base: #251215;
+      --ns-bg-grad: linear-gradient(180deg, #2B1417 0%, #221114 55%, #1E1013 100%);
+      --ns-fg: #F5F1EA; --ns-fg-body: #BFAFA8; --ns-fg-muted: #97867F; --ns-fg-faint: #715F5A;
+      --ns-hair: rgba(245,241,234,0.10); --ns-hair-soft: rgba(245,241,234,0.065);
+      --ns-tile: rgba(245,241,234,0.028); --ns-tile-hover: rgba(245,241,234,0.05);
+      --ns-accent: #D2A055; --ns-accent-line: rgba(210,160,85,0.5); --ns-accent-bd-h: rgba(210,160,85,0.4);
+      --ns-glow1: rgba(150,20,30,0.42); --ns-glow2: rgba(196,144,58,0.14);
+      --ns-grid: rgba(240,237,232,0.028); --ns-noise: 0.03;
+      --ns-input-bg: rgba(38,21,24,0.88);
+      --ns-frame: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.03) 60%);
+      --ns-input-shadow: 0 30px 70px rgba(10,5,6,0.5), 0 6px 20px rgba(10,5,6,0.38), 0 0 90px rgba(150,20,30,0.16);
+      --ns-kbd-bd: rgba(245,241,234,0.1); --ns-kbd-bg: rgba(245,241,234,0.03);
+      --ns-chip-bg: rgba(245,241,234,0.03); --ns-chip-fg: #B3A49D; --ns-chip-fg-h: #F0EDE8;
+      --ns-card-inset: inset 0 1px 0 rgba(255,255,255,0.045); --ns-num: #64524C;
+      --ns-status: #9BB8A5; --ns-status-dot: #3A9970; --ns-status-glow: rgba(58,153,112,0.8);
+      --ns-icon: #B9B0A2; --ns-belldot: #D4A84E; --ns-belldot-glow: rgba(212,168,78,0.9);
+      --ns-footer: #6E5C56; --ns-dot: #4A3A36;
+      --ns-g1: #F5F1EA; --ns-g2: #E4BC78; --ns-g3: #D96060;
+      --ns-contour: rgba(185,176,162,0.072); --ns-marg: rgba(196,178,160,0.16); --ns-survey: rgba(210,160,85,0.45);
+      --ns-shield-white: block; --ns-shield-maroon: none;
+      --ns-link: #D4A84E; --ns-link-h: #E4BC78; --ns-ph: #7A6862;
+      background: var(--ns-bg-base);
+    }
+    @media (prefers-color-scheme: light) { body {
+      --ns-bg-base: #F5F0E8;
+      --ns-bg-grad: linear-gradient(180deg, #F9F5ED 0%, #F4EEE3 100%);
+      --ns-fg: #2A2218; --ns-fg-body: #6B5F52; --ns-fg-muted: #8C8070; --ns-fg-faint: #B5ADA0;
+      --ns-hair: rgba(42,34,24,0.14); --ns-hair-soft: rgba(42,34,24,0.09);
+      --ns-tile: rgba(255,255,255,0.55); --ns-tile-hover: rgba(255,255,255,0.85);
+      --ns-accent: #9A6F28; --ns-accent-line: rgba(154,111,40,0.5); --ns-accent-bd-h: rgba(154,111,40,0.5);
+      --ns-glow1: rgba(128,0,0,0.10); --ns-glow2: rgba(196,144,58,0.13);
+      --ns-grid: rgba(42,34,24,0.038); --ns-noise: 0.02;
+      --ns-input-bg: rgba(250,247,242,0.92);
+      --ns-frame: linear-gradient(180deg, rgba(42,34,24,0.15), rgba(42,34,24,0.05) 60%);
+      --ns-input-shadow: 0 24px 55px rgba(42,34,24,0.14), 0 4px 14px rgba(42,34,24,0.08), 0 0 70px rgba(128,0,0,0.06);
+      --ns-kbd-bd: rgba(42,34,24,0.13); --ns-kbd-bg: rgba(42,34,24,0.03);
+      --ns-chip-bg: rgba(255,255,255,0.6); --ns-chip-fg: #6B5F52; --ns-chip-fg-h: #2A2218;
+      --ns-card-inset: inset 0 1px 0 rgba(255,255,255,0.9); --ns-num: #C9BFAF;
+      --ns-status: #2E7D52; --ns-status-dot: #2E7D52; --ns-status-glow: rgba(46,125,82,0.4);
+      --ns-icon: #5A5046; --ns-belldot: #B07830; --ns-belldot-glow: rgba(176,120,48,0.5);
+      --ns-footer: #A89B88; --ns-dot: #C0B5A5;
+      --ns-g1: #680000; --ns-g2: #A31212; --ns-g3: #B07830;
+      --ns-contour: rgba(90,80,70,0.13); --ns-marg: rgba(90,80,70,0.30); --ns-survey: rgba(154,111,40,0.55);
+      --ns-shield-white: none; --ns-shield-maroon: block;
+      --ns-link: #800000; --ns-link-h: #4A0000; --ns-ph: #B5ADA0;
+    } }
+    [data-theme-force="dark"] {
+      --ns-bg-base: #251215;
+      --ns-bg-grad: linear-gradient(180deg, #2B1417 0%, #221114 55%, #1E1013 100%);
+      --ns-fg: #F5F1EA; --ns-fg-body: #BFAFA8; --ns-fg-muted: #97867F; --ns-fg-faint: #715F5A;
+      --ns-hair: rgba(245,241,234,0.10); --ns-hair-soft: rgba(245,241,234,0.065);
+      --ns-tile: rgba(245,241,234,0.028); --ns-tile-hover: rgba(245,241,234,0.05);
+      --ns-accent: #D2A055; --ns-accent-line: rgba(210,160,85,0.5); --ns-accent-bd-h: rgba(210,160,85,0.4);
+      --ns-glow1: rgba(150,20,30,0.42); --ns-glow2: rgba(196,144,58,0.14);
+      --ns-grid: rgba(240,237,232,0.028); --ns-noise: 0.03;
+      --ns-input-bg: rgba(38,21,24,0.88);
+      --ns-frame: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.03) 60%);
+      --ns-input-shadow: 0 30px 70px rgba(10,5,6,0.5), 0 6px 20px rgba(10,5,6,0.38), 0 0 90px rgba(150,20,30,0.16);
+      --ns-kbd-bd: rgba(245,241,234,0.1); --ns-kbd-bg: rgba(245,241,234,0.03);
+      --ns-chip-bg: rgba(245,241,234,0.03); --ns-chip-fg: #B3A49D; --ns-chip-fg-h: #F0EDE8;
+      --ns-card-inset: inset 0 1px 0 rgba(255,255,255,0.045); --ns-num: #64524C;
+      --ns-status: #9BB8A5; --ns-status-dot: #3A9970; --ns-status-glow: rgba(58,153,112,0.8);
+      --ns-icon: #B9B0A2; --ns-belldot: #D4A84E; --ns-belldot-glow: rgba(212,168,78,0.9);
+      --ns-footer: #6E5C56; --ns-dot: #4A3A36;
+      --ns-g1: #F5F1EA; --ns-g2: #E4BC78; --ns-g3: #D96060;
+      --ns-contour: rgba(185,176,162,0.072); --ns-marg: rgba(196,178,160,0.16); --ns-survey: rgba(210,160,85,0.45);
+      --ns-shield-white: block; --ns-shield-maroon: none;
+      --ns-link: #D4A84E; --ns-link-h: #E4BC78; --ns-ph: #7A6862;
+    }
+    [data-theme-force="light"] {
+      --ns-bg-base: #F5F0E8;
+      --ns-bg-grad: linear-gradient(180deg, #F9F5ED 0%, #F4EEE3 100%);
+      --ns-fg: #2A2218; --ns-fg-body: #6B5F52; --ns-fg-muted: #8C8070; --ns-fg-faint: #B5ADA0;
+      --ns-hair: rgba(42,34,24,0.14); --ns-hair-soft: rgba(42,34,24,0.09);
+      --ns-tile: rgba(255,255,255,0.55); --ns-tile-hover: rgba(255,255,255,0.85);
+      --ns-accent: #9A6F28; --ns-accent-line: rgba(154,111,40,0.5); --ns-accent-bd-h: rgba(154,111,40,0.5);
+      --ns-glow1: rgba(128,0,0,0.10); --ns-glow2: rgba(196,144,58,0.13);
+      --ns-grid: rgba(42,34,24,0.038); --ns-noise: 0.02;
+      --ns-input-bg: rgba(250,247,242,0.92);
+      --ns-frame: linear-gradient(180deg, rgba(42,34,24,0.15), rgba(42,34,24,0.05) 60%);
+      --ns-input-shadow: 0 24px 55px rgba(42,34,24,0.14), 0 4px 14px rgba(42,34,24,0.08), 0 0 70px rgba(128,0,0,0.06);
+      --ns-kbd-bd: rgba(42,34,24,0.13); --ns-kbd-bg: rgba(42,34,24,0.03);
+      --ns-chip-bg: rgba(255,255,255,0.6); --ns-chip-fg: #6B5F52; --ns-chip-fg-h: #2A2218;
+      --ns-card-inset: inset 0 1px 0 rgba(255,255,255,0.9); --ns-num: #C9BFAF;
+      --ns-status: #2E7D52; --ns-status-dot: #2E7D52; --ns-status-glow: rgba(46,125,82,0.4);
+      --ns-icon: #5A5046; --ns-belldot: #B07830; --ns-belldot-glow: rgba(176,120,48,0.5);
+      --ns-footer: #A89B88; --ns-dot: #C0B5A5;
+      --ns-g1: #680000; --ns-g2: #A31212; --ns-g3: #B07830;
+      --ns-contour: rgba(90,80,70,0.13); --ns-marg: rgba(90,80,70,0.30); --ns-survey: rgba(154,111,40,0.55);
+      --ns-shield-white: none; --ns-shield-maroon: block;
+      --ns-link: #800000; --ns-link-h: #4A0000; --ns-ph: #B5ADA0;
+    }
+    a { color: var(--ns-link); text-decoration: none; }
+    a:hover { color: var(--ns-link-h); }
+    ::placeholder { color: var(--ns-ph); }
+    ::selection { background: rgba(196,144,58,0.3); }
+    @keyframes nsUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes nsPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+    @keyframes nsDash { to { stroke-dashoffset: -22; } }
+    @keyframes nsSandA { 0% { stroke-dashoffset: 0; } 38% { stroke-dashoffset: -96; } 52% { stroke-dashoffset: -118; } 100% { stroke-dashoffset: -260; } }
+    @keyframes nsRise { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes nsSweep { 0% { transform: translateY(-100%); } 100% { transform: translateY(400%); } }
+    @keyframes nsSandB { 0% { stroke-dashoffset: 0; } 44% { stroke-dashoffset: -78; } 61% { stroke-dashoffset: -142; } 100% { stroke-dashoffset: -224; } }
+    @keyframes nsSandC { 0% { stroke-dashoffset: 0; } 29% { stroke-dashoffset: -104; } 67% { stroke-dashoffset: -150; } 100% { stroke-dashoffset: -288; } }
+    @keyframes nsGlow { 0%,100% { opacity: 0.55; transform: translate(0,0) scale(1); } 50% { opacity: 0.8; transform: translate(2%,3%) scale(1.05); } }
+    @keyframes dgW1 { 0%, 22% { opacity: 1; } 28%, 100% { opacity: 0; } }
+    @keyframes dgW2 { 0%, 22% { opacity: 0; } 28%, 47% { opacity: 1; } 53%, 100% { opacity: 0; } }
+    @keyframes dgW3 { 0%, 47% { opacity: 0; } 53%, 72% { opacity: 1; } 78%, 100% { opacity: 0; } }
+    @keyframes dgW4 { 0%, 72% { opacity: 0; } 78%, 97% { opacity: 1; } 100% { opacity: 0; } }
+    @keyframes dgType { 0%, 2% { max-width: 0; } 18%, 24% { max-width: 160px; } 27%, 100% { max-width: 0; } }
+    @keyframes dgCaret { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+    @keyframes dgLayer { 0%, 26% { transform: skewX(-28deg) translateY(0); border-color: var(--ns-hair); box-shadow: none; } 32%, 46% { transform: skewX(-28deg) translateY(-4px); border-color: var(--ns-accent); box-shadow: 0 0 12px rgba(196,144,58,0.35); } 52%, 100% { transform: skewX(-28deg) translateY(0); border-color: var(--ns-hair); box-shadow: none; } }
+    @keyframes dgScan { 0%, 27% { top: 12%; opacity: 0; } 30% { opacity: 0.8; } 44% { top: 82%; opacity: 0.8; } 47%, 100% { top: 82%; opacity: 0; } }
+    @keyframes dgDotA { 0%, 52% { transform: scale(0); } 55% { transform: scale(1.35); } 57%, 74% { transform: scale(1); } 79%, 100% { transform: scale(0); } }
+    @keyframes dgDotB { 0%, 56% { transform: scale(0); } 59% { transform: scale(1.35); } 61%, 74% { transform: scale(1); } 79%, 100% { transform: scale(0); } }
+    @keyframes dgDotC { 0%, 60% { transform: scale(0); } 63% { transform: scale(1.35); } 65%, 74% { transform: scale(1); } 79%, 100% { transform: scale(0); } }
+    @keyframes dgRing { 0%, 50% { stroke-dashoffset: 100; opacity: 0; } 52% { opacity: 0.7; } 68%, 74% { stroke-dashoffset: 0; opacity: 0.7; } 79%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+    @keyframes dgSheet { 0%, 75% { transform: translateY(22px); opacity: 0; } 81%, 97% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(0); opacity: 0; } }
+    @keyframes dgCheck { 0%, 80% { transform: scale(0); } 88% { transform: scale(1.3); } 91%, 97% { transform: scale(1); } 100% { transform: scale(0); } }
+    @keyframes dgPdfScan { 0%, 68% { top: 8%; opacity: 0; } 72% { opacity: 0.9; } 86% { top: 85%; opacity: 0.9; } 90%, 100% { top: 85%; opacity: 0; } }
+    @keyframes dgProg { 0% { transform: translateX(0); } 100% { transform: translateX(300%); } }
+  </style>
+</helmet>
+<div data-theme-force="{{ themeForce }}" style="min-height: 100vh; position: relative; font-family: 'Gotham', 'Plus Jakarta Sans', sans-serif; color: var(--ns-fg); background: var(--ns-bg-grad); transition: background 0.3s ease, color 0.3s ease">
+  <div style="position: absolute; inset: 0; overflow: hidden;">
+  <div style="position: absolute; inset: 0; background: repeating-linear-gradient(0deg, var(--ns-grid) 0 1px, transparent 1px 80px), repeating-linear-gradient(90deg, var(--ns-grid) 0 1px, transparent 1px 80px); mask-image: radial-gradient(140% 100% at 50% 0%, #000 30%, transparent 78%); -webkit-mask-image: radial-gradient(140% 100% at 50% 0%, #000 30%, transparent 78%); pointer-events: none"></div>
+  <div style="position: absolute; top: -340px; left: -220px; width: 940px; height: 780px; background: radial-gradient(closest-side, var(--ns-glow1), transparent 72%); filter: blur(20px); animation: nsGlow 11s ease-in-out infinite; pointer-events: none;"></div>
+  <div style="position: absolute; bottom: -300px; right: -200px; width: 820px; height: 680px; background: radial-gradient(closest-side, var(--ns-glow2), transparent 72%); filter: blur(20px); animation: nsGlow 13s ease-in-out infinite reverse; pointer-events: none"></div>
+  <div style="position: absolute; inset: 0; opacity: var(--ns-noise); pointer-events: none; background-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxNjAnIGhlaWdodD0nMTYwJz48ZmlsdGVyIGlkPSduJz48ZmVUdXJidWxlbmNlIHR5cGU9J2ZyYWN0YWxOb2lzZScgYmFzZUZyZXF1ZW5jeT0nMC45JyBudW1PY3RhdmVzPScyJy8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9JzE2MCcgaGVpZ2h0PScxNjAnIGZpbHRlcj0ndXJsKCNuKScvPjwvc3ZnPg==&quot;)"></div>
+  <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; left: -29px; top: -16px">
+    <g fill="none" stroke-linecap="round" style="stroke: var(--ns-contour); opacity: 1">
+      <path d="M-60 250 C 240 170, 460 300, 740 235 S 1240 150, 1500 245" stroke-width="1.1" stroke-dasharray="3 10" style="opacity: 1.3; animation: nsSandA 24s cubic-bezier(0.45,0.05,0.55,0.95) infinite;"></path>
+      <path d="M-60 348 C 250 268, 470 396, 752 336 S 1252 262, 1500 352" stroke-width="0.85" stroke-dasharray="2 14" style="opacity: 0.95; animation: nsSandB 41s cubic-bezier(0.5,0.1,0.5,0.9) infinite reverse;"></path>
+      <path d="M-60 370 C 260 280, 480 420, 760 355 S 1260 275, 1500 370" stroke-width="1.3" stroke-dasharray="5 9" style="opacity: 1.55; animation: nsSandB 31s cubic-bezier(0.5,0.1,0.5,0.9) infinite;"></path>
+      <path d="M-60 520 C 280 420, 500 570, 780 505 S 1280 425, 1500 520" stroke-width="1" stroke-dasharray="4 13" style="opacity: 1.15; animation: nsSandC 36s cubic-bezier(0.4,0.1,0.6,0.9) infinite;"></path>
+      <path d="M-60 604 C 292 502, 512 652, 792 588 S 1300 508, 1500 602" stroke-width="0.8" stroke-dasharray="2 16" style="opacity: 0.85; animation: nsSandA 52s cubic-bezier(0.45,0.05,0.55,0.95) infinite reverse;"></path>
+      <path d="M-60 690 C 300 580, 520 730, 800 670 S 1320 590, 1500 690" stroke-width="1.45" stroke-dasharray="6 10" style="opacity: 1.7; animation: nsSandC 45s cubic-bezier(0.4,0.1,0.6,0.9) infinite reverse;"></path>
+    </g>
+    <path d="M390 170 L350 500 L620 810 L1080 640 L1060 180" fill="none" stroke-width="1" stroke-dasharray="2 8" stroke-linecap="round" style="stroke: var(--ns-survey); opacity: 0.35; animation: nsDash 4.5s linear infinite; display: none"></path>
+    <g font-family="Gotham, sans-serif" font-size="9" letter-spacing="1.5" style="fill: var(--ns-accent)">
+      <g style="opacity: 0.45; pointer-events: auto; transition: opacity 0.25s ease" style-hover="opacity: 0.9;"><g transform="translate(390,170)"><path d="M-4 0 H4 M0 -4 V4" fill="none" style="stroke: var(--ns-survey);"></path><text x="11" y="3.5">REGENSTEIN LIBRARY</text></g></g>
+      <g style="opacity: 0.45; pointer-events: auto; transition: opacity 0.25s ease;" style-hover="opacity: 0.9;"><g transform="translate(350,500)"><path d="M-4 0 H4 M0 -4 V4" fill="none" style="stroke: var(--ns-survey);"></path><text x="11" y="3.5">BOTANY POND</text></g></g>
+      
+      <g style="opacity: 0.45; pointer-events: auto; transition: opacity 0.25s ease" style-hover="opacity: 0.9;"></g><g style="opacity: 0.45; pointer-events: auto; transition: opacity 0.25s ease; position: sticky; top: 1px; left: 10px; z-index: 5; height: 100%; display: none" style-hover="opacity: 0.9;"><g transform="translate(620,810)"><path d="M-4 0 H4 M0 -4 V4" fill="none" style="stroke: var(--ns-survey)"></path><text x="11" y="3.5">MIDWAY PLAISANCE</text></g></g>
+      <g style="opacity: 0.45; pointer-events: auto; transition: opacity 0.25s ease" style-hover="opacity: 0.9;"><g transform="translate(1060,180)"><path d="M-4 0 H4 M0 -4 V4" fill="none" style="stroke: var(--ns-survey);"></path><text x="-11" y="3.5" text-anchor="end">MAIN QUADRANGLES</text></g></g>
+    </g>
+  </svg>
+
+  </div>
+
+  <header style="position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 26px 40px; animation: nsUp 0.9s cubic-bezier(0.16,1,0.3,1) both;">
+    <div style="display: flex; align-items: center; gap: 13px;">
+      <img src="assets/shield-white.png" alt="University of Chicago shield" style="height: 62px; width: auto; display: var(--ns-shield-white);">
+      <img src="assets/shield.png" alt="University of Chicago shield" style="height: 62px; width: 51px; display: var(--ns-shield-maroon)">
+      <div>
+        <div style="font-size: 20px; font-weight: 700; letter-spacing: 0.01em; line-height: 1; color: var(--ns-fg)">CampusGeo</div>
+        <div style="font-size: 12px; font-weight: 500; letter-spacing: 0.3em; color: var(--ns-fg-faint); margin-top: 4px">UNIVERSITY OF CHICAGO</div>
+      </div>
+    </div>
+    <nav style="display: flex; align-items: center; gap: 30px;">
+      
+      
+      
+      <span style="width: 1px; height: 16px; background: var(--ns-hair);"></span>
+      
+      <button style="position: relative; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--ns-hair-soft); background: var(--ns-tile); cursor: pointer; display: grid; place-items: center; transition: border-color 0.15s ease, background 0.15s ease;" style-hover="border-color: var(--ns-hair); background: var(--ns-tile-hover);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="stroke: var(--ns-icon);"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg>
+        <span style="position: absolute; top: 7px; right: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--ns-belldot); box-shadow: 0 0 6px var(--ns-belldot-glow);"></span>
+      </button>
+    </nav>
+  </header>
+
+  <main style="position: relative; z-index: 2; max-width: 820px; margin: 0 auto; padding: 88px 32px 0; text-align: center;">
+    <div style="display: inline-flex; align-items: center; gap: 14px; margin-bottom: 30px; animation: nsUp 0.9s cubic-bezier(0.16,1,0.3,1) 0.08s both;">
+      <span style="width: 36px; height: 1px; background: linear-gradient(90deg, transparent, var(--ns-accent-line));"></span>
+      <span style="font-size: 14px; font-weight: 500; letter-spacing: 0.32em; color: var(--ns-accent)">CAMPUS AI AGENT</span>
+      <span style="width: 36px; height: 1px; background: linear-gradient(90deg, var(--ns-accent-line), transparent);"></span>
+    </div>
+    <h1 style="font-family: 'Gotham', 'Plus Jakarta Sans', sans-serif; font-size: 62px; font-weight: 500; line-height: 1.06; letter-spacing: -0.028em; margin: 0 0 24px; color: var(--ns-fg); text-wrap: balance; animation: nsUp 0.9s cubic-bezier(0.16,1,0.3,1) 0.16s both;">The whole campus,<br><span style="background: linear-gradient(115deg, var(--ns-g1) 12%, var(--ns-g2) 52%, var(--ns-g3) 95%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">one question away.</span></h1>
+    <p style="font-family: 'Gotham', 'Plus Jakarta Sans', sans-serif; font-size: 15px; font-weight: 400; line-height: 1.75; letter-spacing: 0.005em; color: var(--ns-fg-body); max-width: 500px; margin: 0 auto; animation: nsUp 0.9s cubic-bezier(0.16,1,0.3,1) 0.24s both;">Ask in plain language. CampusGeo finds the right campus layer, reads its data, and builds a map or print-ready sheet for you.</p>
+
+    <div style="margin: 44px auto 0; max-width: 680px; padding: 1px; border-radius: 17px; background: var(--ns-frame); box-shadow: var(--ns-input-shadow); animation: nsUp 0.9s cubic-bezier(0.16,1,0.3,1) 0.32s both;">
+      <div style="display: flex; align-items: center; gap: 12px; background: var(--ns-input-bg); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); border-radius: 16px; padding: 9px 9px 9px 20px; text-align: left;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5" stroke-width="1.3" opacity="0.7" style="stroke: var(--ns-accent);"></circle><polygon points="12,6 14,12 12,10.9 10,12" style="fill: var(--ns-accent);"></polygon><polygon points="12,18 10,12 12,13.1 14,12" opacity="0.45" style="fill: var(--ns-accent);"></polygon></svg>
+        <input type="text" value="{{ queryText }}" onChange="{{ onQueryInput }}" onKeyDown="{{ onKeyDown }}" placeholder="Ask anything about campus!" style="flex: 1; border: none; outline: none; background: transparent; font-family: 'Gotham', sans-serif; font-size: 14.5px; font-weight: 400; letter-spacing: 0.005em; color: var(--ns-fg); min-width: 0; height: 44px;">
+        
+        <button onClick="{{ onAsk }}" style="display: flex; align-items: center; gap: 9px; font-family: 'Gotham', sans-serif; font-size: 13.5px; font-weight: 500; letter-spacing: 0.02em; color: #fff; background: linear-gradient(180deg, #A31212, #6E0000); border: none; border-radius: 11px; padding: 0 22px; height: 44px; cursor: pointer; box-shadow: 0 8px 28px rgba(150,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.25); transition: filter 0.15s ease, transform 0.15s ease;" style-hover="filter: brightness(1.15);" style-active="transform: scale(0.97);">Ask
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+        </button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin-top: 22px; animation: nsUp 0.9s cubic-bezier(0.16,1,0.3,1) 0.4s both;">
+      <button onClick="{{ askBikeRacks }}" style="display: flex; align-items: center; gap: 8px; font-family: 'Gotham', sans-serif; font-size: 12px; font-weight: 400; letter-spacing: 0.015em; color: var(--ns-chip-fg); background: var(--ns-chip-bg); border: 1px solid var(--ns-hair-soft); border-radius: 999px; padding: 9px 16px; cursor: pointer; transition: all 0.18s ease;" style-hover="border-color: var(--ns-accent-bd-h); color: var(--ns-chip-fg-h); background: var(--ns-tile-hover); transform: translateY(-1px);">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" style="stroke: var(--ns-accent);"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
+        Bike racks near Regenstein Library</button>
+      <button onClick="{{ askBuildings }}" style="display: flex; align-items: center; gap: 8px; font-family: 'Gotham', sans-serif; font-size: 12px; font-weight: 400; letter-spacing: 0.015em; color: var(--ns-chip-fg); background: var(--ns-chip-bg); border: 1px solid var(--ns-hair-soft); border-radius: 999px; padding: 9px 16px; cursor: pointer; transition: all 0.18s ease;" style-hover="border-color: var(--ns-accent-bd-h); color: var(--ns-chip-fg-h); background: var(--ns-tile-hover); transform: translateY(-1px);">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="stroke: var(--ns-accent);"><rect x="4" y="3" width="16" height="18" rx="1"></rect><path d="M9 21v-5h6v5"></path></svg>
+        Buildings constructed before 1930</button>
+      <button onClick="{{ askTrees }}" style="display: flex; align-items: center; gap: 8px; font-family: 'Gotham', sans-serif; font-size: 12px; font-weight: 400; letter-spacing: 0.015em; color: var(--ns-chip-fg); background: var(--ns-chip-bg); border: 1px solid var(--ns-hair-soft); border-radius: 999px; padding: 9px 16px; cursor: pointer; transition: all 0.18s ease;" style-hover="border-color: var(--ns-accent-bd-h); color: var(--ns-chip-fg-h); background: var(--ns-tile-hover); transform: translateY(-1px);">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="stroke: var(--ns-accent);"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"></path></svg>
+        Trees planted near the Quad</button>
+    </div>
+
+    <sc-if value="{{ showResult }}" hint-placeholder-val="{{ false }}">
+    <div style="margin: 30px auto 0; max-width: 1180px; text-align: left; display: grid; grid-template-columns: {{ resultCols }}; gap: 16px; align-items: start;">
+      <div style="background: var(--ns-tile); border: 1px solid var(--ns-hair-soft); border-radius: 16px; padding: 24px 28px 26px; box-shadow: var(--ns-card-inset); min-height: 300px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--ns-hair-soft); margin-bottom: 18px;">
+          <div style="font-size: 13.5px; font-weight: 500; line-height: 1.5; color: var(--ns-fg);">{{ askedText }}</div>
+          <div style="flex-shrink: 0; font-size: 9.5px; font-weight: 500; letter-spacing: 0.16em; color: var(--ns-fg-faint);">{{ statusLabel }}</div>
+        </div>
+        <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 13px;">
+            <sc-for list="{{ stages }}" as="stage" hint-placeholder-count="3">
+              <div style="display: flex; align-items: center; gap: 11px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: {{ stage.dot }}; animation: {{ stage.anim }};"></span>
+                <span style="font-size: 13px; letter-spacing: 0.01em; color: {{ stage.color }};">{{ stage.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ errorText }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size: 13.5px; line-height: 1.6; color: #C43030;">{{ errorText }}</div>
+        </sc-if>
+        <sc-if value="{{ answerBlocks }}" hint-placeholder-val="{{ false }}">
+          <div style="font-size: 14px; line-height: 1.72; color: var(--ns-fg-body);">{{ answerBlocks }}</div>
+        </sc-if>
+      </div>
+      <sc-if value="{{ showMap }}" hint-placeholder-val="{{ false }}">
+      <div style="position: {{ mapWrapPos }}; inset: {{ mapWrapInset }}; top: {{ mapWrapTop }}; z-index: {{ mapWrapZ }};">
+        <div style="display: flex; flex-direction: column; height: {{ mapCardH }}; background: var(--ns-tile); border: 1px solid var(--ns-hair-soft); border-radius: 16px; box-shadow: var(--ns-card-inset), {{ mapCardLift }}; overflow: hidden;">
+          <div style="flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px 11px 16px; border-bottom: 1px solid var(--ns-hair-soft);">
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 9.5px; font-weight: 500; letter-spacing: 0.16em; color: var(--ns-fg-muted); min-width: 0;">
+              <span style="width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; background: var(--ns-accent);"></span>
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ mapBadge }}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 5px; flex-shrink: 0;">
+              <button onClick="{{ exportPdf }}" aria-label="Export map and data as PDF" title="Export PDF" style="width: 27px; height: 27px; display: grid; place-items: center; border-radius: 7px; border: 1px solid var(--ns-hair-soft); background: transparent; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;" style-hover="background: var(--ns-tile-hover); border-color: var(--ns-hair);">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="stroke: var(--ns-fg-muted);"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+              </button>
+              <button onClick="{{ toggleFullscreen }}" aria-label="Toggle full screen" title="{{ fullscreenTitle }}" style="width: 27px; height: 27px; display: grid; place-items: center; border-radius: 7px; border: 1px solid var(--ns-hair-soft); background: transparent; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;" style-hover="background: var(--ns-tile-hover); border-color: var(--ns-hair);">
+                <sc-if value="{{ isFullscreen }}" hint-placeholder-val="{{ false }}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="stroke: var(--ns-fg-muted);"><path d="M9 3H5a2 2 0 0 0-2 2v4"></path><path d="M15 3h4a2 2 0 0 1 2 2v4"></path><path d="M21 15v4a2 2 0 0 1-2 2h-4"></path><path d="M3 15v4a2 2 0 0 0 2 2h4"></path></svg>
+                </sc-if>
+                <sc-if value="{{ notFullscreen }}" hint-placeholder-val="{{ true }}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="stroke: var(--ns-fg-muted);"><path d="M3 9V5a2 2 0 0 1 2-2h4"></path><path d="M21 9V5a2 2 0 0 0-2-2h-4"></path><path d="M15 21h4a2 2 0 0 0 2-2v-4"></path><path d="M9 21H5a2 2 0 0 1-2-2v-4"></path></svg>
+                </sc-if>
+              </button>
+              <button onClick="{{ toggleCollapse }}" aria-label="Collapse or expand the map" title="{{ collapseTitle }}" style="width: 27px; height: 27px; display: grid; place-items: center; border-radius: 7px; border: 1px solid var(--ns-hair-soft); background: transparent; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;" style-hover="background: var(--ns-tile-hover); border-color: var(--ns-hair);">
+                <sc-if value="{{ mapExpanded }}" hint-placeholder-val="{{ true }}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="stroke: var(--ns-fg-muted);"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                </sc-if>
+                <sc-if value="{{ mapCollapsed }}" hint-placeholder-val="{{ false }}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="stroke: var(--ns-fg-muted);"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </sc-if>
+              </button>
+            </div>
+          </div>
+          <div style="position: relative; flex: {{ mapBodyFlex }}; height: {{ mapBodyH }}; min-height: 0; overflow: hidden;">
+            <div ref="{{ mapRef }}" style="position: absolute; inset: 0;"></div>
+            <sc-if value="{{ showLegend }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; bottom: 14px; left: 16px; z-index: 2; background: var(--ns-input-bg); border: 1px solid var(--ns-hair-soft); border-radius: 10px; padding: 9px 12px 10px; pointer-events: none;">
+                <div style="font-size: 8.5px; font-weight: 500; letter-spacing: 0.18em; color: var(--ns-fg-faint); margin-bottom: 7px;">YEAR COMPLETED</div>
+                <div style="width: 132px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #3E6478, #6E8C86, #C4903A, #A31212);"></div>
+                <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 9.5px; font-weight: 500; letter-spacing: 0.06em; color: var(--ns-fg-muted);">
+                  <span>{{ yearMin }}</span><span>{{ yearMax }}</span>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ isExporting }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; inset: 0; z-index: 4; background: var(--ns-input-bg); display: grid; place-items: center; overflow: hidden;">
+                <div style="position: absolute; left: 0; right: 0; height: 90px; background: linear-gradient(180deg, transparent, rgba(196,144,58,0.16), transparent); animation: nsSweep 2.6s linear infinite;"></div>
+                <div style="position: relative; font-size: 10px; font-weight: 500; letter-spacing: 0.24em; color: var(--ns-fg-faint);">RENDERING PRINT SHEET</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; inset: 0; z-index: 3; background: var(--ns-input-bg); display: grid; place-items: center; overflow: hidden;">
+                <div style="position: absolute; left: 0; right: 0; height: 90px; background: linear-gradient(180deg, transparent, rgba(196,144,58,0.16), transparent); animation: nsSweep 2.6s linear infinite;"></div>
+                <div style="position: relative; font-size: 10px; font-weight: 500; letter-spacing: 0.24em; color: var(--ns-fg-faint);">READING CAMPUS LAYERS</div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+    </div>
+    <sc-if value="{{ isFullscreen }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ exitFullscreen }}" style="position: fixed; inset: 0; z-index: 85; background: rgba(20,10,12,0.55); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);"></div>
+    </sc-if>
+    </sc-if>
+  </main>
+
+  
+
+  <section style="position: relative; z-index: 2; max-width: 1060px; margin: 92px auto 0; padding: 0 32px 52px; animation: nsUp 0.9s cubic-bezier(0.16,1,0.3,1) 0.5s both">
+    <div style="display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 26px;">
+      <span style="width: 36px; height: 1px; background: linear-gradient(90deg, transparent, var(--ns-accent-line));"></span>
+      <span style="font-size: 12px; font-weight: 500; letter-spacing: 0.32em; color: var(--ns-accent)">HOW IT WORKS</span>
+      <span style="width: 36px; height: 1px; background: linear-gradient(90deg, var(--ns-accent-line), transparent);"></span>
+    </div>
+    <div style="height: 2px; border-radius: 999px; background: var(--ns-hair-soft); overflow: hidden; margin: 0 4px 18px;">
+      <div style="width: 25%; height: 100%; border-radius: 999px; background: linear-gradient(90deg, transparent, var(--ns-accent), transparent); animation: dgProg 8s linear infinite;"></div>
+    </div><div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px;">
+      <div style="position: relative; background: var(--ns-tile); border: 1px solid var(--ns-hair-soft); border-radius: 14px; padding: 16px 16px 20px; text-align: left; box-shadow: var(--ns-card-inset);">
+        <span style="position: absolute; inset: -1px; border: 1px solid var(--ns-accent-bd-h); border-radius: 14px; box-shadow: 0 0 26px rgba(196,144,58,0.1); pointer-events: none; animation: dgW1 8s linear infinite;"></span>
+        <span style="position: absolute; top: 16px; right: 16px; font-size: 10px; font-weight: 500; letter-spacing: 0.12em; color: var(--ns-num);">01</span>
+        <div style="height: 84px; border: 1px solid var(--ns-hair-soft); border-radius: 10px; background: var(--ns-kbd-bg); display: grid; place-items: center; margin-bottom: 16px; overflow: hidden;">
+          <div style="display: flex; align-items: center; gap: 6px; width: 84%; height: 30px; border: 1px solid var(--ns-hair); border-radius: 8px; background: var(--ns-input-bg); padding: 0 10px;">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" style="stroke: var(--ns-accent); flex-shrink: 0;"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
+            <span style="overflow: hidden; white-space: nowrap; max-width: 0; font-size: 9.5px; letter-spacing: 0.01em; color: var(--ns-fg-body); animation: dgType 8s linear infinite;">Trees planted near the Quad</span>
+            <span style="width: 1px; height: 12px; background: var(--ns-accent); flex-shrink: 0; animation: dgCaret 0.9s linear infinite;"></span>
+          </div>
+        </div>
+        <div style="font-size: 13.5px; font-weight: 500; letter-spacing: 0.01em; color: var(--ns-fg);">Ask in plain language</div>
+        <div style="font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--ns-fg-muted); margin-top: 5px;">No GIS jargon needed.</div>
+        
+      </div>
+      <div style="position: relative; background: var(--ns-tile); border: 1px solid var(--ns-hair-soft); border-radius: 14px; padding: 16px 16px 20px; text-align: left; box-shadow: var(--ns-card-inset);">
+        <span style="position: absolute; inset: -1px; border: 1px solid var(--ns-accent-bd-h); border-radius: 14px; box-shadow: 0 0 26px rgba(196,144,58,0.1); pointer-events: none; animation: dgW2 8s linear infinite;"></span>
+        <div style="position: relative; height: 84px; border: 1px solid var(--ns-hair-soft); border-radius: 10px; background: var(--ns-kbd-bg); display: grid; place-items: center; margin-bottom: 16px; overflow: hidden;">
+          <div style="position: relative; width: 64px; height: 56px;">
+            <div style="position: absolute; top: 2px; left: 10px; width: 44px; height: 22px; border: 1px solid var(--ns-hair); border-radius: 3px; background: var(--ns-tile); transform: skewX(-28deg);"></div>
+            <div style="position: absolute; top: 17px; left: 10px; width: 44px; height: 22px; border: 1px solid var(--ns-hair); border-radius: 3px; background: var(--ns-tile); animation: dgLayer 8s linear infinite;"></div>
+            <div style="position: absolute; top: 32px; left: 10px; width: 44px; height: 22px; border: 1px solid var(--ns-hair); border-radius: 3px; background: var(--ns-tile); transform: skewX(-28deg);"></div>
+          </div>
+          <div style="position: absolute; left: 12%; right: 12%; top: 12%; height: 1px; background: linear-gradient(90deg, transparent, var(--ns-accent), transparent); animation: dgScan 8s linear infinite;"></div>
+        <span style="position: absolute; top: 2px; font-size: 10px; font-weight: 500; letter-spacing: 0.12em; color: var(--ns-num); left: 183px">02</span></div>
+        <div style="font-size: 13.5px; font-weight: 500; letter-spacing: 0.01em; color: var(--ns-fg);">Agent scans the layers</div>
+        <div style="font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--ns-fg-muted); margin-top: 5px;">Finds the right campus layer on its own.</div>
+        
+      </div>
+      <div style="position: relative; background: var(--ns-tile); border: 1px solid var(--ns-hair-soft); border-radius: 14px; padding: 16px 16px 20px; text-align: left; box-shadow: var(--ns-card-inset);">
+        <span style="position: absolute; inset: -1px; border: 1px solid var(--ns-accent-bd-h); border-radius: 14px; box-shadow: 0 0 26px rgba(196,144,58,0.1); pointer-events: none; animation: dgW3 8s linear infinite;"></span>
+        <span style="position: absolute; top: 16px; right: 16px; font-size: 10px; font-weight: 500; letter-spacing: 0.12em; color: var(--ns-num);">03</span>
+        <div style="height: 84px; border: 1px solid var(--ns-hair-soft); border-radius: 10px; background: var(--ns-kbd-bg); display: grid; place-items: center; margin-bottom: 16px; overflow: hidden;">
+          <svg width="92" height="60" viewBox="0 0 92 60">
+            <rect x="6" y="5" width="80" height="50" rx="3" fill="none" style="stroke: var(--ns-hair);" stroke-width="1"></rect>
+            <rect x="34" y="22" width="24" height="16" rx="1" fill="none" style="stroke: var(--ns-survey);" stroke-width="1.2"></rect>
+            <circle cx="46" cy="30" r="19" fill="none" pathLength="100" stroke-dasharray="100" style="stroke: var(--ns-survey); animation: dgRing 8s linear infinite;" stroke-width="1" stroke-dashoffset="100"></circle>
+            <circle cx="28" cy="42" r="3" fill="#3A9970" style="transform-box: fill-box; transform-origin: center; animation: dgDotA 8s linear infinite;"></circle>
+            <circle cx="50" cy="16" r="3" fill="#3A9970" style="transform-box: fill-box; transform-origin: center; animation: dgDotB 8s linear infinite;"></circle>
+            <circle cx="64" cy="40" r="3" fill="#3A9970" style="transform-box: fill-box; transform-origin: center; animation: dgDotC 8s linear infinite;"></circle>
+          </svg>
+        </div>
+        <div style="font-size: 13.5px; font-weight: 500; letter-spacing: 0.01em; color: var(--ns-fg);">Reads &amp; maps the records</div>
+        <div style="font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--ns-fg-muted); margin-top: 5px;">Attributes filtered like a GIS analyst would.</div>
+        
+      </div>
+      <div style="position: relative; background: var(--ns-tile); border: 1px solid var(--ns-hair-soft); border-radius: 14px; padding: 16px 16px 20px; text-align: left; box-shadow: var(--ns-card-inset);">
+        <span style="position: absolute; inset: -1px; border: 1px solid var(--ns-accent-bd-h); border-radius: 14px; box-shadow: 0 0 26px rgba(196,144,58,0.1); pointer-events: none; animation: dgW4 8s linear infinite;"></span>
+        <span style="position: absolute; top: 16px; right: 16px; font-size: 10px; font-weight: 500; letter-spacing: 0.12em; color: var(--ns-num);">04</span>
+        <div style="height: 84px; border: 1px solid var(--ns-hair-soft); border-radius: 10px; background: var(--ns-kbd-bg); display: grid; place-items: center; margin-bottom: 16px; overflow: hidden;">
+          <div style="position: relative; width: 44px; height: 58px;">
+            <div style="position: relative; background: var(--ns-tile-hover); border: 1px solid var(--ns-hair); border-radius: 3px; padding: 5px; overflow: hidden;">
+              <div style="font-size: 6px; font-weight: 700; letter-spacing: 0.08em; color: var(--ns-accent); border: 1px solid var(--ns-accent-bd-h); border-radius: 2px; display: inline-block; padding: 1px 3px; margin-bottom: 5px; line-height: 1;">PDF</div>
+              <div style="height: 2px; width: 100%; background: var(--ns-hair); margin-bottom: 4px;"></div>
+              <div style="height: 2px; width: 85%; background: var(--ns-hair); margin-bottom: 4px;"></div>
+              <div style="height: 2px; width: 100%; background: var(--ns-hair); margin-bottom: 4px;"></div>
+              <div style="height: 2px; width: 70%; background: var(--ns-hair); margin-bottom: 4px;"></div>
+              <div style="height: 2px; width: 90%; background: var(--ns-hair);"></div>
+              <div style="position: absolute; left: 0; right: 0; height: 7px; top: 8%; background: linear-gradient(180deg, transparent, rgba(210,160,85,0.4), transparent); animation: dgPdfScan 8s linear infinite;"></div>
+            </div>
+            <div style="position: absolute; bottom: -8px; right: -16px; width: 34px; padding: 5px 5px 4px; background: var(--ns-input-bg); border: 1px solid var(--ns-accent-bd-h); border-radius: 4px; box-shadow: 0 0 14px rgba(196,144,58,0.25); animation: dgCheck 8s linear infinite;">
+              <div style="height: 2px; width: 100%; background: var(--ns-accent); opacity: 0.9; margin-bottom: 3px;"></div>
+              <div style="height: 2px; width: 72%; background: var(--ns-accent); opacity: 0.6; margin-bottom: 3px;"></div>
+              <div style="height: 2px; width: 50%; background: var(--ns-accent); opacity: 0.35;"></div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size: 13.5px; font-weight: 500; letter-spacing: 0.01em; color: var(--ns-fg);">Summarizes the documents</div>
+        <div style="font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--ns-fg-muted); margin-top: 5px;">Reads planning PDFs and builds a campus knowledge base, with written summaries.</div>
+        
+      </div>
+    </div>
+    
+  </section><footer style="position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 18px; padding: 0 32px 28px; font-size: 9.5px; font-weight: 500; letter-spacing: 0.18em; color: var(--ns-footer); animation: nsUp 0.9s cubic-bezier(0.16,1,0.3,1) 0.58s both">
+    <span>CREATED BY LINYU LIU</span>
+    <span style="width: 3px; height: 3px; border-radius: 50%; background: var(--ns-dot);"></span>
+    <span>UNIVERSITY OF CHICAGO | FACILITIES SERVICES</span>
+    <span style="width: 3px; height: 3px; border-radius: 50%; background: var(--ns-dot);"></span>
+    
+  </footer>
+</div>
+</x-dc>
+<template id="__bundler_thumbnail" data-bg-color="#221114">
+<svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="800" fill="#221114"></rect>
+  <circle cx="600" cy="400" r="150" fill="none" stroke="#C4903A" stroke-width="6" opacity="0.55"></circle>
+  <circle cx="600" cy="400" r="196" fill="none" stroke="#C4903A" stroke-width="3" stroke-dasharray="8 16" opacity="0.3"></circle>
+  <polygon points="600,290 638,400 600,378 562,400" fill="#E4BC78"></polygon>
+  <polygon points="600,510 562,400 600,422 638,400" fill="#800000"></polygon>
+  <circle cx="600" cy="400" r="14" fill="#F5F1EA"></circle>
+</svg>
+</template>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;auto&quot;, &quot;options&quot;: [&quot;auto&quot;, &quot;light&quot;, &quot;dark&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Theme&quot;}}">
+class Component extends DCLogic {
+  state = { query: '', asked: '', loading: false, answer: '', error: '', tool: '', featureNote: '', featureCount: 0, stage: 0, toolName: '', yearMin: null, yearMax: null, done: false, mapCollapsed: false, mapFullscreen: false, hoverKey: null, exporting: false };
+
+  mapRef = React.createRef();
+
+  isDark() {
+    const forced = this.props.theme ?? 'auto';
+    if (forced === 'dark') return true;
+    if (forced === 'light') return false;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  basemapUrl() {
+    const t = this.isDark() ? 'dark_all' : 'light_all';
+    return 'https://{s}.basemaps.cartocdn.com/' + t + '/{z}/{x}/{y}{r}.png'.replace('{s}', 'a');
+  }
+
+  ensureMap() {
+    const el = this.mapRef.current;
+    if (!el || !window.maplibregl) return;
+    if (this.map) {
+      // The map card unmounts between queries; a surviving instance would keep
+      // painting into a detached container, so rebuild when the node changed.
+      if (this.map.getContainer() === el) return;
+      try { this.map.remove(); } catch (e) { /* already gone */ }
+      this.map = null;
+      this.mapReady = false;
+    }
+    const dark = this.isDark();
+    const tile = dark ? 'dark_all' : 'light_all';
+    this.map = new window.maplibregl.Map({
+      container: this.mapRef.current,
+      style: {
+        version: 8,
+        sources: {
+          base: {
+            type: 'raster',
+            tiles: ['https://a.basemaps.cartocdn.com/' + tile + '/{z}/{x}/{y}@2x.png'],
+            tileSize: 256,
+            attribution: '© OpenStreetMap, © CARTO',
+          },
+        },
+        layers: [{ id: 'base', type: 'raster', source: 'base' }],
+      },
+      center: [-87.5997, 41.7897],
+      zoom: 14.6,
+      attributionControl: false,
+      preserveDrawingBuffer: true,
+    });
+    this.map.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+    const initLayers = () => {
+      if (this.mapReady || !this.map) return;
+      try {
+      this.map.addSource('results', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      this.map.addLayer({
+        id: 'results-fill', type: 'fill', source: 'results',
+        filter: ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false],
+        paint: { 'fill-color': '#A31212', 'fill-opacity': 0.55 },
+      });
+      this.map.addLayer({
+        id: 'results-outline', type: 'line', source: 'results',
+        filter: ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false],
+        paint: { 'line-color': dark ? 'rgba(255,255,255,0.5)' : 'rgba(42,34,24,0.45)', 'line-width': 0.8 },
+      });
+      this.map.addLayer({
+        id: 'results-line', type: 'line', source: 'results',
+        filter: ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false],
+        paint: { 'line-color': '#C4903A', 'line-width': 2.4 },
+      });
+      this.map.addLayer({
+        id: 'results-point', type: 'circle', source: 'results',
+        filter: ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false],
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#C4903A',
+          'circle-stroke-width': 1.6,
+          'circle-stroke-color': dark ? '#1E1013' : '#FAF7F2',
+        },
+      });
+      const none = ['==', ['get', '_idx'], -1];
+      this.map.addLayer({
+        id: 'results-hl-fill', type: 'fill', source: 'results', filter: none,
+        paint: { 'fill-color': '#C4903A', 'fill-opacity': 0.5 },
+      });
+      this.map.addLayer({
+        id: 'results-hl-line', type: 'line', source: 'results', filter: none,
+        paint: { 'line-color': '#C4903A', 'line-width': 2.6 },
+      });
+      this.map.addLayer({
+        id: 'results-hl-point', type: 'circle', source: 'results', filter: none,
+        paint: {
+          'circle-radius': 12, 'circle-color': 'rgba(196,144,58,0.22)',
+          'circle-stroke-width': 2, 'circle-stroke-color': '#C4903A',
+        },
+      });
+      const hitLayers = ['results-fill', 'results-point', 'results-line'];
+      this.map.on('mousemove', (e) => {
+        const hit = this.map.queryRenderedFeatures(e.point, { layers: hitLayers });
+        this.map.getCanvas().style.cursor = hit.length ? 'pointer' : '';
+      });
+      this.map.on('click', (e) => {
+        const hit = this.map.queryRenderedFeatures(e.point, { layers: hitLayers });
+        if (!hit.length) return;
+        new window.maplibregl.Popup({ closeButton: false, offset: 12, maxWidth: '260px' })
+          .setLngLat(e.lngLat).setHTML(this.popupHtml(hit[0].properties || {})).addTo(this.map);
+      });
+      this.mapReady = true;
+      window.__cgMap = this.map;
+      this.pushFeatures();
+      } catch (e) { console.error('map layer init failed', e); }
+    };
+    // 'load' waits on the initial tile fetch; the style itself is inline, so
+    // hook style readiness instead — layers must exist even if tiles are slow.
+    if (this.map.isStyleLoaded()) initLayers();
+    else {
+      this.map.once('style.load', initLayers);
+      this.map.on('styledata', initLayers);
+      this.map.on('load', initLayers);
+    }
+  }
+
+  collectBounds(features) {
+    let minX = 180, minY = 90, maxX = -180, maxY = -90, any = false;
+    const walk = (c) => {
+      if (typeof c[0] === 'number') {
+        any = true;
+        if (c[0] < minX) minX = c[0];
+        if (c[0] > maxX) maxX = c[0];
+        if (c[1] < minY) minY = c[1];
+        if (c[1] > maxY) maxY = c[1];
+      } else for (let i = 0; i < c.length; i++) walk(c[i]);
+    };
+    for (let i = 0; i < features.length; i++) {
+      const g = features[i] && features[i].geometry;
+      if (g && g.coordinates) walk(g.coordinates);
+    }
+    return any ? [[minX, minY], [maxX, maxY]] : null;
+  }
+
+  // Layer schemas differ per tool (trees ship CommonName/Condition/AgeClass,
+  // nearby results ship distanceMeters, buildings ship DISCRIPT1/Year_*), so the
+  // popup picks the fields that exist rather than assuming one shape.
+  describeFeature(props) {
+    const get = (keys) => {
+      for (let i = 0; i < keys.length; i++) {
+        const v = props[keys[i]];
+        if (v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '0') return v;
+      }
+      return null;
+    };
+    const num = (v) => (typeof v === 'number' ? (Math.round(v * 10) / 10) : v);
+    const rows = [];
+    const push = (label, value, suffix) => {
+      if (value === null || value === undefined || String(value).trim() === '') return;
+      rows.push({ label: label, value: String(num(value)).trim() + (suffix || '') });
+    };
+    let kind = 'Feature';
+    let title = null;
+
+    if (get(['CommonName', 'Common_Nam', 'ScientName']) || props.TreeID !== undefined) {
+      kind = 'Tree';
+      title = get(['CommonName', 'Common_Nam', 'ScientName']) || 'Tree';
+      push('Tree ID', get(['TreeID', 'treeId', 'OBJECTID']));
+      push('Condition', get(['Condition', 'conditionC']));
+      push('Age class', get(['AgeClass', 'ageClass']));
+      push('Canopy radius', get(['CanRadius', 'canopyRadi']), ' ft');
+      push('Diameter', get(['Diameter', 'DBH1', 'dbh1']));
+      push('Notes', get(['TreeNotes']));
+    } else if (get(['DISCRIPT1', 'Facility_Name']) || props.Year_Completed !== undefined || props.BD_ID !== undefined) {
+      kind = 'Building';
+      title = get(['DISCRIPT1', 'Facility_Name', 'name']) || 'Building';
+      push('Use', get(['DISCRIPT2', 'use', 'Use']));
+      push('Year completed', props._year || get(['Year_Completed', '_yearResolved']));
+      push('Address', get(['ADDRESS', 'address']));
+      push('Architects', get(['Architects', 'architect']));
+      push('Height', get(['BLDG_HGT', 'heightFt']), ' ft');
+      push('Building code', get(['BD_ID', 'Building_Code', 'code']));
+      push('Heritage', get(['Heritage']));
+    } else if (get(['Spaces', 'spaces', 'Capacity', 'capacity', 'RackType', 'Rack_Type']) || /rack/i.test(String(get(['Type', 'type']) || ''))) {
+      kind = 'Bike rack';
+      title = 'Bike rack';
+      push('Type', get(['Type', 'type', 'RackType', 'Rack_Type', 'Style']));
+      push('Spaces', get(['Spaces', 'spaces', 'Capacity', 'capacity']));
+      push('Location', get(['Location', 'location', 'Descriptio', 'Description', 'ADDRESS']));
+      push('Covered', get(['Covered', 'Sheltered']));
+    } else {
+      // Unknown layer: surface the most descriptive scalar fields, skipping
+      // internal / financial / geometry bookkeeping columns.
+      const deny = /^(objectid|object_id|loc_id|loc_bd_id|shape_|globalid|fid|_year|_yearresolved|lat|lon|field|hyperlink|f20\d\d|ri$|ri_|fci|ricost|replacement|berp|csl|bim|t_sheet|unassigned|reserved|space$|sr$|chrs|easement|admission|elevatornumber|data_class|property_s|status)/i;
+      const prefer = /(name|type|desc|discript|condition|status|space|capacity|address|year|species|owner|use|category|class|material|surface|system|label|id$)/i;
+      const keys = Object.keys(props).filter((k) => {
+        if (deny.test(k)) return false;
+        const v = props[k];
+        return (typeof v === 'string' || typeof v === 'number') && String(v).trim() !== '' && String(v).trim() !== '0';
+      });
+      keys.sort((a, b) => (prefer.test(b) ? 1 : 0) - (prefer.test(a) ? 1 : 0));
+      title = get(['Name', 'NAME', 'name', 'Label', 'Descriptio', 'Description']) || 'Feature';
+      for (let i = 0; i < keys.length && rows.length < 5; i++) {
+        const k = keys[i];
+        if (String(props[k]).trim() === String(title).trim()) continue;
+        push(k.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2'), props[k]);
+      }
+    }
+
+    const dist = get(['distanceMeters', '_distanceMeters']);
+    if (dist !== null) push('Distance', Math.round(Number(dist)), ' m');
+    return { kind: kind, title: String(title).trim(), rows: rows.slice(0, 6) };
+  }
+
+  // Column set for the exported table, chosen from the layer the answer mapped.
+  printSpec() {
+    const feats = this.features || [];
+    const p0 = (feats[0] && feats[0].properties) || {};
+    const has = (k) => p0[k] !== undefined && p0[k] !== null;
+    if (has('CommonName') || has('TreeID')) {
+      return { kind: 'Campus trees', sort: null, cols: [
+        { h: 'Tree ID', k: ['TreeID', 'OBJECTID'], w: '13%' },
+        { h: 'Species', k: ['CommonName', 'Common_Nam'], w: '26%' },
+        { h: 'Condition', k: ['Condition', 'conditionC'], w: '13%' },
+        { h: 'Age class', k: ['AgeClass', 'ageClass'], w: '15%' },
+        { h: 'Canopy (ft)', k: ['CanRadius', 'canopyRadi'], w: '12%' },
+        { h: 'Notes', k: ['TreeNotes'], w: '21%' },
+      ] };
+    }
+    if (has('DISCRIPT1') || has('Year_Completed') || has('BD_ID')) {
+      return { kind: 'Campus buildings', sort: '_year', cols: [
+        { h: 'Building', k: ['DISCRIPT1', 'Facility_Name'], w: '26%' },
+        { h: 'ID', k: ['BD_ID', 'Building_Code'], w: '8%' },
+        { h: 'Use', k: ['DISCRIPT2'], w: '18%' },
+        { h: 'Year', k: ['_year', 'Year_Completed'], w: '8%' },
+        { h: 'Architects', k: ['Architects'], w: '20%' },
+        { h: 'Address', k: ['ADDRESS'], w: '20%' },
+      ] };
+    }
+    if (has('Spaces') || has('spaces') || has('Capacity') || has('capacity')) {
+      return { kind: 'Bike parking', sort: 'distanceMeters', cols: [
+        { h: 'Type', k: ['Type', 'type', 'RackType', 'Rack_Type', 'Style'], w: '26%' },
+        { h: 'Spaces', k: ['Spaces', 'spaces', 'Capacity', 'capacity'], w: '16%' },
+        { h: 'Location', k: ['Location', 'location', 'Descriptio', 'Description', 'ADDRESS'], w: '38%' },
+        { h: 'Distance (m)', k: ['distanceMeters', '_distanceMeters'], w: '20%' },
+      ] };
+    }
+    const labels = this.describeFeature(p0).rows.map((r) => r.label);
+    return { kind: 'Mapped features', sort: null, generic: true, cols:
+      [{ h: 'Feature', k: null, w: '28%' }].concat(labels.map((l) => ({ h: l, k: null, w: '' }))) };
+  }
+
+  // The on-screen canvas is only ~470px wide (≈64 dpi on a 7.4in page), so the
+  // container is grown to print size, re-framed to the same bounds, captured,
+  // then restored. 2220×1480 lands ≈300 dpi at 7.4in wide.
+  async captureMapImage() {
+    const el = this.mapRef.current;
+    if (!el || !this.map) return '';
+    const bounds = this.map.getBounds();
+    const prevW = el.style.width;
+    const prevH = el.style.height;
+    const prevInset = el.style.inset;
+    try {
+      el.style.inset = 'auto';
+      el.style.width = '2220px';
+      el.style.height = '1480px';
+      this.map.resize();
+      this.map.fitBounds(bounds, { padding: 0, duration: 0, animate: false });
+      await new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(); } };
+        this.map.once('idle', finish);
+        setTimeout(finish, 2500);
+      });
+      return this.map.getCanvas().toDataURL('image/png');
+    } catch (e) {
+      console.error('map capture failed', e);
+      return '';
+    } finally {
+      el.style.width = prevW;
+      el.style.height = prevH;
+      el.style.inset = prevInset;
+      this.map.resize();
+      this.map.fitBounds(bounds, { padding: 0, duration: 0, animate: false });
+    }
+  }
+
+  async exportPdf() {
+    if (!this.map || !this.mapReady || this.state.exporting) return;
+    this.setState({ exporting: true });
+    let mapImg = '';
+    try { mapImg = await this.captureMapImage(); } finally { this.setState({ exporting: false }); }
+    this.buildAndPrint(mapImg);
+  }
+
+  buildAndPrint(mapImg) {
+    const feats = (this.features || []).slice();
+    const spec = this.printSpec();
+    const esc = (s) => String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const cell = (props, col) => {
+      if (!col.k) return '';
+      for (let i = 0; i < col.k.length; i++) {
+        const v = props[col.k[i]];
+        if (v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '0') {
+          return typeof v === 'number' ? String(Math.round(v * 10) / 10) : String(v).trim();
+        }
+      }
+      return '—';
+    };
+    if (spec.sort) {
+      feats.sort((a, b) => {
+        const av = Number((a.properties || {})[spec.sort]);
+        const bv = Number((b.properties || {})[spec.sort]);
+        if (Number.isNaN(av)) return 1;
+        if (Number.isNaN(bv)) return -1;
+        return av - bv;
+      });
+    }
+    const rowsHtml = feats.map((f, i) => {
+      const p = f.properties || {};
+      let cells;
+      if (spec.generic) {
+        const d = this.describeFeature(p);
+        const byLabel = {};
+        d.rows.forEach((r) => { byLabel[r.label] = r.value; });
+        cells = spec.cols.map((c, ci) => ci === 0 ? esc(d.title) : esc(byLabel[c.h] || '—'));
+      } else {
+        cells = spec.cols.map((c) => esc(cell(p, c)));
+      }
+      return '<tr><td class="n">' + (i + 1) + '</td><td>' + cells.join('</td><td>') + '</td></tr>';
+    }).join('');
+
+    const head = '<tr><th class="n">#</th><th>' + spec.cols.map((c) => esc(c.h)).join('</th><th>') + '</th></tr>';
+    const colgroup = '<col style="width:5%">' + spec.cols.map((c) => '<col' + (c.w ? ' style="width:' + c.w + '"' : '') + '>').join('');
+    const stamp = new Date().toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' });
+    const yearBand = (this.state.yearMin && this.state.yearMax && this.state.yearMin !== this.state.yearMax)
+      ? '<div class="legend"><div class="lk">Year completed</div><div class="ramp"></div><div class="lr"><span>' + this.state.yearMin + '</span><span>' + this.state.yearMax + '</span></div></div>'
+      : '';
+
+    const doc = '<!DOCTYPE html><html><head><meta charset="utf-8">'
+      + '<base href="' + location.href + '">'
+      + '<title>CampusGeo — ' + esc(this.state.asked) + '</title>'
+      + '<link rel="stylesheet" href="assets/fonts/gotham.css">'
+      + '<style>'
+      + '@page { size: letter; margin: 0.55in; }'
+      + '* { box-sizing: border-box; }'
+      + 'body { margin: 0; font-family: Gotham, sans-serif; color: #2A2218; -webkit-print-color-adjust: exact; print-color-adjust: exact; }'
+      + '.sheet { page-break-after: always; break-after: page; }'
+      + '.hdr { display: flex; align-items: flex-end; justify-content: space-between; border-bottom: 2px solid #800000; padding-bottom: 8pt; margin-bottom: 14pt; }'
+      + '.brand { font-size: 15pt; font-weight: 700; letter-spacing: -0.01em; }'
+      + '.sub { font-size: 8.5pt; font-weight: 500; letter-spacing: 0.2em; color: #8C8070; margin-top: 4pt; }'
+      + '.meta { text-align: right; font-size: 9pt; letter-spacing: 0.06em; color: #8C8070; line-height: 1.65; white-space: nowrap; }'
+      + '.meta.q { white-space: normal; max-width: 2.7in; }'
+      + 'h1 { font-size: 19pt; font-weight: 500; letter-spacing: -0.02em; margin: 0 0 5pt; }'
+      + '.count { font-size: 9.5pt; letter-spacing: 0.12em; color: #9A6F28; margin-bottom: 12pt; }'
+      + '.mapbox { border: 1px solid #C9BFAF; padding: 6pt; }'
+      + '.mapbox img { display: block; width: auto; max-width: 100%; max-height: 6in; margin: 0 auto; }'
+      + '.foot { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 12pt; font-size: 9pt; letter-spacing: 0.05em; color: #8C8070; line-height: 1.6; }'
+      + '.legend { text-align: right; }'
+      + '.lk { font-size: 8.5pt; letter-spacing: 0.14em; color: #8C8070; margin-bottom: 5pt; }'
+      + '.ramp { width: 150pt; height: 6pt; background: linear-gradient(90deg, #3E6478, #6E8C86, #C4903A, #A31212); }'
+      + '.lr { display: flex; justify-content: space-between; font-size: 9pt; margin-top: 4pt; }'
+      + 'table { width: 100%; border-collapse: collapse; table-layout: fixed; }'
+      + 'thead { display: table-header-group; }'
+      + 'th { text-align: left; font-size: 8.5pt; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: #8C8070; border-bottom: 1px solid #2A2218; padding: 7pt 5pt; }'
+      + 'td { font-size: 10pt; line-height: 1.5; padding: 6pt 5pt; border-bottom: 0.5pt solid #DDD5C6; vertical-align: top; word-wrap: break-word; }'
+      + 'tr { page-break-inside: avoid; break-inside: avoid; }'
+      + 'td.n, th.n { color: #B5ADA0; font-size: 8.5pt; }'
+      + '</style></head><body>'
+      + '<section class="sheet">'
+      + '<div class="hdr"><div><div class="brand">CampusGeo</div><div class="sub">UNIVERSITY OF CHICAGO</div></div>'
+      + '<div class="meta">HYDE PARK CAMPUS · 41°47′22″ N 87°35′56″ W<br>' + esc(stamp) + '</div></div>'
+      + '<h1>' + esc(this.state.asked) + '</h1>'
+      + '<div class="count">' + feats.length + ' ' + (feats.length === 1 ? 'FEATURE' : 'FEATURES') + ' MAPPED · ' + esc(spec.kind).toUpperCase() + '</div>'
+      + '<div class="mapbox">' + (mapImg ? '<img src="' + mapImg + '" alt="Map">' : '<div style="padding:40pt;text-align:center;color:#8C8070;font-size:8pt">Map image unavailable</div>') + '</div>'
+      + '<div class="foot"><div>SOURCE: UNIVERSITY OF CHICAGO FACILITIES GIS · SYNCED NIGHTLY 02:00 CT<br>SHEET 1 — MAP</div>' + yearBand + '</div>'
+      + '</section>'
+      + '<section>'
+      + '<div class="hdr"><div><div class="brand">' + esc(spec.kind) + '</div><div class="sub">DATA TABLE · ' + feats.length + ' RECORDS</div></div>'
+      + '<div class="meta q">' + esc(this.state.asked) + '<br>' + esc(stamp) + '</div></div>'
+      + '<table><colgroup>' + colgroup + '</colgroup><thead>' + head + '</thead><tbody>' + rowsHtml + '</tbody></table>'
+      + '</section></body></html>';
+
+    const old = document.getElementById('cg-print-frame');
+    if (old) old.remove();
+    const frame = document.createElement('iframe');
+    frame.id = 'cg-print-frame';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position: fixed; width: 0; height: 0; border: 0; opacity: 0; pointer-events: none;';
+    document.body.appendChild(frame);
+    const d = frame.contentDocument || frame.contentWindow.document;
+    d.open();
+    d.write(doc);
+    d.close();
+    let fired = false;
+    const fire = () => {
+      if (fired) return;
+      fired = true;
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (e) { console.error('print failed', e); }
+    };
+    const img = d.querySelector('img');
+    const imgReady = (img && !img.complete)
+      ? new Promise((res) => { img.onload = res; img.onerror = res; })
+      : Promise.resolve();
+    // Gotham is self-hosted, so the woff2 files can still be in flight when the
+    // print dialog snapshots the document — wait on fonts too, with a timeout race.
+    const fontsReady = (d.fonts && d.fonts.ready) ? d.fonts.ready : Promise.resolve();
+    Promise.all([imgReady, fontsReady]).then(() => setTimeout(fire, 120));
+    setTimeout(fire, 4000);
+  }
+
+  popupHtml(props) {
+    const d = this.describeFeature(props);
+    const dk = this.isDark();
+    const fg = dk ? '#F5F1EA' : '#2A2218';
+    const muted = dk ? '#97867F' : '#8C8070';
+    const faint = dk ? '#715F5A' : '#B5ADA0';
+    const hair = dk ? 'rgba(245,241,234,0.10)' : 'rgba(42,34,24,0.12)';
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let html = '<div style="font-family: Gotham, sans-serif; padding: 3px 2px 4px; min-width: 150px;">';
+    html += '<div style="font-size: 8.5px; font-weight: 500; letter-spacing: 0.2em; color: ' + faint + '; margin-bottom: 5px;">' + esc(d.kind.toUpperCase()) + '</div>';
+    html += '<div style="font-size: 13px; font-weight: 500; line-height: 1.35; color: ' + fg + ';">' + esc(d.title) + '</div>';
+    if (d.rows.length) {
+      html += '<div style="margin-top: 9px; padding-top: 8px; border-top: 1px solid ' + hair + '; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px;">';
+      for (let i = 0; i < d.rows.length; i++) {
+        html += '<div style="font-size: 10.5px; letter-spacing: 0.04em; color: ' + faint + '; white-space: nowrap;">' + esc(d.rows[i].label) + '</div>';
+        html += '<div style="font-size: 11.5px; color: ' + muted + '; text-align: right;">' + esc(d.rows[i].value) + '</div>';
+      }
+      html += '</div>';
+    }
+    return html + '</div>';
+  }
+
+  yearOf(props) {
+    if (!props) return null;
+    const direct = props._yearResolved ?? props.Year_Completed ?? props.year;
+    if (typeof direct === 'number' && direct > 1700 && direct < 2200) return Math.round(direct);
+    const opened = props.Year_Opened;
+    if (typeof opened === 'string' && opened.length >= 4) {
+      const y = parseInt(opened.slice(0, 4), 10);
+      if (!Number.isNaN(y) && y > 1700) return y;
+    }
+    if (typeof opened === 'number' && Math.abs(opened) > 1e10) {
+      const y = new Date(opened).getUTCFullYear();
+      if (y > 1700 && y < 2200) return y;
+    }
+    return null;
+  }
+
+  applyYearRamp(feats) {
+    const years = [];
+    for (let i = 0; i < feats.length; i++) {
+      const y = this.yearOf(feats[i].properties);
+      if (y) years.push(y);
+    }
+    if (years.length < 2) {
+      this.map.setPaintProperty('results-fill', 'fill-color', '#A31212');
+      this.setState({ yearMin: null, yearMax: null });
+      return;
+    }
+    const lo = Math.min.apply(null, years);
+    const hi = Math.max.apply(null, years);
+    const at = (t) => lo + (hi - lo) * t;
+    this.map.setPaintProperty('results-fill', 'fill-color', [
+      'case',
+      ['==', ['coalesce', ['get', '_year'], -1], -1], 'rgba(140,128,112,0.5)',
+      ['interpolate', ['linear'], ['get', '_year'],
+        lo, '#3E6478', at(0.38), '#6E8C86', at(0.72), '#C4903A', hi, '#A31212'],
+    ]);
+    this.setState({ yearMin: lo, yearMax: hi });
+  }
+
+  pushFeatures() {
+    if (!this.mapReady || !this.map) return;
+    const feats = this.features || [];
+    const src = this.map.getSource('results');
+    if (!src) return;
+    for (let i = 0; i < feats.length; i++) {
+      if (!feats[i].properties) feats[i].properties = {};
+      const y = this.yearOf(feats[i].properties);
+      if (y) feats[i].properties._year = y;
+      feats[i].properties._idx = i;
+    }
+    src.setData({ type: 'FeatureCollection', features: feats });
+    if (!feats.length) return;
+    this.applyYearRamp(feats);
+    const b = this.collectBounds(feats);
+    if (!b) return;
+    if (b[0][0] === b[1][0] && b[0][1] === b[1][1]) {
+      this.map.easeTo({ center: b[0], zoom: 16.5, duration: 700 });
+    } else {
+      this.map.fitBounds(b, { padding: 56, maxZoom: 17, duration: 700 });
+    }
+  }
+
+  setHighlight(idx) {
+    if (!this.map || !this.mapReady) return;
+    const f = idx >= 0 ? ['==', ['get', '_idx'], idx] : ['==', ['get', '_idx'], -1];
+    ['results-hl-fill', 'results-hl-line', 'results-hl-point'].forEach((id) => {
+      if (this.map.getLayer(id)) this.map.setFilter(id, f);
+    });
+  }
+
+  // Table rows come from the agent's markdown, so there is no id to join on:
+  // an equal row/feature count means the list is the mapped set in order,
+  // otherwise fall back to matching the row's text against feature titles.
+  featureIndexForRow(rowIndex, rowCells, rowCount) {
+    const feats = this.features || [];
+    if (!feats.length) return -1;
+    if (rowCount === feats.length) return rowIndex;
+    const text = rowCells.join(' ').toLowerCase();
+    for (let i = 0; i < feats.length; i++) {
+      const t = String(this.describeFeature(feats[i].properties || {}).title || '').toLowerCase();
+      if (t.length > 3 && text.indexOf(t) >= 0) return i;
+    }
+    return -1;
+  }
+
+  componentDidUpdate(prevProps, prevState) {
+    this.ensureMap();
+    if (this.map && this.mapReady) {
+      this.map.resize();
+      requestAnimationFrame(() => { if (this.map) this.map.resize(); });
+    }
+    // Tracked on the instance: componentDidUpdate is not guaranteed a prevState here.
+    if (this._fsLocked !== this.state.mapFullscreen) {
+      this._fsLocked = this.state.mapFullscreen;
+      document.body.style.overflow = this.state.mapFullscreen ? 'hidden' : '';
+    }
+  }
+
+  componentDidMount() {
+    this.onKey = (e) => { if (e.key === 'Escape' && this.state.mapFullscreen) this.setState({ mapFullscreen: false }); };
+    window.addEventListener('keydown', this.onKey);
+  }
+
+  componentWillUnmount() {
+    document.body.style.overflow = '';
+    if (this.onKey) window.removeEventListener('keydown', this.onKey);
+    if (this.map) { try { this.map.remove(); } catch (e) { /* already gone */ } this.map = null; }
+  }
+
+  ask(q) {
+    q = (q || '').trim();
+    if (!q) return;
+    this.sessionId = this.sessionId || ('cg_' + Date.now());
+    this.features = [];
+    this.pushFeatures();
+    this.setState({ asked: q, query: '', loading: true, answer: '', error: '', featureNote: '', featureCount: 0, stage: 0, toolName: '', yearMin: null, yearMax: null, done: false });
+    this.runQuery(q);
+  }
+
+  async runQuery(q) {
+    const cfg = window.CAMPUSGEO_CONFIG || {};
+    if (!cfg.apiBase) {
+      this.setState({ loading: false, error: 'Backend not configured for this preview.' });
+      return;
+    }
+    try {
+      const res = await fetch(cfg.apiBase.replace(/\/$/, '') + '/api/agent', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, cfg.apiKey ? { 'X-Api-Key': cfg.apiKey } : {}),
+        body: JSON.stringify({ query: q, sessionId: this.sessionId }),
+      });
+      if (!res.ok) {
+        this.setState({ loading: false, error: 'Backend error: HTTP ' + res.status });
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let text = '';
+      let featureCount = 0;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.indexOf('data: ') !== 0) continue;
+          let evt;
+          try { evt = JSON.parse(line.slice(6)); } catch (e) { continue; }
+          if (evt.type === 'tool_call' && evt.toolName) {
+            this.setState({ stage: 1, toolName: evt.toolName.replace(/_/g, ' ') });
+          } else if (evt.type === 'text' && evt.content) {
+            text += evt.content;
+            this.setState({ answer: text, loading: false, stage: 2 });
+          } else if (evt.mapUpdate) {
+            const raw = evt.mapUpdate.features;
+            const fc = Array.isArray(raw) ? raw : (raw && raw.features);
+            if (fc && fc.length) {
+              featureCount += fc.length;
+              this.features = (this.features || []).concat(fc);
+              this.pushFeatures();
+              this.setState({ featureCount: featureCount });
+            } else if (evt.mapUpdate.center && this.map) {
+              this.map.easeTo({ center: [evt.mapUpdate.center.lng, evt.mapUpdate.center.lat], zoom: 16, duration: 700 });
+            }
+          } else if (evt.type === 'error') {
+            this.setState({ loading: false, error: evt.message || 'Agent error.' });
+          }
+        }
+      }
+      this.setState({ loading: false, done: true });
+    } catch (err) {
+      this.setState({ loading: false, error: 'Connection failed — ' + err.message + '. The Lambda\'s ALLOWED_ORIGIN may not include this preview origin.' });
+    }
+  }
+
+  // Inline emphasis only: **bold**, `code`. Content formatting for streamed
+  // agent text — the layout around it stays in the template.
+  inline(text, keyBase) {
+    const out = [];
+    const re = /\*\*(.+?)\*\*|`(.+?)`/g;
+    let last = 0, m, k = 0;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) out.push(text.slice(last, m.index));
+      if (m[1] !== undefined) {
+        out.push(React.createElement('strong', { key: keyBase + 'b' + k++, style: { fontWeight: 700, color: 'var(--ns-fg)' } }, m[1]));
+      } else {
+        out.push(React.createElement('code', { key: keyBase + 'c' + k++, style: { fontSize: '12.5px', padding: '1px 5px', borderRadius: '4px', background: 'var(--ns-kbd-bg)', border: '1px solid var(--ns-hair-soft)' } }, m[2]));
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  }
+
+  renderMarkdown(src) {
+    if (!src) return null;
+    const lines = src.split('\n');
+    const nodes = [];
+    let i = 0, key = 0;
+    const cells = (line) => line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+      // table: header row followed by a --- separator row
+      if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]+$/.test(lines[i + 1]) && lines[i + 1].indexOf('-') >= 0) {
+        const head = cells(line);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(cells(lines[i])); i++; }
+        const th = { padding: '7px 10px', textAlign: 'left', fontSize: '9.5px', fontWeight: 500, letterSpacing: '0.13em', textTransform: 'uppercase', color: 'var(--ns-fg-faint)', borderBottom: '1px solid var(--ns-hair)', whiteSpace: 'nowrap' };
+        const td = { padding: '8px 10px', fontSize: '13px', color: 'var(--ns-fg-body)', borderBottom: '1px solid var(--ns-hair-soft)', verticalAlign: 'top' };
+        const tableKey = key++;
+        nodes.push(React.createElement('table', { key: 'tb' + tableKey, style: { width: '100%', borderCollapse: 'collapse', margin: '6px 0 16px' } },
+          React.createElement('thead', { key: 'h' }, React.createElement('tr', { key: 'hr' }, head.map((c, ci) => React.createElement('th', { key: ci, style: th }, c)))),
+          React.createElement('tbody', { key: 'b' }, rows.map((r, ri) => {
+            const fi = this.featureIndexForRow(ri, r, rows.length);
+            const isHot = this.state.hoverKey === tableKey + ':' + ri;
+            return React.createElement('tr', {
+              key: ri,
+              onMouseEnter: fi >= 0 ? () => { this.setState({ hoverKey: tableKey + ':' + ri }); this.setHighlight(fi); } : undefined,
+              onMouseLeave: fi >= 0 ? () => { this.setState({ hoverKey: null }); this.setHighlight(-1); } : undefined,
+              style: {
+                background: isHot ? 'var(--ns-tile-hover)' : 'transparent',
+                cursor: fi >= 0 ? 'default' : 'auto',
+                transition: 'background 0.15s ease',
+              },
+            }, r.map((c, ci) => React.createElement('td', {
+              key: ci,
+              style: isHot ? Object.assign({}, td, { background: 'var(--ns-tile-hover)' }) : td,
+            }, this.inline(c, 't' + ri + ci))));
+          })))
+        );
+        continue;
+      }
+      // bullet group
+      if (/^\s*[-*•]\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*[-*•]\s+/, '')); i++; }
+        nodes.push(React.createElement('ul', { key: 'ul' + key++, style: { margin: '0 0 14px', paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '7px' } },
+          items.map((it, ii) => React.createElement('li', { key: ii, style: { display: 'flex', gap: '10px', alignItems: 'baseline' } },
+            React.createElement('span', { key: 'd', style: { flexShrink: 0, width: '4px', height: '4px', borderRadius: '50%', background: 'var(--ns-accent)', marginTop: '8px' } }),
+            React.createElement('span', { key: 't' }, this.inline(it, 'l' + ii))
+          ))
+        ));
+        continue;
+      }
+      // heading
+      if (/^#{1,4}\s+/.test(line)) {
+        nodes.push(React.createElement('div', { key: 'hd' + key++, style: { fontSize: '13px', fontWeight: 700, color: 'var(--ns-fg)', margin: '8px 0 8px' } }, this.inline(line.replace(/^#{1,4}\s+/, ''), 'h')));
+        i++;
+        continue;
+      }
+      // paragraph (consume until blank / structural line)
+      const para = [];
+      while (i < lines.length && lines[i].trim() && !/^\s*[-*•]\s+/.test(lines[i]) && !/^\s*\|/.test(lines[i]) && !/^#{1,4}\s+/.test(lines[i])) { para.push(lines[i]); i++; }
+      nodes.push(React.createElement('p', { key: 'p' + key++, style: { margin: '0 0 14px', lineHeight: 1.72 } }, this.inline(para.join(' '), 'p' + key)));
+    }
+    return nodes;
+  }
+
+  renderVals() {
+    const s = this.state;
+    const stageDefs = [
+      { label: 'Reading your query', done: s.stage > 0 },
+      { label: s.toolName ? ('Querying ' + s.toolName) : 'Selecting the campus layer', done: s.stage > 1 },
+      { label: 'Composing the answer', done: false },
+    ];
+    const activeIdx = Math.min(s.stage, 2);
+    const stages = stageDefs.map((d, i) => ({
+      label: d.label,
+      dot: i < activeIdx ? 'var(--ns-status-dot)' : (i === activeIdx ? 'var(--ns-accent)' : 'var(--ns-num)'),
+      color: i <= activeIdx ? 'var(--ns-fg-body)' : 'var(--ns-fg-faint)',
+      anim: i === activeIdx ? 'nsPulse 1.4s ease-in-out infinite' : 'none',
+    }));
+    const hasMap = s.featureCount > 0 || s.loading;
+    return {
+      themeForce: this.props.theme ?? 'auto',
+      queryText: s.query,
+      onQueryInput: (e) => this.setState({ query: e.target.value }),
+      onKeyDown: (e) => { if (e.key === 'Enter') this.ask(s.query); },
+      onAsk: () => this.ask(s.query),
+      askBikeRacks: () => this.ask('Bike racks near Regenstein Library'),
+      askBuildings: () => this.ask('Buildings constructed before 1930'),
+      askTrees: () => this.ask('Trees planted near the Quad'),
+      showResult: !!s.asked,
+      askedText: s.asked,
+      isLoading: s.loading,
+      stages: stages,
+      answerBlocks: this.renderMarkdown(s.answer),
+      errorText: s.error,
+      showMap: hasMap,
+      resultCols: hasMap ? 'minmax(0, 1fr) minmax(0, 1.06fr)' : 'minmax(0, 1fr)',
+      statusLabel: s.loading ? 'INTERPRETING' : (s.error ? 'FAILED' : (s.featureCount ? s.featureCount + ' FEATURES MAPPED' : 'ANSWERED')),
+      showLegend: !!(s.yearMin && s.yearMax && s.yearMin !== s.yearMax && !s.loading),
+      yearMin: s.yearMin,
+      yearMax: s.yearMax,
+      mapRef: this.mapRef,
+      mapBadge: s.featureCount ? (s.featureCount + (s.featureCount === 1 ? ' FEATURE' : ' FEATURES')) : 'HYDE PARK CAMPUS',
+      isFullscreen: s.mapFullscreen,
+      notFullscreen: !s.mapFullscreen,
+      toggleFullscreen: () => this.setState((st) => ({ mapFullscreen: !st.mapFullscreen, mapCollapsed: false })),
+      exitFullscreen: () => this.setState({ mapFullscreen: false }),
+      exportPdf: () => this.exportPdf(),
+      isExporting: s.exporting,
+      toggleCollapse: () => this.setState((st) => ({ mapCollapsed: !st.mapCollapsed })),
+      fullscreenTitle: s.mapFullscreen ? 'Exit full screen' : 'Full screen',
+      collapseTitle: s.mapCollapsed ? 'Expand map' : 'Collapse map',
+      mapCollapsed: s.mapCollapsed,
+      mapExpanded: !s.mapCollapsed,
+      mapWrapPos: s.mapFullscreen ? 'fixed' : 'sticky',
+      mapWrapInset: s.mapFullscreen ? '24px' : 'auto',
+      mapWrapTop: s.mapFullscreen ? '24px' : '24px',
+      mapWrapZ: s.mapFullscreen ? '90' : 'auto',
+      mapCardH: s.mapFullscreen ? '100%' : (s.mapCollapsed ? 'auto' : '480px'),
+      mapCardLift: s.mapFullscreen ? '0 40px 90px rgba(10,5,6,0.45)' : '0 0 0 rgba(0,0,0,0)',
+      mapBodyFlex: s.mapCollapsed ? '0 0 0px' : '1',
+      mapBodyH: s.mapCollapsed ? '0px' : 'auto',
+    };
+  }
+}
+</script>
+</body>
+</html>

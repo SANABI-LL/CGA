@@ -37,9 +37,13 @@ export class ApiStack extends cdk.Stack {
             ? 'anthropic.claude-3-5-sonnet-20241022-v2:0'
             : 'anthropic.claude-3-haiku-20240307-v1:0',
         ALLOWED_ORIGIN: props.stage === 'prod' ? 'https://campusgeo.uchicago.edu' : '*',
+        SESSIONS_TABLE: props.queryTable.tableName,
         // TRANSLOC_API_KEY and TRANSLOC_AGENCY_ID injected via Secrets Manager in Phase 2
       },
     })
+
+    // Grant session history read/write (queryTable, by-session GSI)
+    props.queryTable.grantReadWriteData(agentLambda)
 
     // Grant Bedrock invoke permission
     agentLambda.addToRolePolicy(

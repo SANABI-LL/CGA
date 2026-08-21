@@ -15,6 +15,10 @@
   const API_BASE = cfg.apiBase || 'http://localhost:3001';
   const API_KEY = cfg.apiKey || '';
 
+  // One sessionId per page load — reused across follow-up queries so the backend
+  // can retrieve conversation history and give contextual answers (e.g. "filter by 1890s").
+  const SESSION_ID = 'cg_' + Math.random().toString(36).slice(2, 9);
+
   // 全局 HTML 转义——所有外部数据（LLM 文本、SSE 字段、S3 属性）插入 HTML 前必须经过此函数
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -379,7 +383,7 @@
           'Accept': 'text/event-stream',
           ...(API_KEY ? { 'X-Api-Key': API_KEY } : {}),
         },
-        body: JSON.stringify({ query: userQuery, sessionId: 'frontend-' + Date.now() }),
+        body: JSON.stringify({ query: userQuery, sessionId: SESSION_ID }),
       });
 
       if (!response.ok) {
