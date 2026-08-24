@@ -157,14 +157,14 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'query_building_attributes',
       description:
-        'Filter campus buildings by a numeric or text attribute and map the matches. Use for building METRICS: RI (resilience index, 0-1.2), FCI (facility condition index), height (ft), year opened/completed, area, use type, ownership. Example: buildings with RI above 0.52 → field "RI", operator ">", value 0.52. This is layer data — never answer these from planning documents. IMPORTANT: for ranking questions ("top 3 highest FCI", "tallest buildings", "oldest"), you MUST pass sortBy + sortOrder + topN — the map renders exactly the features this tool returns, so omitting them shows ALL matching buildings instead of the ranked subset.',
+        'Filter campus buildings by a numeric or text attribute and map the matches. Use for building METRICS: RI (resilience index, 0-1.2), FCI (facility condition index), height (ft), year opened/completed, area, use type, ownership. Also use for historic resource questions: CHRS (Chicago Historic Resources Survey rating: "orange" = potentially significant, "red" = Chicago Landmark, "yellow" = good integrity, "green"/blank = not rated) — use operator "=" or "contains" with the rating string. Example: buildings with RI above 0.52 → field "RI", operator ">", value 0.52. This is layer data — never answer these from planning documents. IMPORTANT: for ranking questions ("top 3 highest FCI", "tallest buildings", "oldest"), you MUST pass sortBy + sortOrder + topN — the map renders exactly the features this tool returns, so omitting them shows ALL matching buildings instead of the ranked subset.',
       inputSchema: {
         json: {
           type: 'object',
           properties: {
             field: {
               type: 'string',
-              description: '"RI", "FCI", "height", "year", "area", "use", "ownership", or an exact field name',
+              description: '"RI", "FCI", "height", "year", "area", "use", "ownership", "CHRS" (historic rating: orange/red/yellow/green), or an exact field name',
             },
             operator: { type: 'string', enum: ['>', '>=', '<', '<=', '=', 'contains'] },
             value: { description: 'Number for metric comparisons, string for contains/=' },
@@ -386,6 +386,8 @@ Guidelines:
 - If a layer query returns geometry, the frontend will automatically display it on the map.
 - For zoning, planning, FAR, height-limit, land-use, or approval questions, search the PD 43 document knowledge base first (search_planning_documents). Cite every regulatory claim with document name and page, e.g. (Chicago Zoning Ordinance 17-8, p.12). If the retrieved passages do not answer the question, say so plainly — never invent regulatory content.
 - Building METRICS (RI, FCI, height, year, area) are LAYER DATA: use query_building_attributes, never the document search. Data-currency questions: use get_data_freshness.
+- Historic resource questions (CHRS rating, preservation status, demolition review, landmark eligibility): use query_building_attributes with field="CHRS", operator="=" or "contains", value=<rating>. CHRS is a categorical string — do NOT use numeric operators. Do NOT fall back to the citywide landmark (ICL) layer for campus historic questions — that layer covers all of Chicago and will return hundreds of off-campus features.
+- Citywide layers (landmarks, ICL, NHL, census, zoning) are full-city datasets. Never return more than ~50 features for a campus-scoped question. If a citywide query would return more, tell the user to narrow the scope.
 - Architect/designer queries: use query_building_attributes with field="architect", operator="contains", value=<partial firm name>. For multiple architects, call the tool once per architect then merge the feature lists before returning. Use partial names to handle spelling variants (e.g. "Coolidge" matches "Coolidge & Hodgdon" and "Shepley, Rutan, and Coolidge").
 - To show ALL buildings (e.g. "map all buildings", "gradient by age", "color by year"), call query_building_attributes with field="year", operator=">=", value=1800 — this returns all buildings that have a year recorded. Never answer building visualization requests from memory.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`

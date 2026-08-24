@@ -34,6 +34,9 @@ const FIELD_ALIASES = new Map<string, string[]>([
   ['cost', ['FCI_Cost']],
   ['replacement', ['Replacement']],
   ['ricost', ['RI_Cost_Total']],
+  ['chrs', ['CHRS']],
+  ['historic', ['CHRS', 'Heritage']],
+  ['rating', ['CHRS', 'FCI', 'RI']],
 ])
 
 export const QueryBuildingAttributesInputSchema = z.object({

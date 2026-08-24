@@ -22,6 +22,8 @@ export const BUILDING_FIELD_ALLOWLIST: ReadonlySet<string> = new Set([
   'F2031', 'F2032', 'F2033', 'F2034', 'F2035',
   // narrative
   'Architects', 'Heritage', 'Notes',
+  // historic-resource ratings
+  'CHRS',
 ])
 
 export function pickBuildingProps(
