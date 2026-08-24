@@ -135,7 +135,8 @@ export async function queryBuildingAttributes(input: QueryBuildingAttributesInpu
       }
       const num = typeof raw === 'number' ? raw : parseFloat(String(raw))
       if (Number.isNaN(num) || Number.isNaN(numericValue)) {
-        return input.operator === '=' && String(raw) === String(input.value)
+        const norm = (v: unknown) => String(v ?? '').trim().toLowerCase()
+        return input.operator === '=' && norm(raw) === norm(input.value)
       }
       switch (input.operator) {
         case '>': return num > numericValue
