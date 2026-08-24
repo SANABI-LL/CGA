@@ -65,6 +65,8 @@ const WATCHED: Record<string, WatchedLayer> = {
   'layers/standpipe.geojson': { label: 'Standpipes', icon: 'diff', nameFields: ['FID'] },
   'layers/fire_lane.geojson': { label: 'Fire Lanes', icon: 'diff', nameFields: ['FID'] },
   'layers/post_indicator_valve.geojson': { label: 'Post Indicator Valves', icon: 'diff', nameFields: ['FID'] },
+  // Campus planning geography
+  'layers/Subarea.geojson': { label: 'Campus Planning Subareas', icon: 'diff', nameFields: ['SubArea'] },
   // Landmarks & heritage
   'layers/individual_landmark.geojson': { label: 'City Landmarks', icon: 'pen', nameFields: ['LANDMARK_N', 'ADDRESS'] },
   'layers/nrhp.geojson': { label: 'NRHP Historic Places', icon: 'pen', nameFields: ['Name'] },

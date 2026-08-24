@@ -281,6 +281,7 @@ const CAMPUS_TOOLS: Tool[] = [
         '  Sustainability: green_roof (FID,Type,Shape__Area)\n' +
         '  Accessibility: ada_route (Name,PopupInfo) | accessible_entrance (OBJECTID,AutomaticDoor,Orientation) | controlled_entrance (OBJECTID,Auto,Orientation) | accessibility_info (Building,Address,Elevator,Restroom,Notes) | inaccessible_entrance (OBJECTID,AutomaticDoor) | inaccessible_building (OBJECTID,Building,Alias)\n' +
         '  Fire & safety: hydrant (FID,TYPE,ASSET_ID) | fire_escape (FID) | sprinkler (FID) | standpipe (FID) | fire_lane (FID,Shape__Area) | post_indicator_valve (FID)\n' +
+        '  Planning geography: subarea (SubArea — planning district letter A through P, 14 polygons). Use to answer "which subarea is X in?", "show me Subarea O", or to scope other queries by planning district. These are large boundary polygons — return the subarea polygons themselves only when the user explicitly asks to see subarea boundaries; otherwise use them as spatial context.\n' +
         '  Landmarks: landmark (LANDMARK_N,ID,ADDRESS,DATE_BUILT,ARCHITECT,HISTORY) | nrhp (Name,NRHP) | nhl (LANDMARK_N,ID,ADDRESS,DATE_BUILT,ARCHITECT,HISTORY)\n' +
         '  Parking & transit: surface_parking (FID,SFPARK_ID,Area_AC) | metra_station (NAME,LINES,ADA,FAREZONE,ADDRESS,STATUS)',
       inputSchema: {
@@ -295,6 +296,7 @@ const CAMPUS_TOOLS: Tool[] = [
                 'ada_route', 'accessible_entrance', 'controlled_entrance',
                 'accessibility_info', 'inaccessible_entrance', 'inaccessible_building',
                 'hydrant', 'fire_escape', 'sprinkler', 'standpipe', 'fire_lane', 'post_indicator_valve',
+                'subarea',
                 'landmark', 'nrhp', 'nhl',
                 'surface_parking', 'metra_station',
               ],

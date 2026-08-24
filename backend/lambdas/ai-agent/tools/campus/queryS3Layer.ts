@@ -38,6 +38,8 @@ const S3_LAYER_FILES: Record<string, string> = {
   standpipe: 'layers/standpipe.geojson',
   fire_lane: 'layers/fire_lane.geojson',
   post_indicator_valve: 'layers/post_indicator_valve.geojson',
+  // Campus planning geography
+  subarea: 'layers/Subarea.geojson',
   // Landmarks & heritage
   landmark: 'layers/individual_landmark.geojson',
   nrhp: 'layers/nrhp.geojson',
@@ -56,6 +58,7 @@ export const QueryS3LayerInputSchema = z.object({
     'ada_route', 'accessible_entrance', 'controlled_entrance',
     'accessibility_info', 'inaccessible_entrance', 'inaccessible_building',
     'hydrant', 'fire_escape', 'sprinkler', 'standpipe', 'fire_lane', 'post_indicator_valve',
+    'subarea',
     'landmark', 'nrhp', 'nhl',
     'surface_parking', 'metra_station',
   ]),
