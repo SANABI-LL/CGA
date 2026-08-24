@@ -10,7 +10,7 @@ const MAX_QUERY_LENGTH = 2000
 // tool_result events on the "data" path (no mapUpdate) are forwarded only for
 // these tools — the frontend uses them to render structured cards directly.
 // All other data-only tool_results are suppressed to keep payload small.
-const PASSTHROUGH_DATA_TOOLS = new Set(['check_hours', 'get_campus_events'])
+const PASSTHROUGH_DATA_TOOLS = new Set(['check_hours', 'get_campus_events', 'get_academic_calendar'])
 
 // Shared-secret gate: the API must never be anonymously callable, whichever
 // front door (CloudFront, API Gateway, Function URL) the request came through.

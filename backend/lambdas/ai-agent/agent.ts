@@ -21,6 +21,7 @@ import { findBuildingsByYear, FindBuildingsByYearInputSchema } from './tools/cam
 import { getCampusEvents, GetCampusEventsInputSchema } from './tools/campus/getCampusEvents'
 import { getBuildingUpdates, GetBuildingUpdatesInputSchema } from './tools/campus/getBuildingUpdates'
 import { queryCampusLayer, QueryCampusLayerInputSchema } from './tools/campus/queryCampusLayer'
+import { getAcademicCalendar, GetAcademicCalendarInputSchema } from './tools/campus/getAcademicCalendar'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -327,6 +328,36 @@ const CAMPUS_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    toolSpec: {
+      name: 'get_academic_calendar',
+      description:
+        'Return University of Chicago academic calendar dates: quarter start/end, instruction begins/ends, exam weeks, holiday breaks (Thanksgiving, winter, spring), registration and add/drop deadlines, Convocation. ' +
+        'Use for ANY question about academic dates or schedules. This tool has no map output — it answers in text only. ' +
+        'Data is fetched from the official college catalog and cached for 7 days.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            quarter: {
+              type: 'string',
+              enum: ['autumn', 'winter', 'spring', 'summer'],
+              description: 'Which quarter to filter by. Omit to return all quarters.',
+            },
+            academicYear: {
+              type: 'string',
+              description: 'Academic year, e.g. "2026-27". Omit for current academic year.',
+            },
+            kind: {
+              type: 'string',
+              enum: ['all', 'instruction', 'exams', 'breaks', 'deadlines'],
+              description: 'Filter by event type. Omit or "all" for everything.',
+            },
+          },
+        },
+      },
+    },
+  },
 ]
 
 function buildSessionContext(turns: SessionTurn[]): string {
@@ -606,6 +637,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'query_campus_layer': {
       const input = QueryCampusLayerInputSchema.parse(rawInput)
       return queryCampusLayer(input)
+    }
+    case 'get_academic_calendar': {
+      const input = GetAcademicCalendarInputSchema.parse(rawInput)
+      return getAcademicCalendar(input)
     }
     default:
       return { error: `Unknown tool: ${name}` }
