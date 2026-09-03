@@ -24,6 +24,8 @@ export const BUILDING_FIELD_ALLOWLIST: ReadonlySet<string> = new Set([
   'Architects', 'Heritage', 'Notes',
   // historic-resource ratings
   'CHRS',
+  // planning geography — written by join_subarea_to_buildings.py ETL
+  'SubArea',
 ])
 
 export function pickBuildingProps(

@@ -37,6 +37,8 @@ const FIELD_ALIASES = new Map<string, string[]>([
   ['chrs', ['CHRS']],
   ['historic', ['CHRS', 'Heritage']],
   ['rating', ['CHRS', 'FCI', 'RI']],
+  ['subarea', ['SubArea']],
+  ['district', ['SubArea']],
 ])
 
 export const QueryBuildingAttributesInputSchema = z.object({

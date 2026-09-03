@@ -11,6 +11,7 @@ import { getShuttleArrivals, GetShuttleArrivalsInputSchema } from './tools/campu
 import { getBikeStations, GetBikeStationsInputSchema } from './tools/campus/getBikeStations'
 import { findCampusNearby, FindCampusNearbyInputSchema } from './tools/campus/findCampusNearby'
 import { getBuildingInfo, GetBuildingInfoInputSchema } from './tools/campus/getBuildingInfo'
+import { getBuilding, GetBuildingInputSchema } from './tools/campus/getBuilding'
 import { checkHours, CheckHoursInputSchema } from './tools/campus/checkHours'
 import { queryTrees, QueryTreesInputSchema } from './tools/campus/queryTrees'
 import { searchDocuments, SearchDocumentsInputSchema } from './tools/campus/searchDocuments'
@@ -22,6 +23,8 @@ import { getCampusEvents, GetCampusEventsInputSchema } from './tools/campus/getC
 import { getBuildingUpdates, GetBuildingUpdatesInputSchema } from './tools/campus/getBuildingUpdates'
 import { queryCampusLayer, QueryCampusLayerInputSchema } from './tools/campus/queryCampusLayer'
 import { getAcademicCalendar, GetAcademicCalendarInputSchema } from './tools/campus/getAcademicCalendar'
+import { spatialQuery, SpatialQueryInputSchema } from './tools/campus/spatialQuery'
+import { checkFeasibility, CheckFeasibilityInputSchema } from './tools/campus/checkFeasibility'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -88,6 +91,66 @@ const CAMPUS_TOOLS: Tool[] = [
             limit: { type: 'number', default: 5 },
           },
           required: ['referenceLocation', 'featureType'],
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'get_building',
+      description:
+        'Look up a SPECIFIC named building and return all its attributes: CHRS historic rating, FCI, RI, height, year, architects, address, etc. ' +
+        'Use whenever the question is about ONE or FEW named buildings — "is Hinds orange?", "when was Rockefeller Chapel built?", "what is Kent Hall\'s FCI?", "compare Hinds and Kent". ' +
+        'One call per building name. Returns only the matched building(s) on the map. ' +
+        'Do NOT use query_building_attributes to fetch a whole category just to check one building — that puts hundreds of irrelevant features on the map.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Building name or code, e.g. "Hinds Laboratory", "Regenstein Library", "C03"' },
+          },
+          required: ['name'],
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'spatial_query',
+      description:
+        'Find features in a campus layer whose centroids fall within a planning boundary polygon. ' +
+        'Use for questions like "buildings in Subarea B", "trees within Subarea C", "what\'s inside the O district", ' +
+        '"show me all buildings in Subarea J". Uses centroid-in-polygon (standard planning practice — buildings on ' +
+        'subarea boundaries are assigned by centroid, not strict containment). ' +
+        'Do NOT use this for named-building lookups — use get_building instead. ' +
+        'Tip: after the SubArea ETL runs, buildings have a SubArea attribute and you can also use ' +
+        'query_building_attributes(field="subarea", operator="=", value="B") as a faster alternative.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          required: ['targetLayer', 'withinLayer', 'withinValue'],
+          properties: {
+            targetLayer: {
+              type: 'string',
+              enum: ['buildings', 'trees', 'bike_racks', 'benches', 'public_arts', 'green_roof',
+                     'emergency_phone', 'trash_can', 'seating'],
+              description: 'Layer to find features in',
+            },
+            withinLayer: {
+              type: 'string',
+              enum: ['subarea'],
+              description: 'Polygon layer used as spatial boundary',
+            },
+            withinValue: {
+              type: 'string',
+              description: 'Identity value in the boundary layer, e.g. "B" for SubArea "B"',
+            },
+            withinField: {
+              type: 'string',
+              description: 'Field to match withinValue against (default: SubArea for subarea layer)',
+            },
+            limit: { type: 'integer', minimum: 1, maximum: 500, default: 300 },
+          },
         },
       },
     },
@@ -281,7 +344,7 @@ const CAMPUS_TOOLS: Tool[] = [
         '  Sustainability: green_roof (FID,Type,Shape__Area)\n' +
         '  Accessibility: ada_route (Name,PopupInfo) | accessible_entrance (OBJECTID,AutomaticDoor,Orientation) | controlled_entrance (OBJECTID,Auto,Orientation) | accessibility_info (Building,Address,Elevator,Restroom,Notes) | inaccessible_entrance (OBJECTID,AutomaticDoor) | inaccessible_building (OBJECTID,Building,Alias)\n' +
         '  Fire & safety: hydrant (FID,TYPE,ASSET_ID) | fire_escape (FID) | sprinkler (FID) | standpipe (FID) | fire_lane (FID,Shape__Area) | post_indicator_valve (FID)\n' +
-        '  Planning geography: subarea (SubArea — planning district letter A through P, 14 polygons). Use to answer "which subarea is X in?", "show me Subarea O", or to scope other queries by planning district. These are large boundary polygons — return the subarea polygons themselves only when the user explicitly asks to see subarea boundaries; otherwise use them as spatial context.\n' +
+        '  Planning geography: subarea (SubArea — planning district letter A through P, 14 polygons). Use to answer "which subarea is X in?", "show me Subarea O", "compare B and C", or to scope other queries by planning district. These are large boundary polygons — when the user names SPECIFIC subareas, pass filterField="SubArea" and filterValues=["B","C"] so only those polygons appear on the map; the map renders every feature the tool returns. Return all 14 only when the user explicitly asks for all subarea boundaries.\n' +
         '  Landmarks: landmark (LANDMARK_N,ID,ADDRESS,DATE_BUILT,ARCHITECT,HISTORY) | nrhp (Name,NRHP) | nhl (LANDMARK_N,ID,ADDRESS,DATE_BUILT,ARCHITECT,HISTORY)\n' +
         '  Parking & transit: surface_parking (FID,SFPARK_ID,Area_AC) | metra_station (NAME,LINES,ADA,FAREZONE,ADDRESS,STATUS)',
       inputSchema: {
@@ -305,6 +368,12 @@ const CAMPUS_TOOLS: Tool[] = [
             nearLocation: { type: 'string', description: 'Optional campus location name to filter by proximity' },
             radiusMeters: { type: 'number', minimum: 1, maximum: 2000, default: 400, description: 'Radius in meters when nearLocation is set' },
             limit: { type: 'integer', minimum: 1, maximum: 200, default: 50, description: 'Max features to return' },
+            filterField: { type: 'string', description: 'Property field to filter by, e.g. "SubArea"' },
+            filterValues: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Return only features where filterField matches one of these values. For subarea: ["B", "C"]. Case-insensitive.',
+            },
           },
         },
       },
@@ -326,6 +395,34 @@ const CAMPUS_TOOLS: Tool[] = [
             topK: { type: 'number', description: 'Number of passages to retrieve (1-10)', default: 5 },
           },
           required: ['query'],
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'check_feasibility',
+      description:
+        'Determine whether a proposed building addition or alteration is feasible on a named campus building. ' +
+        'Combines three data sources that no single query can handle: (1) CHRS historic-resource rating — code lookup, ' +
+        '§13-32-230 review trigger at Orange/Red; (2) FAR arithmetic — current and projected floor area ratio computed in code ' +
+        'from building attributes; (3) PD 43 planning document passages — FAR limit, permitted uses, special commitments for the building\'s subarea. ' +
+        'Use for questions like "Can Kent add 4 floors?", "Is it feasible to expand Robie House?", "What are the constraints on altering Crerar Library?"',
+      inputSchema: {
+        json: {
+          type: 'object',
+          required: ['buildingName', 'proposal'],
+          properties: {
+            buildingName: { type: 'string', description: 'Target building name or code, e.g. "Kent Chemical Laboratory"' },
+            proposal: {
+              type: 'object',
+              properties: {
+                addedFloors: { type: 'integer', minimum: 1, maximum: 20, description: 'Number of floors to add' },
+                addedFootprintSf: { type: 'number', description: 'Footprint expansion in sq ft, if the addition also widens the base' },
+                side: { type: 'string', enum: ['north', 'south', 'east', 'west'], description: 'Side of building for the addition' },
+              },
+            },
+          },
         },
       },
     },
@@ -387,11 +484,15 @@ Guidelines:
 - Format responses concisely — this is a map app, not a chat.
 - If a layer query returns geometry, the frontend will automatically display it on the map.
 - For zoning, planning, FAR, height-limit, land-use, or approval questions, search the PD 43 document knowledge base first (search_planning_documents). Cite every regulatory claim with document name and page, e.g. (Chicago Zoning Ordinance 17-8, p.12). If the retrieved passages do not answer the question, say so plainly — never invent regulatory content.
-- Building METRICS (RI, FCI, height, year, area) are LAYER DATA: use query_building_attributes, never the document search. Data-currency questions: use get_data_freshness.
-- Historic resource questions (CHRS rating, preservation status, demolition review, landmark eligibility): use query_building_attributes with field="CHRS", operator="=" or "contains", value=<rating>. CHRS is a categorical string — do NOT use numeric operators. Actual values in the data (pass in lowercase; the backend normalizes): "orange" (potentially significant, 81 buildings), "blue" (49 buildings), "yellow" (good integrity, 13), "green" (5), "red" (Chicago Landmark, 1), "purple" (1); blank/space/null = not rated (158 buildings). Do NOT fall back to the citywide landmark (ICL) layer for campus historic questions — that layer covers all of Chicago and will return hundreds of off-campus features.
+- Building METRICS (RI, FCI, height, year, area) are LAYER DATA: use query_building_attributes for SET queries, never the document search. Data-currency questions: use get_data_freshness.
+- For questions about ONE or FEW NAMED buildings ("is Hinds orange?", "when was Rockefeller Chapel built?", "what is Kent's FCI?", "compare Hinds and Kent"), you MUST use get_building — one call per building name. It returns CHRS, FCI, RI, height, year, architects, and all other attributes. Never use query_building_attributes to fetch a whole category and then pick one building's answer out in prose — the map renders every feature the tool returns, flooding the map with irrelevant buildings.
+- Historic resource SET questions (list all orange buildings, count blue-rated buildings, show CHRS-rated buildings): use query_building_attributes with field="CHRS", operator="=" or "contains", value=<rating>. CHRS is a categorical string — do NOT use numeric operators. Actual values (pass in lowercase; backend normalizes): "orange" (potentially significant, 81 buildings), "blue" (49 buildings), "yellow" (good integrity, 13), "green" (5), "red" (Chicago Landmark, 1), "purple" (1); blank/null = not rated (158 buildings). Do NOT fall back to the citywide landmark (ICL) layer for campus historic questions — that layer covers all of Chicago and returns hundreds of off-campus features.
 - Citywide layers (landmarks, ICL, NHL, census, zoning) are full-city datasets. Never return more than ~50 features for a campus-scoped question. If a citywide query would return more, tell the user to narrow the scope.
 - Architect/designer queries: use query_building_attributes with field="architect", operator="contains", value=<partial firm name>. For multiple architects, call the tool once per architect then merge the feature lists before returning. Use partial names to handle spelling variants (e.g. "Coolidge" matches "Coolidge & Hodgdon" and "Shepley, Rutan, and Coolidge").
 - To show ALL buildings (e.g. "map all buildings", "gradient by age", "color by year"), call query_building_attributes with field="year", operator=">=", value=1800 — this returns all buildings that have a year recorded. Never answer building visualization requests from memory.
+- Spatial containment questions ("buildings in Subarea B", "trees within Subarea C", "what facilities are inside Subarea O"): use spatial_query with targetLayer + withinLayer="subarea" + withinValue=<letter>. Uses centroid-in-polygon — accurate for planning purposes. Do NOT try to answer these from attribute filters unless the buildings already carry a SubArea attribute.
+- If a spatial relationship question cannot be answered with the available tools (e.g. "which buildings are within 200m of the subarea B boundary"), say so directly rather than suggesting the user zoom in and manually compare. Pushing spatial analysis back to the user is never acceptable.
+- Building feasibility questions ("can Kent add 4 floors?", "is it feasible to expand X?", "what constraints apply to altering Y?"): use check_feasibility. This tool pre-computes CHRS historic-resource status and FAR arithmetic in code — do not recalculate these numbers yourself. Use the returned planningPassages to interpret the FAR limit for the building's subarea and explain any special conditions. Every regulatory claim must cite a document and page from the retrieved passages — never invent a FAR number or zoning rule.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
 }
 
@@ -535,13 +636,31 @@ export async function runCampusGeoAgent(
         // Extract GeoJSON for map update if tool returned features
         const resultObj = result as Record<string, unknown>
         if (resultObj?.features && typeof resultObj.features === 'object') {
+          // mapFocus: tool can return _mapFocus: { field, values } to restrict which features
+          // render on the map while the model still receives the full feature set for analysis.
+          let featureData = resultObj.features as { type?: string; features?: unknown[] }
+          const mf = resultObj._mapFocus as { field?: string; values?: string[] } | undefined
+          if (mf?.field && Array.isArray(mf.values) && mf.values.length > 0 &&
+              Array.isArray(featureData.features)) {
+            const field = mf.field
+            const allowed = new Set(mf.values.map(v => String(v).toLowerCase()))
+            featureData = {
+              ...featureData,
+              features: featureData.features.filter((f) => {
+                const props = (f as { properties?: Record<string, unknown> }).properties ?? {}
+                const v = props[field]
+                return v != null && allowed.has(String(v).toLowerCase())
+              }),
+            }
+          }
           onEvent({
             type: 'tool_result',
             toolName: name!,
             mapUpdate: {
-              features: resultObj.features,
+              features: featureData,
               center: resultObj.center,
             },
+            ...(resultObj.ruling ? { ruling: resultObj.ruling } : {}),
           })
         } else {
           onEvent({ type: 'tool_result', toolName: name!, data: result })
@@ -598,6 +717,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
       const input = FindCampusNearbyInputSchema.parse(rawInput)
       return findCampusNearby(input)
     }
+    case 'get_building': {
+      const input = GetBuildingInputSchema.parse(rawInput)
+      return getBuilding(input)
+    }
     case 'get_building_info': {
       const input = GetBuildingInfoInputSchema.parse(rawInput)
       return getBuildingInfo(input)
@@ -641,6 +764,14 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'query_campus_layer': {
       const input = QueryCampusLayerInputSchema.parse(rawInput)
       return queryCampusLayer(input)
+    }
+    case 'spatial_query': {
+      const input = SpatialQueryInputSchema.parse(rawInput)
+      return spatialQuery(input)
+    }
+    case 'check_feasibility': {
+      const input = CheckFeasibilityInputSchema.parse(rawInput)
+      return checkFeasibility(input)
     }
     case 'get_academic_calendar': {
       const input = GetAcademicCalendarInputSchema.parse(rawInput)

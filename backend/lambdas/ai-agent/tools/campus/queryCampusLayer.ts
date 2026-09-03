@@ -21,6 +21,9 @@ export const QueryCampusLayerInputSchema = z.object({
   sortBy: z.string().optional().describe('Property name to sort features by'),
   sortOrder: z.enum(['asc', 'desc']).optional(),
   topN: z.number().int().min(1).max(200).optional().describe('Return only the top N after sorting'),
+  filterField: z.string().max(50).optional().describe('Property field to filter by, e.g. "SubArea"'),
+  filterValues: z.array(z.string().max(50)).max(20).optional()
+    .describe('Return only features where filterField equals one of these values (case-insensitive)'),
 }).strict()
 
 export type QueryCampusLayerInput = z.infer<typeof QueryCampusLayerInputSchema>
@@ -62,6 +65,16 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
   if ('error' in raw) return raw
 
   let features = raw.features
+
+  // Optional value filter (e.g. SubArea IN ['B', 'C'])
+  if (input.filterField && input.filterValues && input.filterValues.length > 0) {
+    const field = input.filterField
+    const allowed = new Set(input.filterValues.map(v => String(v).toLowerCase()))
+    features = features.filter(f => {
+      const v = f.properties[field]
+      return v != null && allowed.has(String(v).toLowerCase())
+    })
+  }
 
   // Optional proximity filter
   if (input.nearLocation) {
@@ -127,6 +140,9 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
     layer: input.layerName,
     label: LAYER_LABELS[input.layerName] ?? input.layerName,
     ...(input.nearLocation ? { nearLocation: input.nearLocation, radiusMeters: input.radiusMeters } : {}),
+    ...(input.filterField && input.filterValues?.length
+      ? { _mapFocus: { field: input.filterField, values: input.filterValues } }
+      : {}),
     source: 's3',
   }
 }
