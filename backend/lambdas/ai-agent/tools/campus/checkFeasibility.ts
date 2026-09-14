@@ -118,6 +118,32 @@ function polygonAreaSqFt(ring: Ring): number {
   return Math.abs(area / 2) * LNG_FT * LAT_FT
 }
 
+/**
+ * Try to parse a numeric FAR cap from PD 43 passage text.
+ * Regex-based: the value is a citation (not computed), so parsing text is correct here.
+ * Returns null if no unambiguous number is found — better to admit uncertainty
+ * than to report a wrong cap.
+ */
+function extractFarCap(passages: Array<{ text: string }>): number | null {
+  const patterns = [
+    /\bF\.?A\.?R\.?\s+(?:of\s+|limit(?:\s+of)?\s+|not\s+to\s+exceed\s+|:\s*)(\d+\.?\d*)/i,
+    /floor\s+area\s+ratio[^.]{0,60}?(?:not\s+to\s+exceed\s+|of\s+|limit(?:\s+of)?\s+|:\s*)(\d+\.?\d*)/i,
+    /maximum\s+(?:floor\s+area\s+ratio|F\.?A\.?R\.?)\s+(?:of\s+)?(\d+\.?\d*)/i,
+    /F\.?A\.?R\.?\s+shall\s+not\s+exceed\s+(\d+\.?\d*)/i,
+    /\bF\.?A\.?R\.?\s+(\d+\.?\d*)\b/i,
+  ]
+  for (const p of passages) {
+    for (const pattern of patterns) {
+      const m = p.text.match(pattern)
+      if (m) {
+        const n = parseFloat(m[1])
+        if (n > 0 && n < 20) return n
+      }
+    }
+  }
+  return null
+}
+
 function extractFootprintPolygon(
   geometry: Record<string, unknown> | null
 ): { ring: Ring; type: 'Polygon' } | null {
@@ -261,7 +287,7 @@ export async function checkFeasibility(input: CheckFeasibilityInput) {
     citation: `PD 43; Subarea ${subArea ?? '—'} Plan`,
   }
 
-  // ── 5. PD 43 passages ─────────────────────────────────────────────────────
+  // ── 5. PD 43 passages + FAR cap extraction ───────────────────────────────
   const docQuery = subArea
     ? `subarea ${subArea} floor area ratio permitted uses special conditions commitment`
     : `campus building addition floor area ratio permitted uses`
@@ -269,7 +295,29 @@ export async function checkFeasibility(input: CheckFeasibilityInput) {
   const docsResult = await searchDocuments({ query: docQuery, topK: 5 })
   const passages = 'passages' in docsResult ? docsResult.passages : []
 
-  // ── 6. Derive overall verdict ──────────────────────────────────────────────
+  // Extract numeric FAR cap from retrieved text (regex on citation, not model arithmetic)
+  const farCap = extractFarCap(passages ?? [])
+
+  // Refine FAR constraint status once we know the cap
+  if (farCap !== null && projectedFAR !== null) {
+    farConstraint.status = projectedFAR > farCap ? 'fail' : 'pass'
+    farConstraint.detail =
+      farDetail.replace(/FAR limit for Subarea .* — see planning passages\.$/, '') +
+      `FAR cap for Subarea ${subArea ?? '—'} (PD 43): ${farCap}. ` +
+      `Projected FAR ${projectedFAR} ${projectedFAR > farCap ? 'EXCEEDS' : 'is within'} the limit.`
+  } else if (farCap !== null && currentFAR !== null && !input.proposal.addedFloors) {
+    // No proposal floors but cap known — still useful context
+    farConstraint.detail += ` FAR cap per PD 43: ${farCap}. Current FAR ${currentFAR} is ${currentFAR > farCap ? 'already above' : 'within'} the cap.`
+    farConstraint.status = currentFAR > farCap ? 'fail' : 'pass'
+  }
+
+  // perFloor: how much FAR each added floor contributes (for frontend slider)
+  const perFloor =
+    projectedFAR !== null && currentFAR !== null && input.proposal.addedFloors
+      ? Math.round(((projectedFAR - currentFAR) / input.proposal.addedFloors) * 100) / 100
+      : null
+
+  // ── 6. Derive overall verdict (after FAR constraint update) ───────────────
   const constraints: Constraint[] = [chrsConstraint, farConstraint]
   const hasFailure = constraints.some((c) => c.status === 'fail')
   const hasReview = constraints.some((c) => c.status === 'review')
@@ -305,6 +353,15 @@ export async function checkFeasibility(input: CheckFeasibilityInput) {
       subject,
       constraints,
       geometry: geometryOut,
+      // Structured FAR numbers for 3D viewer coloring and floor-count slider
+      far: {
+        cap: farCap,
+        current: currentFAR,
+        projected: projectedFAR,
+        perFloor,
+        lotAreaSf,
+        addedGfaSf: addedGFA,
+      },
     },
     // Map: show only the target building
     features: {
@@ -327,6 +384,7 @@ export async function checkFeasibility(input: CheckFeasibilityInput) {
       lotAreaSource,
       currentFAR,
       projectedFAR,
+      farCap,
       addedGFA,
       estimatedExistingFloors: estimatedFloors,
       verdict,
@@ -335,8 +393,11 @@ export async function checkFeasibility(input: CheckFeasibilityInput) {
       planningPassages: (passages ?? []).slice(0, 5),
       note:
         'FAR numbers and CHRS status pre-computed in code — do not recalculate. ' +
-        'Use planningPassages to interpret FAR limit for this subarea and explain any special conditions. ' +
-        'If passages contain a specific FAR limit, compare projectedFAR against it and refine your answer. ' +
+        (farCap !== null
+          ? `FAR cap ${farCap} extracted from PD 43 passages. `
+          : 'No numeric FAR cap found in passages — state this explicitly if relevant. ') +
+        'Use planningPassages to explain any special conditions (permitted uses, facade commitments, etc.). ' +
+        'Every regulatory claim must cite document name and page number. ' +
         'Map shows only the target building.',
     },
   }
