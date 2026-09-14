@@ -39,17 +39,21 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'get_shuttle_arrivals',
       description:
-        'Get real-time UChicago shuttle arrival estimates at a campus stop. Use when user asks about shuttle times, next bus, transit.',
+        'Get real-time UChicago shuttle arrival estimates from Passio GO (the university\'s live tracker since March 2024). Use when user asks about shuttle times, next bus, campus transit, or arrival predictions. Always state when data was fetched.',
       inputSchema: {
         json: {
           type: 'object',
           properties: {
             stopName: {
               type: 'string',
-              description: 'Campus shuttle stop name, e.g. "Keller Center", "Regenstein Library", "Booth School"',
+              description: 'Stop name or nearby campus building, e.g. "Logan Center", "Regenstein Library", "Ratner"',
             },
+            routeName: {
+              type: 'string',
+              description: 'Optional: filter to one route, e.g. "NightRide North", "Red Line/Arts Block"',
+            },
+            limit: { type: 'number', default: 5, description: 'Max arrivals to return (default 5, max 10)' },
           },
-          required: ['stopName'],
         },
       },
     },
@@ -198,6 +202,8 @@ const CAMPUS_TOOLS: Tool[] = [
         'Query the campus tree inventory. ALWAYS call this tool for tree counts — the inventory is updated regularly, never answer from memory. ' +
         'For "trees near/within X" or "trees within N ft of X": set nearLocation to the campus building or place name and radiusMeters to the converted distance (1 ft = 0.305 m, so 500 ft → 152). ' +
         'For attribute filters: species (common name, e.g. "Maple"), ageClass ("Young"/"Semi-mature"/"Mature"), condition ("Good"/"Fair"/"Poor"), minDiameter (cm), notes keyword (TreeNotes records planting batches like "2025 Fall"). ' +
+        'Tree ownership is encoded in the UChicagoIn field — use the ownership parameter: "campus" = University-owned trees (UChicagoIn empty/null), "right-of-way" = public-land trees managed by CDOT, Midway Plaisance, etc. NEVER use location or notes to determine ownership. ' +
+        'EstValue field = appraised replacement value in USD (i-Tree/CTLA). Use sortBy="EstValue" + topN for "most valuable trees". Totals/averages are pre-computed in _modelSummary.estValueAggregate — never ask users to sum rows themselves. ' +
         'Do NOT pass a building name to the location field — that field matches an inventory attribute tag, not a spatial lookup; it will return 0 results.',
       inputSchema: {
         json: {
@@ -211,6 +217,14 @@ const CAMPUS_TOOLS: Tool[] = [
             notes: { type: 'string', description: 'Keyword match on TreeNotes (planting batches, e.g. "2025 Fall")' },
             nearLocation: { type: 'string', description: 'Named campus location for spatial radius search, e.g. "Keller Center". Use for "trees near/within X" queries.' },
             radiusMeters: { type: 'number', description: 'Search radius in metres (default 150). 500 ft = 152 m, 200 ft = 61 m.' },
+            ownership: {
+              type: 'string',
+              enum: ['campus', 'right-of-way'],
+              description: 'Filter by ownership via UChicagoIn field. "campus" = University-owned land (UChicagoIn null/blank). "right-of-way" = public land managed by another authority (CDOT, Midway Plaisance, Medical Campus, etc.).',
+            },
+            sortBy: { type: 'string', description: 'Field to sort by. Common: "EstValue" (appraised value desc), "CanRadius" (canopy size), "DBH1" (trunk diameter).' },
+            sortOrder: { type: 'string', enum: ['asc', 'desc'], description: 'Sort direction (default desc).' },
+            topN: { type: 'number', description: 'Return only the top N features after sorting. Use for "most valuable", "largest", "tallest" ranking questions.' },
           },
         },
       },
@@ -480,10 +494,13 @@ Guidelines:
 - Be direct and specific. Give exact locations, distances, and counts.
 - Use tools to look up live data before answering spatial questions.
 - When referencing a campus location, always mention the building name and what it's used for.
-- For shuttle/bike queries, always call the relevant tool even if you think you know the answer.
+- Shuttle data comes from Passio GO (the university's live tracker since March 2024). When a shuttle question names a place or stop, call get_shuttle_arrivals with that place as stopName. Always state when data was fetched (fetchedAt field). If arrivals is empty during service hours, say so and point the user to passiogo.com — never fabricate arrival times. Overnight and on university holidays an empty vehicle list is normal, not an error. If found: false with reason upstream_unavailable, say the live feed is unavailable and suggest passiogo.com.
+- For bike queries, always call get_bike_stations.
 - Format responses concisely — this is a map app, not a chat.
 - If a layer query returns geometry, the frontend will automatically display it on the map.
 - For zoning, planning, FAR, height-limit, land-use, or approval questions, search the PD 43 document knowledge base first (search_planning_documents). Cite every regulatory claim with document name and page, e.g. (Chicago Zoning Ordinance 17-8, p.12). If the retrieved passages do not answer the question, say so plainly — never invent regulatory content.
+- Tree ownership: use the UChicagoIn field via the ownership parameter in query_trees — NOT location or notes. Empty/null = campus tree (University-owned land). Non-empty = right-of-way tree managed by the named authority (CDOT, Midway Plaisance, Medical Campus, etc.). For "campus trees vs right-of-way trees" questions, call query_trees once without ownership filter — ownershipBreakdown in _modelSummary has both counts and a per-authority breakdown. Use ownership="right-of-way" only to put ROW trees on the map.
+- Tree dollar values ARE in the inventory (EstValue field, USD). NEVER say valuation data is unavailable. For totals/averages, read estValueAggregate from _modelSummary — it is pre-computed in code (campus total, right-of-way total, by authority). For "most valuable" ranking, pass sortBy="EstValue" + topN=N to query_trees.
 - Building METRICS (RI, FCI, height, year, area) are LAYER DATA: use query_building_attributes for SET queries, never the document search. Data-currency questions: use get_data_freshness.
 - For questions about ONE or FEW NAMED buildings ("is Hinds orange?", "when was Rockefeller Chapel built?", "what is Kent's FCI?", "compare Hinds and Kent"), you MUST use get_building — one call per building name. It returns CHRS, FCI, RI, height, year, architects, and all other attributes. Never use query_building_attributes to fetch a whole category and then pick one building's answer out in prose — the map renders every feature the tool returns, flooding the map with irrelevant buildings.
 - Historic resource SET questions (list all orange buildings, count blue-rated buildings, show CHRS-rated buildings): use query_building_attributes with field="CHRS", operator="=" or "contains", value=<rating>. CHRS is a categorical string — do NOT use numeric operators. Actual values (pass in lowercase; backend normalizes): "orange" (potentially significant, 81 buildings), "blue" (49 buildings), "yellow" (good integrity, 13), "green" (5), "red" (Chicago Landmark, 1), "purple" (1); blank/null = not rated (158 buildings). Do NOT fall back to the citywide landmark (ICL) layer for campus historic questions — that layer covers all of Chicago and returns hundreds of off-campus features.

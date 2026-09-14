@@ -47,6 +47,9 @@ const S3_LAYER_FILES: Record<string, string> = {
   // Parking & transit
   surface_parking: 'layers/surface_parking.geojson',
   metra_station: 'layers/metrastations.geojson',
+  // Transit — Passio GO shuttle data (updated by ETL)
+  shuttle_stops: 'layers/shuttle_stops.geojson',
+  shuttle_routes: 'layers/shuttle_routes.geojson',
 }
 
 // Internal helper schema (not exposed as a model tool) — outFields stays for
@@ -58,6 +61,7 @@ export const QueryS3LayerInputSchema = z.object({
     'ada_route', 'accessible_entrance', 'controlled_entrance',
     'accessibility_info', 'inaccessible_entrance', 'inaccessible_building',
     'hydrant', 'fire_escape', 'sprinkler', 'standpipe', 'fire_lane', 'post_indicator_valve',
+    'shuttle_stops', 'shuttle_routes',
     'subarea',
     'landmark', 'nrhp', 'nhl',
     'surface_parking', 'metra_station',
@@ -230,11 +234,24 @@ function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): G
     })
   }
 
-  // IS NOT NULL
+  // IS NOT NULL — must come before IS NULL to avoid false partial match
   const notNullMatch = clause.match(/(\w+)\s+IS\s+NOT\s+NULL/i)
   if (notNullMatch) {
     const [, field] = notNullMatch
-    return features.filter(f => f.properties[field] != null && f.properties[field] !== '')
+    return features.filter(f => {
+      const v = f.properties[field]
+      return v != null && String(v).trim() !== ''
+    })
+  }
+
+  // IS NULL (null, empty string, or whitespace-only)
+  const isNullMatch = clause.match(/(\w+)\s+IS\s+NULL/i)
+  if (isNullMatch) {
+    const [, field] = isNullMatch
+    return features.filter(f => {
+      const v = f.properties[field]
+      return v == null || String(v).trim() === ''
+    })
   }
 
   // Unsupported clause: return null so the caller can surface a structured error

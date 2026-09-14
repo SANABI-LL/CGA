@@ -74,6 +74,8 @@ const WATCHED: Record<string, WatchedLayer> = {
   // Parking & transit
   'layers/surface_parking.geojson': { label: 'Surface Parking Lots', icon: 'diff', nameFields: ['SFPARK_ID', 'FID'] },
   'layers/metrastations.geojson': { label: 'Metra Train Stations', icon: 'building', nameFields: ['NAME', 'LINES', 'ADDRESS'] },
+  'layers/shuttle_stops.geojson': { label: 'Campus Shuttle Stops', icon: 'diff', nameFields: ['Name'] },
+  'layers/shuttle_routes.geojson': { label: 'Campus Shuttle Routes', icon: 'diff', nameFields: ['Name'] },
 }
 // The 22 utility layers share one config each
 for (const name of [
