@@ -50,6 +50,8 @@ const S3_LAYER_FILES: Record<string, string> = {
   // Transit — Passio GO shuttle data (updated by ETL)
   shuttle_stops: 'layers/shuttle_stops.geojson',
   shuttle_routes: 'layers/shuttle_routes.geojson',
+  // Non-building campus landmarks (ponds, quads, gates, sculptures)
+  campus_landmarks: 'layers/landmarks.geojson',
 }
 
 // Internal helper schema (not exposed as a model tool) — outFields stays for
@@ -62,6 +64,7 @@ export const QueryS3LayerInputSchema = z.object({
     'accessibility_info', 'inaccessible_entrance', 'inaccessible_building',
     'hydrant', 'fire_escape', 'sprinkler', 'standpipe', 'fire_lane', 'post_indicator_valve',
     'shuttle_stops', 'shuttle_routes',
+    'campus_landmarks',
     'subarea',
     'landmark', 'nrhp', 'nhl',
     'surface_parking', 'metra_station',

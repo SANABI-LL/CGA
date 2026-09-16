@@ -76,6 +76,7 @@ const WATCHED: Record<string, WatchedLayer> = {
   'layers/metrastations.geojson': { label: 'Metra Train Stations', icon: 'building', nameFields: ['NAME', 'LINES', 'ADDRESS'] },
   'layers/shuttle_stops.geojson': { label: 'Campus Shuttle Stops', icon: 'diff', nameFields: ['Name'] },
   'layers/shuttle_routes.geojson': { label: 'Campus Shuttle Routes', icon: 'diff', nameFields: ['Name'] },
+  'layers/landmarks.geojson': { label: 'Campus Non-Building Landmarks', icon: 'pen', nameFields: ['Name'] },
 }
 // The 22 utility layers share one config each
 for (const name of [

@@ -12,6 +12,7 @@ export const QueryCampusLayerInputSchema = z.object({
     'landmark', 'nrhp', 'nhl',
     'surface_parking', 'metra_station',
     'shuttle_stops', 'shuttle_routes',
+    'campus_landmarks',
   ]).describe('Which campus layer to query'),
   nearLocation: z.string().max(200).optional()
     .describe('Optional campus location name to filter by proximity (e.g. "Regenstein Library")'),
@@ -56,6 +57,7 @@ const LAYER_LABELS: Record<string, string> = {
   metra_station: 'Metra Train Stations',
   shuttle_stops: 'Campus Shuttle Stops (Passio GO)',
   shuttle_routes: 'Campus Shuttle Routes (Passio GO)',
+  campus_landmarks: 'Campus Non-Building Landmarks (ponds, quads, gates, sculptures)',
 }
 
 export async function queryCampusLayer(input: QueryCampusLayerInput) {
