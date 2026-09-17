@@ -15,7 +15,7 @@ export type FindCampusNearbyInput = z.infer<typeof FindCampusNearbyInputSchema>
 // A Map (not a plain object) so lookups can never hit prototype-chain keys
 // like "__proto__" or "constructor".
 const CAMPUS_LOCATIONS = new Map<string, { lat: number; lng: number; displayName: string }>([
-  ['main quad', { lat: 41.7900, lng: -87.5998, displayName: 'Main Quadrangle' }],
+  ['main quad', { lat: 41.7899, lng: -87.5998, displayName: 'Main Quadrangle' }],
   ['regenstein library', { lat: 41.7921, lng: -87.5997, displayName: 'Regenstein Library' }],
   ['crerar library', { lat: 41.7904, lng: -87.6028, displayName: 'John Crerar Library' }],
   ['harper memorial', { lat: 41.7880, lng: -87.5995, displayName: 'Harper Memorial Library' }],
@@ -58,8 +58,8 @@ const CAMPUS_LOCATIONS = new Map<string, { lat: number; lng: number; displayName
   ['the pond', { lat: 41.7908, lng: -87.6009, displayName: 'Botany Pond' }],
   ['hull court', { lat: 41.7910, lng: -87.6004, displayName: 'Hull Court' }],
   ['hull gate', { lat: 41.7910, lng: -87.6004, displayName: 'Hull Court' }],
-  ['main quadrangle', { lat: 41.7900, lng: -87.5998, displayName: 'Main Quadrangle' }],
-  ['the quad', { lat: 41.7900, lng: -87.5998, displayName: 'Main Quadrangle' }],
+  ['main quadrangle', { lat: 41.7899, lng: -87.5998, displayName: 'Main Quadrangle' }],
+  ['the quad', { lat: 41.7899, lng: -87.5998, displayName: 'Main Quadrangle' }],
   ['harper quad', { lat: 41.7883, lng: -87.5983, displayName: 'Harper Quadrangle' }],
   ['harper quadrangle', { lat: 41.7883, lng: -87.5983, displayName: 'Harper Quadrangle' }],
   ['bartlett quad', { lat: 41.7919, lng: -87.5978, displayName: 'Bartlett Quadrangle' }],
@@ -94,10 +94,11 @@ const CAMPUS_LOCATIONS = new Map<string, { lat: number; lng: number; displayName
 // not a fixed-radius circle around a centroid — a rectangle can't be represented by a point.
 // Coordinates are approximate; calibrate from campus WebMap before production.
 const CAMPUS_POLYGONS = new Map<string, number[][]>([
-  // Main Quadrangle: 57th–59th St × Ellis Ave–University Ave (road centerlines, user-confirmed 2026-09-17)
-  ['main quad',         [[-87.6016, 41.7921], [-87.5979, 41.7921], [-87.5979, 41.7879], [-87.6016, 41.7879], [-87.6016, 41.7921]]],
-  ['main quadrangle',   [[-87.6016, 41.7921], [-87.5979, 41.7921], [-87.5979, 41.7879], [-87.6016, 41.7879], [-87.6016, 41.7921]]],
-  ['the quad',          [[-87.6016, 41.7921], [-87.5979, 41.7921], [-87.5979, 41.7879], [-87.6016, 41.7879], [-87.6016, 41.7921]]],
+  // Main Quadrangle: 57th–59th St × Ellis Ave–University Ave (road centerlines)
+  // N edge calibrated 2026-09-17: hand-drawn 41.7921 was ~20 m too far north; 41.79195 ≈ 57th St centerline
+  ['main quad',         [[-87.6016, 41.79195], [-87.5979, 41.79195], [-87.5979, 41.7879], [-87.6016, 41.7879], [-87.6016, 41.79195]]],
+  ['main quadrangle',   [[-87.6016, 41.79195], [-87.5979, 41.79195], [-87.5979, 41.7879], [-87.6016, 41.7879], [-87.6016, 41.79195]]],
+  ['the quad',          [[-87.6016, 41.79195], [-87.5979, 41.79195], [-87.5979, 41.7879], [-87.6016, 41.7879], [-87.6016, 41.79195]]],
   // Harper Quadrangle: around Harper Memorial Library
   ['harper quad',       [[-87.5995, 41.7892], [-87.5972, 41.7892], [-87.5972, 41.7874], [-87.5995, 41.7874], [-87.5995, 41.7892]]],
   ['harper quadrangle', [[-87.5995, 41.7892], [-87.5972, 41.7892], [-87.5972, 41.7874], [-87.5995, 41.7874], [-87.5995, 41.7892]]],
