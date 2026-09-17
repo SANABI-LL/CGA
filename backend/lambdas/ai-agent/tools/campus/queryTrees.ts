@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getBucket } from './config'
-import { resolveLocation, haversineMeters } from './findCampusNearby'
+import { resolveLocation, haversineMeters, distPointToPolygonMeters } from './findCampusNearby'
 
 const s3 = new S3Client({
   region: 'us-east-1',
@@ -17,7 +17,7 @@ export const QueryTreesInputSchema = z.object({
   year: z.number().int().min(1800).max(2200).optional().describe('Year planted or last updated (e.g., 2024, 2025, 2026)'),
   notes: z.string().max(200).optional().describe('Keyword match on TreeNotes, which records planting batches like "2025 Fall" — use for "planted in fall 2025" questions'),
   nearLocation: z.string().max(200).optional().describe('Named campus location for spatial radius search, e.g. "Keller Center", "Regenstein Library". Use this — not location — when the user asks "trees near/within X" or "trees within N ft of X".'),
-  radiusMeters: z.number().min(1).max(2000).optional().default(150).describe('Search radius in metres when nearLocation is set. 1 ft ≈ 0.305 m, so 500 ft ≈ 152 m (default 150 m).'),
+  radiusMeters: z.number().min(0).max(2000).optional().describe('Search radius in metres (default 150 for point anchors). For polygon landmarks (Main Quad, Midway…): omit to return trees INSIDE the polygon only; pass N to add an N-metre buffer around the boundary.'),
   ownership: z.enum(['campus', 'right-of-way']).optional().describe(
     'Filter by ownership. Use the UChicagoIn field: "campus" = trees on University-owned land (UChicagoIn is null/blank); ' +
     '"right-of-way" = trees on public land managed by another authority (CDOT, Midway Plaisance, etc.). ' +
@@ -92,19 +92,26 @@ export async function queryTrees(input: QueryTreesInput) {
           error: `Unknown location "${input.nearLocation}". Try a well-known campus building name, e.g. "Regenstein Library", "Keller Center", "Main Quad".`,
         }
       }
-      const radiusM = input.radiusMeters ?? 150
+      // Polygon anchor: default = 0 (inside only); point anchor: default = 150 m
+      const radiusM = input.radiusMeters ?? (center.polygon ? 0 : 150)
       filtered = filtered.filter(f => {
         const [lng, lat] = f.geometry.coordinates
-        return haversineMeters(center.lat, center.lng, lat, lng) <= radiusM
+        const dist = center.polygon
+          ? distPointToPolygonMeters(lng, lat, center.polygon)
+          : haversineMeters(center.lat, center.lng, lat, lng)
+        return dist <= radiusM
       })
       // 注入距离属性供 Agent 呈现
       filtered = filtered.map(f => {
         const [lng, lat] = f.geometry.coordinates
+        const dist = center.polygon
+          ? distPointToPolygonMeters(lng, lat, center.polygon)
+          : haversineMeters(center.lat, center.lng, lat, lng)
         return {
           ...f,
           properties: {
             ...f.properties,
-            _distanceMeters: Math.round(haversineMeters(center.lat, center.lng, lat, lng)),
+            _distanceMeters: Math.round(dist),
           },
         }
       }) as typeof filtered

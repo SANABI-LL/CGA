@@ -91,7 +91,7 @@ const CAMPUS_TOOLS: Tool[] = [
               enum: ['building', 'dining', 'accessible', 'bike_rack', 'parking'],
               description: 'Type of feature to find nearby',
             },
-            radiusMeters: { type: 'number', default: 300 },
+            radiusMeters: { type: 'number', minimum: 0, description: 'Search radius in meters. Point anchors: default 300. Polygon landmarks (Main Quad, Midway, etc.): OMIT when user just says "near" — returns features inside the polygon. Only pass when the user explicitly states a distance, e.g. "within 50 m".' },
             limit: { type: 'number', default: 5 },
           },
           required: ['referenceLocation', 'featureType'],
@@ -216,7 +216,7 @@ const CAMPUS_TOOLS: Tool[] = [
             location: { type: 'string', description: 'Attribute-based location tag in the inventory (e.g., "Main Quad"). NOT for spatial queries.' },
             notes: { type: 'string', description: 'Keyword match on TreeNotes (planting batches, e.g. "2025 Fall")' },
             nearLocation: { type: 'string', description: 'Named campus location for spatial radius search, e.g. "Keller Center". Use for "trees near/within X" queries.' },
-            radiusMeters: { type: 'number', description: 'Search radius in metres (default 150). 500 ft = 152 m, 200 ft = 61 m.' },
+            radiusMeters: { type: 'number', minimum: 0, description: 'Search radius in metres. Point anchors: default 150. Polygon landmarks (Main Quad, Midway, etc.): OMIT when user says "near" — returns trees INSIDE the polygon. Only pass when user explicitly states a distance. 500 ft = 152 m, 200 ft = 61 m.' },
             ownership: {
               type: 'string',
               enum: ['campus', 'right-of-way'],
@@ -380,7 +380,7 @@ const CAMPUS_TOOLS: Tool[] = [
               description: 'Which campus layer to query',
             },
             nearLocation: { type: 'string', description: 'Optional campus location name to filter by proximity' },
-            radiusMeters: { type: 'number', minimum: 1, maximum: 2000, default: 400, description: 'Radius in meters when nearLocation is set' },
+            radiusMeters: { type: 'number', minimum: 0, maximum: 2000, description: 'Radius in meters. Point anchors: default 400. Polygon landmarks (Main Quad, Midway, etc.): OMIT when user says "near" — returns features inside the polygon. Only pass when user explicitly states a distance.' },
             limit: { type: 'integer', minimum: 1, maximum: 200, default: 50, description: 'Max features to return' },
             filterField: { type: 'string', description: 'Property field to filter by, e.g. "SubArea"' },
             filterValues: {
@@ -511,6 +511,7 @@ Guidelines:
 - If a spatial relationship question cannot be answered with the available tools (e.g. "which buildings are within 200m of the subarea B boundary"), say so directly rather than suggesting the user zoom in and manually compare. Pushing spatial analysis back to the user is never acceptable.
 - Building feasibility questions ("can Kent add 4 floors?", "is it feasible to expand X?", "what constraints apply to altering Y?"): use check_feasibility. This tool pre-computes CHRS historic-resource status and FAR arithmetic in code — do not recalculate these numbers yourself. Use the returned planningPassages to interpret the FAR limit for the building's subarea and explain any special conditions. Every regulatory claim must cite a document and page from the retrieved passages — never invent a FAR number or zoning rule.
 - Anchor resolution (HARD CONSTRAINT): when a spatial tool returns an unknown-location error, the error object includes a "suggestions" array of tool-verified location names. You MUST present ONLY those suggestions to the user and ask which one to use. You MUST NOT add, substitute, or invent any location not in that suggestions array — even if you believe you know the correct building. Never describe a self-selected anchor as "immediately adjacent", "nearest", or "closest" to the requested place — that distance claim is unverified. This rule is non-negotiable: every hallucinated anchor produces a wrong spatial answer, and the same query in different turns will produce different wrong buildings.
+- Polygon landmark radius (HARD CONSTRAINT): Main Quad, Harper Quad, Bartlett Quad, Hutchinson Court, Midway Plaisance, and any other area landmark that returns an anchorPolygon are POLYGON anchors. When the user says "near [polygon landmark]" without an explicit distance, you MUST omit radiusMeters entirely — the tool returns features inside the polygon. NEVER pass a default radius (150, 300, 400) for a polygon anchor. Only pass radiusMeters when the user explicitly states a distance, e.g. "within 50 m of the Quad". The text "within X m of [place]" in your answer MUST match what you passed to the tool — do not write "within 150 m" if you omitted radiusMeters.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
 }
 
