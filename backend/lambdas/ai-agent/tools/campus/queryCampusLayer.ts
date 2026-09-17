@@ -16,8 +16,8 @@ export const QueryCampusLayerInputSchema = z.object({
   ]).describe('Which campus layer to query'),
   nearLocation: z.string().max(200).optional()
     .describe('Optional campus location name to filter by proximity (e.g. "Regenstein Library")'),
-  radiusMeters: z.number().min(1).max(2000).optional().default(400)
-    .describe('Search radius in meters when nearLocation is set (default 400)'),
+  radiusMeters: z.number().min(0).max(2000).optional()
+    .describe('Search radius in meters when nearLocation is set. Polygon landmarks (Quad, Midway…): default = inside only (0); point anchors: default = 400 m.'),
   limit: z.number().int().min(1).max(200).optional().default(50)
     .describe('Max features to return (default 50)'),
   sortBy: z.string().optional().describe('Property name to sort features by'),
@@ -93,7 +93,8 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
     if (center.polygon) {
       anchorPolygon = { type: 'Polygon', coordinates: [center.polygon] }
     }
-    const radius = input.radiusMeters ?? 400
+    // Polygon anchor: default = 0 (inside only); point anchor: default = 400 m
+    const radius = input.radiusMeters ?? (center.polygon ? 0 : 400)
     features = features.filter((f) => {
       const geom = f.geometry
       if (!geom) return false
