@@ -25,6 +25,7 @@ import { queryCampusLayer, QueryCampusLayerInputSchema } from './tools/campus/qu
 import { getAcademicCalendar, GetAcademicCalendarInputSchema } from './tools/campus/getAcademicCalendar'
 import { spatialQuery, SpatialQueryInputSchema } from './tools/campus/spatialQuery'
 import { checkFeasibility, CheckFeasibilityInputSchema } from './tools/campus/checkFeasibility'
+import { getDiningMenu, GetDiningMenuInputSchema } from './tools/campus/getDiningMenu'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -329,6 +330,36 @@ const CAMPUS_TOOLS: Tool[] = [
   },
   {
     toolSpec: {
+      name: 'get_dining_menu',
+      description:
+        'Get live dining hall menus from DineOnCampus (dineoncampus.com/uchicago). ' +
+        'Call for ANY question about what food is being served, menu items, meal options, dietary/allergen info, or what\'s on the menu at a campus dining hall. ' +
+        'NEVER answer menu questions from memory — menus change daily. ' +
+        'Dining halls: Baker Dining Commons, Bartlett Dining Commons, Cathey (Arley D. Cathey) Dining Commons, Woodlawn Dining Commons.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          required: ['location'],
+          properties: {
+            location: { type: 'string', description: 'Dining hall name, fuzzy — "Cathey", "Arley Cathey", "Baker", "Bartlett", "Woodlawn"' },
+            date: { type: 'string', description: 'YYYY-MM-DD; defaults to today (America/Chicago)' },
+            period: {
+              type: 'string',
+              enum: ['breakfast', 'lunch', 'dinner', 'brunch', 'late night', 'all'],
+              description: 'Meal period; omit to use the period matching current Chicago time',
+            },
+            dietary: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter items by diet/allergen tag: "vegan", "vegetarian", "gluten-free", "halal"…',
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
       name: 'get_building_updates',
       description:
         'Report recent changes to campus building, tree, dining, or utility layer data — additions, removals, or modifications detected by the nightly data sync. Use for questions like "what changed recently on campus?", "were any new buildings added?", "has the tree inventory been updated?". Data comes from the automated daily diff pipeline.',
@@ -512,6 +543,7 @@ Guidelines:
 - Building feasibility questions ("can Kent add 4 floors?", "is it feasible to expand X?", "what constraints apply to altering Y?"): use check_feasibility. This tool pre-computes CHRS historic-resource status and FAR arithmetic in code — do not recalculate these numbers yourself. Use the returned planningPassages to interpret the FAR limit for the building's subarea and explain any special conditions. Every regulatory claim must cite a document and page from the retrieved passages — never invent a FAR number or zoning rule.
 - Anchor resolution (HARD CONSTRAINT): when a spatial tool returns an unknown-location error, the error object includes a "suggestions" array of tool-verified location names. You MUST present ONLY those suggestions to the user and ask which one to use. You MUST NOT add, substitute, or invent any location not in that suggestions array — even if you believe you know the correct building. Never describe a self-selected anchor as "immediately adjacent", "nearest", or "closest" to the requested place — that distance claim is unverified. This rule is non-negotiable: every hallucinated anchor produces a wrong spatial answer, and the same query in different turns will produce different wrong buildings.
 - Polygon landmark radius (HARD CONSTRAINT): Main Quad, Harper Quad, Bartlett Quad, Hutchinson Court, Midway Plaisance, and any other area landmark that returns an anchorPolygon are POLYGON anchors. When the user says "near [polygon landmark]" without an explicit distance, you MUST omit radiusMeters entirely — the tool returns features inside the polygon. NEVER pass a default radius (150, 300, 400) for a polygon anchor. Only pass radiusMeters when the user explicitly states a distance, e.g. "within 50 m of the Quad". The text "within X m of [place]" in your answer MUST match what you passed to the tool — do not write "within 150 m" if you omitted radiusMeters.
+- Dining menus: for any question about what food is being served, menu items, dietary options, or meal schedules at a dining hall, call get_dining_menu. NEVER answer menu questions from memory — menus change daily. If the result has found=false, present the suggestions list to the user; do not invent a menu.
 - Zero-result guard (HARD CONSTRAINT): when a tool returns count=0 AND a distinctValues array, you MUST NOT assert that the requested value does not exist or is not recorded. The tool already ran a normalised match; the zero result means the exact normalised string wasn't found. You MUST present the distinctValues list to the user (formatted as a list) and ask which value they meant. Never write "No X are recorded" or "this is not a data gap" when distinctValues is present in the response.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
 }
@@ -776,6 +808,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'get_campus_events': {
       const input = GetCampusEventsInputSchema.parse(rawInput)
       return getCampusEvents(input)
+    }
+    case 'get_dining_menu': {
+      const input = GetDiningMenuInputSchema.parse(rawInput)
+      return getDiningMenu(input)
     }
     case 'get_building_updates': {
       const input = GetBuildingUpdatesInputSchema.parse(rawInput)
