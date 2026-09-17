@@ -3,6 +3,14 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getBucket } from './config'
 import { resolveLocation, haversineMeters, distPointToPolygonMeters } from './findCampusNearby'
 
+// Normalise before string comparison: lowercase, strip accents, collapse non-alphanumeric.
+// Makes "honey locust" match "Common Honeylocust", "bur oak" match "Bur Oak", etc.
+const norm = (s: unknown): string =>
+  String(s ?? '')
+    .toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+
 const s3 = new S3Client({
   region: 'us-east-1',
   forcePathStyle: false
@@ -127,30 +135,46 @@ export async function queryTrees(input: QueryTreesInput) {
       return null
     }
 
-    // 过滤：树种（常用名/学名/属名都可命中，如 "Maple" → "Maple-Sugar"）
+    // 过滤：树种（常用名/学名/属名都可命中）
+    // norm() 消除大小写 + 空格 + 标点差异，使 "honey locust" 命中 "Common Honeylocust"
     if (input.species) {
-      const sp = input.species.toLowerCase()
+      const normSp = norm(input.species)
+      const afterBoundary = filtered.slice() // 保存边界过滤后结果，用于零结果 guard
       filtered = filtered.filter(f => {
-        const species = firstString(f, ['CommonName', 'Common_Nam', 'ScientName', 'Genus', 'hostId'])
-        return species !== null && species.toLowerCase().includes(sp)
+        const species = firstString(f, ['CommonName', 'Common_Nam', 'ScientName', 'Genus', 'Species'])
+        return species !== null && norm(species).includes(normSp)
       })
+      // 零结果 guard：返回 distinctValues，防止 agent 错误断言"此种不存在"
+      if (filtered.length === 0) {
+        const distinctSpecies = [...new Set(
+          afterBoundary
+            .map(f => firstString(f, ['CommonName', 'Common_Nam']))
+            .filter((v): v is string => v !== null)
+        )].sort().slice(0, 20)
+        return {
+          count: 0,
+          filterApplied: { field: 'species', op: 'contains', value: input.species },
+          distinctValues: distinctSpecies,
+          _zeroResultHint: `No trees matched species "${input.species}" (searched as "${normSp}"). Do NOT claim none exist. Present distinctValues to the user.`,
+        }
+      }
     }
 
     // 过滤：年龄等级
     if (input.ageClass) {
-      const age = input.ageClass.toLowerCase()
+      const normAge = norm(input.ageClass)
       filtered = filtered.filter(f => {
         const ageClass = firstString(f, ['AgeClass', 'ageClass'])
-        return ageClass !== null && ageClass.toLowerCase().includes(age)
+        return ageClass !== null && norm(ageClass).includes(normAge)
       })
     }
 
     // 过滤：状态
     if (input.condition) {
-      const cond = input.condition.toLowerCase()
+      const normCond = norm(input.condition)
       filtered = filtered.filter(f => {
         const condition = firstString(f, ['Condition', 'conditionC'])
-        return condition !== null && condition.toLowerCase().includes(cond)
+        return condition !== null && norm(condition).includes(normCond)
       })
     }
 
@@ -178,11 +202,10 @@ export async function queryTrees(input: QueryTreesInput) {
 
     // 过滤：位置
     if (input.location) {
-      const loc = input.location.toLowerCase()
+      const normLoc = norm(input.location)
       filtered = filtered.filter(f => {
         const location = f.properties.locationRa
-        return location && typeof location === 'string' &&
-               location.toLowerCase().includes(loc)
+        return location && typeof location === 'string' && norm(location).includes(normLoc)
       })
     }
 

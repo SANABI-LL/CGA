@@ -197,6 +197,11 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
  *
  * 不支持：复杂的 AND/OR、嵌套括号
  */
+// Normalise before comparison: lowercase, strip accents and non-alphanumeric.
+// Mirrors the same helper in queryTrees.ts so "honey locust" finds "Common Honeylocust".
+const normStr = (s: unknown): string =>
+  String(s ?? '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '')
+
 function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): GeoJSONFeature[] | null {
   const clause = whereClause.trim()
 
@@ -204,18 +209,16 @@ function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): G
   const likeMatch = clause.match(/(\w+)\s+LIKE\s+'%(.+?)%'/i)
   if (likeMatch) {
     const [, field, value] = likeMatch
-    const lowerValue = value.toLowerCase()
-    return features.filter(f => {
-      const fieldValue = String(f.properties[field] || '').toLowerCase()
-      return fieldValue.includes(lowerValue)
-    })
+    const normValue = normStr(value)
+    return features.filter(f => normStr(f.properties[field]).includes(normValue))
   }
 
-  // Equality: FIELD = 'value'
+  // Equality: FIELD = 'value' (normalised, case-insensitive)
   const eqMatch = clause.match(/(\w+)\s*=\s*'([^']+)'/i)
   if (eqMatch) {
     const [, field, value] = eqMatch
-    return features.filter(f => String(f.properties[field]) === value)
+    const normValue = normStr(value)
+    return features.filter(f => normStr(f.properties[field]) === normValue)
   }
 
   // Numeric comparison: FIELD > 100
