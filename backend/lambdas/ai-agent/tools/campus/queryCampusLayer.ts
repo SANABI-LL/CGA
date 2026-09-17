@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { queryS3Layer } from './queryS3Layer'
-import { resolveLocation, haversineMeters } from './findCampusNearby'
+import { resolveLocation, haversineMeters, distPointToPolygonMeters } from './findCampusNearby'
 
 export const QueryCampusLayerInputSchema = z.object({
   layerName: z.enum([
@@ -82,6 +82,7 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
   }
 
   // Optional proximity filter
+  let anchorPolygon: { type: 'Polygon'; coordinates: number[][][] } | undefined
   if (input.nearLocation) {
     const center = resolveLocation(input.nearLocation)
     if (!center) {
@@ -89,6 +90,10 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
         error: `Unknown location "${input.nearLocation}". Try a building name like "Regenstein Library" or "Main Quad".`,
       }
     }
+    if (center.polygon) {
+      anchorPolygon = { type: 'Polygon', coordinates: [center.polygon] }
+    }
+    const radius = input.radiusMeters ?? 400
     features = features.filter((f) => {
       const geom = f.geometry
       if (!geom) return false
@@ -98,7 +103,6 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
         const c = geom.coordinates as [number, number]
         lng = c[0]; lat = c[1]
       } else if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
-        // Use centroid approximation from first ring
         const ring = geom.type === 'Polygon'
           ? (geom.coordinates as number[][][])[0]
           : (geom.coordinates as number[][][][])[0][0]
@@ -114,7 +118,10 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
         }
       }
       if (lat === null || lng === null) return false
-      return haversineMeters(center.lat, center.lng, lat, lng) <= (input.radiusMeters ?? 400)
+      const dist = center.polygon
+        ? distPointToPolygonMeters(lng, lat, center.polygon)
+        : haversineMeters(center.lat, center.lng, lat, lng)
+      return dist <= radius
     })
   }
 
@@ -145,6 +152,7 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
     layer: input.layerName,
     label: LAYER_LABELS[input.layerName] ?? input.layerName,
     ...(input.nearLocation ? { nearLocation: input.nearLocation, radiusMeters: input.radiusMeters } : {}),
+    ...(anchorPolygon ? { anchorPolygon } : {}),
     ...(input.filterField && input.filterValues?.length
       ? { _mapFocus: { field: input.filterField, values: input.filterValues } }
       : {}),
