@@ -168,28 +168,8 @@ function loadBuildingIndex() {
 }
 
 async function resolveAnyLocation(name: string): Promise<ResolvedLocation | null> {
-  const fromGazetteer = resolveLocation(name)
-  if (fromGazetteer) return fromGazetteer
-  const n = name.toLowerCase().trim()
-  // Too-short input would match every building via `b.key.includes('')` —
-  // bail out before paying for the S3 building-index load.
-  if (n.length < 2) return null
-  try {
-    const index = await loadBuildingIndex()
-    const exact = index.find((b) => b.key === n)
-    if (exact) return exact
-    // Token match handles partial names: "Cobb Hall" → "Cobb Lecture Hall"
-    const tokens = n.split(/[^a-z0-9]+/).filter((t) => t.length > 1)
-    if (tokens.length) {
-      const candidates = index
-        .filter((b) => tokens.every((t) => b.key.includes(t)))
-        .sort((a, b) => a.key.length - b.key.length)
-      if (candidates.length) return candidates[0]
-    }
-    return index.find((b) => b.key.includes(n) || n.includes(b.key)) ?? null
-  } catch {
-    return null
-  }
+  // resolveLocation now includes buildings.geojson fallback
+  return resolveLocation(name)
 }
 
 // ── Bounding box (user preference: rectangular extent, prints cleanly) ──

@@ -87,6 +87,10 @@ const CAMPUS_LOCATIONS = new Map<string, { lat: number; lng: number; displayName
   ['henry crown field house', { lat: 41.7952, lng: -87.6000, displayName: 'Henry Crown Field House' }],
   ['crown field house', { lat: 41.7952, lng: -87.6000, displayName: 'Henry Crown Field House' }],
   ['stagg field', { lat: 41.7928, lng: -87.6011, displayName: 'Stagg Field (site)' }],
+  ['logan center', { lat: 41.7906, lng: -87.5942, displayName: 'Reva and David Logan Center for the Arts' }],
+  ['logan', { lat: 41.7906, lng: -87.5942, displayName: 'Reva and David Logan Center for the Arts' }],
+  ['logan arts center', { lat: 41.7906, lng: -87.5942, displayName: 'Reva and David Logan Center for the Arts' }],
+  ['reva and david logan center', { lat: 41.7906, lng: -87.5942, displayName: 'Reva and David Logan Center for the Arts' }],
 ])
 
 // Polygon exterior rings for area landmarks ([lng, lat] GeoJSON convention, ring must close).
@@ -113,6 +117,40 @@ const CAMPUS_POLYGONS = new Map<string, number[][]>([
   ['midway plaisance',  [[-87.6060, 41.7865], [-87.5870, 41.7865], [-87.5870, 41.7825], [-87.6060, 41.7825], [-87.6060, 41.7865]]],
   ['the midway',        [[-87.6060, 41.7865], [-87.5870, 41.7865], [-87.5870, 41.7825], [-87.6060, 41.7825], [-87.6060, 41.7865]]],
 ])
+
+// Normaliser shared with other query tools (strip accents, spaces, punctuation)
+const norm = (s: unknown): string =>
+  String(s ?? '').toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+
+// Module-level cached building index for location-resolution fallback.
+// Loaded at most once per Lambda warm instance via queryS3Layer.
+let buildingIndexCache: Promise<Array<{ key: string; displayName: string; lat: number; lng: number }>> | null = null
+
+function loadBuildingIndex() {
+  if (!buildingIndexCache) {
+    buildingIndexCache = queryS3Layer({ layerName: 'buildings', maxResults: 500, returnGeometry: true })
+      .then(result => {
+        if ('error' in result) throw new Error(String((result as { error: unknown }).error))
+        return result.features.flatMap(f => {
+          const name = String(f.properties?.DISCRIPT1 ?? '').trim()
+          if (!name || !f.geometry) return []
+          const geom = f.geometry as { type: string; coordinates: unknown }
+          let coords: number[][]
+          if (geom.type === 'Polygon') coords = (geom.coordinates as number[][][])[0]
+          else if (geom.type === 'MultiPolygon') coords = (geom.coordinates as number[][][][])[0][0]
+          else return []
+          if (!coords.length) return []
+          let sumLng = 0, sumLat = 0
+          for (const [lng, lat] of coords) { sumLng += lng; sumLat += lat }
+          return [{ key: name.toLowerCase(), displayName: name, lat: sumLat / coords.length, lng: sumLng / coords.length }]
+        })
+      })
+      .catch(err => { buildingIndexCache = null; throw err })
+  }
+  return buildingIndexCache
+}
 
 export type AnchorResult = {
   lat: number          // centroid latitude (for display + point anchors)
@@ -167,10 +205,27 @@ export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-// Returns up to n display names from CAMPUS_LOCATIONS that partially match the query.
-// Used to build "did you mean?" suggestions when location resolution fails, so the model
-// never has to pick a substitute from memory.
-function locationSuggestions(query: string, n = 3): string[] {
+// Top-n suggestions from buildings.geojson by token overlap, falling back to static list.
+async function locationSuggestions(query: string, n = 3): Promise<string[]> {
+  const normQ = norm(query)
+  const tokens = normQ.length > 2 ? [normQ, ...normQ.replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(t => t.length > 2)] : []
+  if (tokens.length) {
+    try {
+      const index = await loadBuildingIndex()
+      const seen = new Set<string>()
+      const top: string[] = []
+      const scored = index
+        .map(b => ({ name: b.displayName, score: tokens.filter(t => norm(b.key).includes(t)).length }))
+        .filter(s => s.score > 0)
+        .sort((a, b) => b.score - a.score)
+      for (const s of scored) {
+        if (!seen.has(s.name)) { seen.add(s.name); top.push(s.name) }
+        if (top.length >= n) break
+      }
+      if (top.length) return top
+    } catch { /* fall through to static list */ }
+  }
+  // Static fallback
   const q = query.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
   const words = q.split(/\s+/).filter(w => w.length >= 3)
   const seen = new Set<string>()
@@ -186,7 +241,7 @@ function locationSuggestions(query: string, n = 3): string[] {
   return scored.slice(0, n).map(s => s.name)
 }
 
-export function resolveLocation(name: string): AnchorResult | null {
+export async function resolveLocation(name: string): Promise<AnchorResult | null> {
   const raw = name.toLowerCase().trim()
 
   // "lat,lng" literal — parse directly
@@ -198,20 +253,41 @@ export function resolveLocation(name: string): AnchorResult | null {
   const n = raw.replace(/[^a-z0-9 ]/g, '').trim()
   if (n.length < 2) return null
 
-  // Direct match
+  // 1. Direct match against landmark list
   const direct = CAMPUS_LOCATIONS.get(n)
   if (direct) {
     const polygon = CAMPUS_POLYGONS.get(n)
     return polygon ? { ...direct, polygon } : { ...direct }
   }
 
-  // Partial/substring match
+  // 2. Partial/substring match against landmark list
   for (const [key, loc] of CAMPUS_LOCATIONS) {
     if (n.includes(key) || key.includes(n)) {
       const polygon = CAMPUS_POLYGONS.get(key)
       return polygon ? { ...loc, polygon } : { ...loc }
     }
   }
+
+  // 3. Fallback: fuzzy search against buildings.geojson Building Name (DISCRIPT1)
+  const normQ = norm(n)
+  if (normQ.length < 2) return null
+  try {
+    const index = await loadBuildingIndex()
+    // Exact normalized match
+    const exact = index.find(b => norm(b.key) === normQ)
+    if (exact) return { lat: exact.lat, lng: exact.lng, displayName: exact.displayName }
+    // All tokens present (handles "Logan" → "Reva and David Logan Center for the Arts")
+    const tokens = n.split(/[^a-z0-9]+/).filter(t => t.length > 2)
+    if (tokens.length) {
+      const candidates = index
+        .filter(b => tokens.every(t => norm(b.key).includes(t)))
+        .sort((a, b) => a.key.length - b.key.length)
+      if (candidates.length) return { lat: candidates[0].lat, lng: candidates[0].lng, displayName: candidates[0].displayName }
+    }
+    // Substring match in either direction
+    const sub = index.find(b => norm(b.key).includes(normQ) || normQ.includes(norm(b.key)))
+    if (sub) return { lat: sub.lat, lng: sub.lng, displayName: sub.displayName }
+  } catch { /* non-fatal — fall through */ }
 
   return null
 }
@@ -228,9 +304,9 @@ const LAYER_BY_FEATURE: Record<string, 'buildings' | 'accessible' | 'dining' | '
  * 查找参考点附近的校园设施（使用 S3 数据）
  */
 export async function findCampusNearby(input: FindCampusNearbyInput) {
-  const center = resolveLocation(input.referenceLocation)
+  const center = await resolveLocation(input.referenceLocation)
   if (!center) {
-    const suggestions = locationSuggestions(input.referenceLocation)
+    const suggestions = await locationSuggestions(input.referenceLocation)
     return {
       error: `Unknown location "${input.referenceLocation}".${suggestions.length ? ` Did you mean: ${suggestions.join(', ')}?` : ' Try a named campus building or landmark.'}`,
       suggestions,

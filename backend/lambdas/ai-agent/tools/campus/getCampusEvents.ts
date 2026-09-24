@@ -3,11 +3,14 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { getBucket } from './config'
 
 const s3 = new S3Client({ region: 'us-east-1' })
-const CACHE_KEY = 'cache/events/latest.json'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
+const TZ = 'America/Chicago'
 
 // Max VEVENTs to parse from the iCal feed (performance guard — 3-day feeds can have 500+)
 const MAX_VEVENTS = 300
+
+// Fetch a large fixed window so one cache serves all daysAhead values for that day.
+const FETCH_DAYS = 30
 
 export const GetCampusEventsInputSchema = z.object({
   daysAhead: z.number().int().min(1).max(30).optional().default(7)
@@ -36,11 +39,10 @@ export interface CampusEvent {
   isAllDay: boolean
 }
 
+// Cache shape: fetchedAt as ISO string (checked on read), events for the full FETCH_DAYS window
 interface EventsCache {
-  cachedAt: number
-  daysAhead: number
+  fetchedAt: string
   events: CampusEvent[]
-  total: number
 }
 
 import { parseIcalText, parseIcalDate, parseIcalTime, RawVEvent } from './lib/ical'
@@ -64,26 +66,48 @@ function mapRawEvent(e: RawVEvent): CampusEvent {
 }
 
 // ---------------------------------------------------------------------------
-// S3 cache helpers
+// Time helpers (Chicago time)
 // ---------------------------------------------------------------------------
 
-async function readCache(daysAhead: number): Promise<EventsCache | null> {
+function todayChicago(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date())
+}
+
+function addDays(yyyy_mm_dd: string, n: number): string {
+  // Parse at noon to avoid DST boundary issues
+  const d = new Date(`${yyyy_mm_dd}T12:00:00`)
+  d.setDate(d.getDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+function fmtLocalTime(isoStr: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, dateStyle: 'short', timeStyle: 'short',
+  }).format(new Date(isoStr))
+}
+
+// ---------------------------------------------------------------------------
+// S3 cache helpers — date-scoped key so stale day never collides with today
+// ---------------------------------------------------------------------------
+
+function cacheKey(): string {
+  return `cache/events/${todayChicago()}.json`
+}
+
+async function readCache(): Promise<EventsCache | null> {
   try {
-    const r = await s3.send(new GetObjectCommand({ Bucket: getBucket(), Key: CACHE_KEY }))
+    const r = await s3.send(new GetObjectCommand({ Bucket: getBucket(), Key: cacheKey() }))
     const cache = JSON.parse(await r.Body!.transformToString()) as EventsCache
-    if (cache.daysAhead === daysAhead && Date.now() - cache.cachedAt < CACHE_TTL_MS) {
-      return cache
-    }
-    return null
-  } catch {
-    return null
-  }
+    if (!cache.fetchedAt) return null
+    if (Date.now() - Date.parse(cache.fetchedAt) >= CACHE_TTL_MS) return null
+    return cache
+  } catch { return null }
 }
 
 async function writeCache(c: EventsCache): Promise<void> {
   try {
     await s3.send(new PutObjectCommand({
-      Bucket: getBucket(), Key: CACHE_KEY,
+      Bucket: getBucket(), Key: cacheKey(),
       Body: JSON.stringify(c), ContentType: 'application/json',
     }))
   } catch { /* non-fatal */ }
@@ -94,18 +118,19 @@ async function writeCache(c: EventsCache): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function getCampusEvents(input: GetCampusEventsInput) {
-  let events: CampusEvent[]
-  let total: number
-  let fromCache = false
+  const today = todayChicago()
+  const windowEnd = addDays(today, input.daysAhead)
 
-  const cached = await readCache(input.daysAhead)
+  let allEvents: CampusEvent[]
+  let fetchedAt: string
+
+  const cached = await readCache()
   if (cached) {
-    events = cached.events
-    total = cached.total
-    fromCache = true
+    allEvents = cached.events
+    fetchedAt = cached.fetchedAt
   } else {
     try {
-      const url = `https://events.uchicago.edu/live/ical/events/only_future/1/days/${input.daysAhead}/`
+      const url = `https://events.uchicago.edu/live/ical/events/only_future/1/days/${FETCH_DAYS}/`
       const resp = await fetch(url, {
         headers: { Accept: 'text/calendar', 'User-Agent': 'CampusGeo/1.0 (academic research)' },
         signal: AbortSignal.timeout(12000),
@@ -113,15 +138,19 @@ export async function getCampusEvents(input: GetCampusEventsInput) {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const text = await resp.text()
       const raw = parseIcalText(text, MAX_VEVENTS)
-      events = raw.map(mapRawEvent)
-      total = events.length
-      await writeCache({ cachedAt: Date.now(), daysAhead: input.daysAhead, events, total })
+      allEvents = raw.map(mapRawEvent)
+      fetchedAt = new Date().toISOString()
+      await writeCache({ fetchedAt, events: allEvents })
     } catch (err) {
       return {
         error: `Could not fetch campus events: ${err instanceof Error ? err.message : String(err)}`,
       }
     }
   }
+
+  // ALWAYS filter to the requested window in Chicago time, even on a cache hit.
+  // This ensures a cache written earlier today never surfaces past-today events.
+  let events = allEvents.filter((e) => e.date >= today && e.date <= windowEnd && !e.isCanceled)
 
   // Keyword filter
   if (input.keyword) {
@@ -135,15 +164,16 @@ export async function getCampusEvents(input: GetCampusEventsInput) {
     )
   }
 
-  const active = events.filter((e) => !e.isCanceled)
-  const trimmed = active.slice(0, input.limit)
+  const trimmed = events.slice(0, input.limit)
 
   return {
     events: trimmed,
     returned: trimmed.length,
-    totalInWindow: total,
+    totalInWindow: events.length,
+    windowStart: today,
+    windowEnd,
     daysAhead: input.daysAhead,
+    fetchedAtLocal: fmtLocalTime(fetchedAt),
     source: 'events.uchicago.edu (iCal)',
-    cachedAt: fromCache ? new Date(cached!.cachedAt).toISOString() : null,
   }
 }

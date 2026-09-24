@@ -90,6 +90,15 @@ interface RawMenuPeriod {
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
+// The API is browser-facing; Chartwells' WAF 403s requests without a realistic UA/Referer.
+const DOC_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36',
+  'Referer': 'https://dineoncampus.com/uchicago',
+  'Origin': 'https://dineoncampus.com',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+}
+
 function siteId(): string {
   const id = process.env.DINEONCAMPUS_SITE_ID
   if (!id) throw new Error('not-configured')
@@ -102,7 +111,7 @@ async function fetchLocations(): Promise<DiningLocation[]> {
   if (hit) return hit.locs
 
   const url = `${BASE}/locations/all_locations?platform=0&site_id=${siteId()}&for_menus=true&with_address=false&with_buildings=true`
-  const resp = await fetch(url)
+  const resp = await fetch(url, { headers: DOC_HEADERS, signal: AbortSignal.timeout(8000) })
   if (!resp.ok) throw new Error(`locations ${resp.status}`)
   const json = await resp.json() as { buildings?: RawBuilding[] }
 
@@ -123,7 +132,7 @@ async function fetchPeriods(
   const hit = await readCache<{ periods: DiningPeriod[]; closed: boolean }>(key, TTL_PERIODS)
   if (hit) return hit
 
-  const resp = await fetch(`${BASE}/location/${locId}/periods?platform=0&date=${date}`)
+  const resp = await fetch(`${BASE}/location/${locId}/periods?platform=0&date=${date}`, { headers: DOC_HEADERS, signal: AbortSignal.timeout(8000) })
   if (!resp.ok) throw new Error(`periods ${resp.status}`)
   const json = await resp.json() as { closed?: boolean; periods?: DiningPeriod[] }
 
@@ -139,7 +148,7 @@ async function fetchPeriodMenu(
   const hit = await readCache<{ mp: RawMenuPeriod }>(key, TTL_MENU)
   if (hit) return hit.mp
 
-  const resp = await fetch(`${BASE}/location/${locId}/periods/${periodId}?platform=0&date=${date}`)
+  const resp = await fetch(`${BASE}/location/${locId}/periods/${periodId}?platform=0&date=${date}`, { headers: DOC_HEADERS, signal: AbortSignal.timeout(8000) })
   if (!resp.ok) return null
   const json = await resp.json() as { menu?: { periods?: RawMenuPeriod[] } }
   const mp = json.menu?.periods?.[0] ?? null

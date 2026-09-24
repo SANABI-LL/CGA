@@ -84,7 +84,7 @@ export async function queryCampusLayer(input: QueryCampusLayerInput) {
   // Optional proximity filter
   let anchorPolygon: { type: 'Polygon'; coordinates: number[][][] } | undefined
   if (input.nearLocation) {
-    const center = resolveLocation(input.nearLocation)
+    const center = await resolveLocation(input.nearLocation)
     if (!center) {
       return {
         error: `Unknown location "${input.nearLocation}". Try a building name like "Regenstein Library" or "Main Quad".`,

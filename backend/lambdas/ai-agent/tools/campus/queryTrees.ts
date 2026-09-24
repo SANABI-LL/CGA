@@ -94,7 +94,7 @@ export async function queryTrees(input: QueryTreesInput) {
 
     // 空间过滤：nearLocation + radiusMeters（优先于属性 location 字段）
     if (input.nearLocation) {
-      const center = resolveLocation(input.nearLocation)
+      const center = await resolveLocation(input.nearLocation)
       if (!center) {
         return {
           error: `Unknown location "${input.nearLocation}". Try a well-known campus building name, e.g. "Regenstein Library", "Keller Center", "Main Quad".`,
