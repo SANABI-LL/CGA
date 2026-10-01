@@ -391,7 +391,8 @@ const CAMPUS_TOOLS: Tool[] = [
         '  Fire & safety: hydrant (FID,TYPE,ASSET_ID) | fire_escape (FID) | sprinkler (FID) | standpipe (FID) | fire_lane (FID,Shape__Area) | post_indicator_valve (FID)\n' +
         '  Planning geography: subarea (SubArea — planning district letter A through P, 14 polygons). Use to answer "which subarea is X in?", "show me Subarea O", "compare B and C", or to scope other queries by planning district. These are large boundary polygons — when the user names SPECIFIC subareas, pass filterField="SubArea" and filterValues=["B","C"] so only those polygons appear on the map; the map renders every feature the tool returns. Return all 14 only when the user explicitly asks for all subarea boundaries.\n' +
         '  Landmarks: landmark (LANDMARK_N,ID,ADDRESS,DATE_BUILT,ARCHITECT,HISTORY) | nrhp (Name,NRHP) | nhl (LANDMARK_N,ID,ADDRESS,DATE_BUILT,ARCHITECT,HISTORY)\n' +
-        '  Parking & transit: surface_parking (FID,SFPARK_ID,Area_AC) | metra_station (NAME,LINES,ADA,FAREZONE,ADDRESS,STATUS)',
+        '  Parking & transit: surface_parking (FID,SFPARK_ID,Area_AC) | metra_station (NAME,LINES,ADA,FAREZONE,ADDRESS,STATUS)\n' +
+        '  Utilities (attribute-rich): steam_line_by_year (Layer — pipe type code e.g. M-STEM-HPIP-N=high-pressure/M-STEM-CONP=condensate/M-STEM-LPIP-N=low-pressure, YearBuilt — installation era: "Before 1974"/"Before 1984"/"On or Before 1994"/"On or Before 2004"/"On or Before 2019"/"On or Before 2024"/"Eliminated"). 1172 line features. Use for year-based steam infrastructure questions; for spatial proximity queries use query_campus_utilities instead.',
       inputSchema: {
         json: {
           type: 'object',
@@ -407,6 +408,7 @@ const CAMPUS_TOOLS: Tool[] = [
                 'subarea',
                 'landmark', 'nrhp', 'nhl',
                 'surface_parking', 'metra_station',
+                'steam_line_by_year',
               ],
               description: 'Which campus layer to query',
             },

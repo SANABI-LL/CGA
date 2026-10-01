@@ -52,6 +52,8 @@ const S3_LAYER_FILES: Record<string, string> = {
   shuttle_routes: 'layers/shuttle_routes.geojson',
   // Non-building campus landmarks (ponds, quads, gates, sculptures)
   campus_landmarks: 'layers/landmarks.geojson',
+  // Utilities with engineering attributes
+  steam_line_by_year: 'layers/Steam_Line_by_Year.geojson',
 }
 
 // Internal helper schema (not exposed as a model tool) — outFields stays for
@@ -68,6 +70,7 @@ export const QueryS3LayerInputSchema = z.object({
     'subarea',
     'landmark', 'nrhp', 'nhl',
     'surface_parking', 'metra_station',
+    'steam_line_by_year',
   ]),
   whereClause: z.string().max(500).optional().describe('SQL-like WHERE clause (e.g., "DISCRIPT1 LIKE \'%Library%\'")'),
   maxResults: z.number().int().min(1).max(500).optional().default(100),

@@ -14,15 +14,16 @@ const s3 = new S3Client({ region: AWS_REGION })
  * S3 keys are layers/utility_<layer>.geojson — the utility_ prefix keeps them
  * from colliding with the general campus layers (e.g. electrical).
  *
- * NOTE: source attributes are CAD export metadata (Layer/Color/Linetype…)
- * with no engineering attributes yet (depth, diameter, install year are
- * planned additions). Query value is therefore spatial: near a location,
- * by utility system. Attribute filtering is intentionally not offered.
+ * NOTE: most layers have CAD export metadata only (Layer/Color/Linetype…)
+ * with no engineering attributes. Steam_Line_by_Year is the exception:
+ * it carries YearBuilt (installation era) and Layer (pipe type code).
+ * Attribute filtering for that layer is available via query_campus_layer.
  */
 const UTILITY_SYSTEMS: Record<string, { layers: string[]; label: string }> = {
   steam: {
     label: 'Steam distribution (lines, condensate, vaults, LP/MP piping)',
     layers: [
+      'Steam_Line_by_Year',              // YearBuilt + Layer (pipe type) — newest dataset
       'utility_t2021_steam_line',
       'utility_t2021_steam_line_condensate',
       'utility_steam_vault',
