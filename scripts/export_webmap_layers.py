@@ -199,6 +199,28 @@ def fetch_all_features(layer_url: str, token: str | None) -> list[dict]:
     return features
 
 
+def sanitize_chrs_ratings(features: list[dict], key: str) -> tuple[list[dict], int]:
+    """
+    Clear CHRS ratings on buildings completed after 1995.
+    The Chicago Historic Resources Survey ran 1983–1995; any rating on a building
+    that didn't exist yet was inherited from a prior structure at the same address.
+    """
+    if key != 'buildings.geojson':
+        return features, 0
+    cleared = 0
+    for f in features:
+        props = f.get('properties') or {}
+        chrs  = str(props.get('CHRS', '') or '').strip()
+        year  = int(props.get('Year_Completed') or 0)
+        if chrs and year > 1995:
+            name = props.get('DISCRIPT1', props.get('BD_ID', '?'))
+            print(f'  CHRS-CLEAR  {props.get("BD_ID","")} {name!r}  '
+                  f'Year_Completed={year}  was CHRS={chrs!r}')
+            props['CHRS'] = ' '
+            cleared += 1
+    return features, cleared
+
+
 def upload_to_s3(s3, bucket: str, full_key: str, features: list[dict], dry_run: bool) -> None:
     fc = {
         'type': 'FeatureCollection',
@@ -299,6 +321,11 @@ def main() -> int:
             print(f'  ERROR: {exc}')
             counts['error'] += 1
             continue
+
+        # --- data-quality sanitization ---
+        features, chrs_cleared = sanitize_chrs_ratings(features, key)
+        if chrs_cleared:
+            print(f'  Cleared {chrs_cleared} post-1995 CHRS rating(s)')
 
         # --- upload ---
         try:
