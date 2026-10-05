@@ -735,6 +735,10 @@ def upload_to_s3(summaries: list[dict], out_dir: Path, bucket: str, profile: str
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    # Ensure UTF-8 output on Windows (avoids charmap errors from box-drawing chars)
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
     ap = argparse.ArgumentParser(
         description='DXF floor-plan → georeferenced GeoJSON  (see file header for full usage)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
