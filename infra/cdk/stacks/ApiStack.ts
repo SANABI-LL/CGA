@@ -126,7 +126,7 @@ export class ApiStack extends cdk.Stack {
           props.stage === 'prod'
             ? ['https://campusgeo.uchicago.edu']
             : ['http://localhost:5173', 'http://localhost:5174', '*'],
-        allowMethods: [apigatewayv2.CorsHttpMethod.ANY],
+        allowMethods: [apigatewayv2.CorsHttpMethod.GET, apigatewayv2.CorsHttpMethod.POST, apigatewayv2.CorsHttpMethod.OPTIONS],
         allowHeaders: ['Content-Type', 'Authorization'],
         maxAge: cdk.Duration.hours(1),
       },
