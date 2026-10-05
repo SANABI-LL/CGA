@@ -16,7 +16,65 @@
  * AWS_SECRET_ACCESS_KEY, plus AWS_REGION and optionally BEDROCK_MODEL_ID.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { gzipSync } from 'node:zlib'
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { runCampusGeoAgent } from '../lambdas/ai-agent/agent'
+
+const s3 = new S3Client({ region: process.env.AWS_REGION ?? 'us-east-1' })
+const GEOJSON_BUCKET = process.env.GEOJSON_BUCKET ?? 'campusgeo-geodata-491117467175'
+
+const BD_ID_RE = /^[A-Z0-9]{1,6}$/
+const FILE_RE = /^(transform\.json|[A-Za-z0-9]{1,3}(\.rooms|\.gross)?\.geojson)$/
+
+async function handlePlans(url: string, req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  // Returns true if the request was handled (404 or success), false if not a plans route
+  const headers = { ...corsPlanHeaders() }
+
+  let s3Key: string
+  if (url === '/api/plans/index' || url === '/api/plans/index.json') {
+    s3Key = 'plans/index.json'
+  } else {
+    const m = url.match(/^\/api\/plans\/([^/]+)\/([^/]+)$/)
+    if (!m) return false
+    const [, bdId, file] = m
+    const bdUpper = bdId.toUpperCase()
+    if (!BD_ID_RE.test(bdUpper) || !FILE_RE.test(file)) {
+      res.writeHead(400, { ...headers, 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Invalid bdId or file' }))
+      return true
+    }
+    s3Key = `plans/${bdUpper}/${file}`
+  }
+
+  try {
+    const obj = await s3.send(new GetObjectCommand({ Bucket: GEOJSON_BUCKET, Key: s3Key }))
+    const bytes = await obj.Body!.transformToByteArray()
+    const contentType = s3Key.endsWith('.geojson') ? 'application/geo+json' : 'application/json'
+    const acceptEnc = (req.headers['accept-encoding'] ?? '').toString().toLowerCase()
+
+    if (acceptEnc.includes('gzip')) {
+      const compressed = gzipSync(bytes)
+      res.writeHead(200, { ...headers, 'Content-Type': contentType, 'Content-Encoding': 'gzip', 'Cache-Control': 'public, max-age=3600' })
+      res.end(compressed)
+    } else {
+      res.writeHead(200, { ...headers, 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600' })
+      res.end(Buffer.from(bytes))
+    }
+  } catch (e: any) {
+    const status = (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) ? 404 : 500
+    res.writeHead(status, { ...headers, 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: status === 404 ? `Not found: ${s3Key}` : 'Internal error' }))
+  }
+  return true
+}
+
+function corsPlanHeaders(): Record<string, string> {
+  return {
+    'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  }
+}
 
 const PORT = Number(process.env.PORT ?? 3001)
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
@@ -50,6 +108,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { ...corsHeaders(), 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ status: 'ok', model: process.env.BEDROCK_MODEL_ID ?? 'default' }))
+    return
+  }
+
+  // Plans proxy: GET /api/plans/*
+  if (req.method === 'GET' && req.url?.startsWith('/api/plans/')) {
+    await handlePlans(req.url, req, res)
     return
   }
 
@@ -104,6 +168,6 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
 server.listen(PORT, () => {
   console.log(`[dev-server] CampusGeo agent listening on http://localhost:${PORT}`)
-  console.log(`[dev-server] POST /api/agent  ·  GET /health`)
+  console.log(`[dev-server] POST /api/agent  ·  GET /health  ·  GET /api/plans/*`)
   console.log(`[dev-server] region=${process.env.AWS_REGION ?? 'us-east-1'} model=${process.env.BEDROCK_MODEL_ID ?? 'default'}`)
 })
