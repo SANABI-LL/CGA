@@ -1,8 +1,43 @@
 import { randomUUID } from 'node:crypto'
+import { gzipSync } from 'node:zlib'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { runCampusGeoAgent } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
 import { queryS3Layer } from './tools/campus/queryS3Layer'
+
+const s3 = new S3Client({ region: process.env.AWS_REGION ?? 'us-east-1' })
+const GEOJSON_BUCKET = process.env.GEOJSON_BUCKET ?? 'campusgeo-geodata-491117467175'
+
+const BD_ID_RE = /^[A-Z0-9]{1,6}$/
+const FILE_RE = /^(transform\.json|[A-Za-z0-9]{1,3}(\.rooms|\.gross)?\.geojson)$/
+
+// Resolves a /api/plans/* path to an S3 key, or returns null if invalid.
+function plansS3Key(path: string): string | null {
+  if (path.endsWith('/api/plans/index') || path.endsWith('/api/plans/index.json')) {
+    return 'plans/index.json'
+  }
+  const m = path.match(/\/api\/plans\/([^/?#]+)\/([^/?#]+)$/)
+  if (!m) return null
+  const bdUpper = m[1].toUpperCase()
+  if (!BD_ID_RE.test(bdUpper) || !FILE_RE.test(m[2])) return null
+  return `plans/${bdUpper}/${m[2]}`
+}
+
+async function servePlansS3(
+  s3Key: string,
+  acceptEncoding: string
+): Promise<{ status: number; contentType: string; encoding?: string; body: string; isBase64: boolean }> {
+  const obj = await s3.send(new GetObjectCommand({ Bucket: GEOJSON_BUCKET, Key: s3Key }))
+  const bytes = await obj.Body!.transformToByteArray()
+  const contentType = s3Key.endsWith('.geojson') ? 'application/geo+json' : 'application/json'
+
+  if (acceptEncoding.toLowerCase().includes('gzip')) {
+    const compressed = gzipSync(bytes)
+    return { status: 200, contentType, encoding: 'gzip', body: Buffer.from(compressed).toString('base64'), isBase64: true }
+  }
+  return { status: 200, contentType, body: Buffer.from(bytes).toString('utf-8'), isBase64: false }
+}
 
 const MAX_QUERY_LENGTH = 2000
 
@@ -59,6 +94,34 @@ async function bufferedHandler(
       statusCode: 403,
       headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Forbidden' }),
+    }
+  }
+
+  // Plans proxy: GET /api/plans/*  (auth-gated, same shared secret)
+  if (event.requestContext.http.method === 'GET') {
+    const s3Key = plansS3Key(event.requestContext.http.path)
+    if (s3Key === null) {
+      return { statusCode: 400, headers: { ...corsHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Invalid plans path' }) }
+    }
+    try {
+      const r = await servePlansS3(s3Key, event.headers?.['accept-encoding'] ?? '')
+      return {
+        statusCode: r.status,
+        headers: {
+          ...corsHeaders(),
+          'Content-Type': r.contentType,
+          'Cache-Control': 'public, max-age=3600',
+          ...(r.encoding ? { 'Content-Encoding': r.encoding } : {}),
+        },
+        body: r.body,
+        isBase64Encoded: r.isBase64,
+      }
+    } catch (e: any) {
+      if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) {
+        return { statusCode: 404, headers: { ...corsHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: `Not found: ${s3Key}` }) }
+      }
+      const ref = logInternalError(e)
+      return { statusCode: 500, headers: { ...corsHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Internal error', ref }) }
     }
   }
 
@@ -330,6 +393,33 @@ const streamingHandler = () => awslambda.streamifyResponse(
       } as never)
       metadata.write(JSON.stringify({ error: 'Forbidden' }))
       metadata.end()
+      return
+    }
+
+    // Plans proxy: GET /api/plans/*  (no streaming needed — write body and end)
+    if (event.requestContext.http.method === 'GET') {
+      const s3Key = plansS3Key(event.requestContext.http.path)
+      if (s3Key === null) {
+        const meta = awslambda.HttpResponseStream.from(responseStream, { statusCode: 400, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } } as never)
+        meta.write(JSON.stringify({ error: 'Invalid plans path' }))
+        meta.end()
+        return
+      }
+      try {
+        const r = await servePlansS3(s3Key, event.headers?.['accept-encoding'] ?? '')
+        const meta = awslambda.HttpResponseStream.from(responseStream, {
+          statusCode: r.status,
+          headers: { ...corsHeaders(), 'Content-Type': r.contentType, 'Cache-Control': 'public, max-age=3600', ...(r.encoding ? { 'Content-Encoding': r.encoding } : {}) },
+        } as never)
+        meta.write(r.isBase64 ? Buffer.from(r.body, 'base64').toString('binary') : r.body)
+        meta.end()
+      } catch (e: any) {
+        const status = (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) ? 404 : 500
+        const ref = status === 500 ? logInternalError(e) : undefined
+        const meta = awslambda.HttpResponseStream.from(responseStream, { statusCode: status, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } } as never)
+        meta.write(JSON.stringify(status === 404 ? { error: `Not found: ${s3Key}` } : { error: 'Internal error', ref }))
+        meta.end()
+      }
       return
     }
 
