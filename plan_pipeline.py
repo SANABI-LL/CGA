@@ -225,7 +225,7 @@ def parse_dxf(filepath: str) -> dict:
 # MTEXT parsing
 # ---------------------------------------------------------------------------
 
-_P_SEP = re.compile(r'\\[Pp]|\r\n|\r|\n')
+_P_SEP = re.compile(r'\\[Pp]|\^M\^J|\^M|\^J|\r\n|\r|\n')
 _FORMAT_CODES = re.compile(r'\\[^;]*;|[{}]')
 
 # Synonym expansion for room-index tags ─────────────────────────────────────
@@ -632,7 +632,8 @@ def load_building_name(buildings_path: str, bd_id: str) -> str:
     for feat in fc.get('features', []):
         props = feat.get('properties', {})
         if props.get('BD_ID') == bd_id:
-            return props.get('BLD_COMMN') or props.get('NAME') or bd_id
+            return (props.get('DISCRIPT1') or props.get('BLD_COMMN')
+                    or props.get('NAME') or bd_id)
     return bd_id
 
 
