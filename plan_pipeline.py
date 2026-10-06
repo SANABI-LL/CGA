@@ -225,8 +225,45 @@ def parse_dxf(filepath: str) -> dict:
 # MTEXT parsing
 # ---------------------------------------------------------------------------
 
-_P_SEP = re.compile(r'\\[Pp]')
+_P_SEP = re.compile(r'\\[Pp]|\r\n|\r|\n')
 _FORMAT_CODES = re.compile(r'\\[^;]*;|[{}]')
+
+# Synonym expansion for room-index tags ─────────────────────────────────────
+_SYNONYM_MAP: list[tuple[re.Pattern, list[str]]] = [
+    (re.compile(r'mother|lactation|nursing', re.I),
+     ['mothers', 'lactation', 'nursing', 'nursing room', 'mothers room', 'lactation room']),
+    (re.compile(r'^rrs[wmu]', re.I),
+     ['restroom', 'bathroom', 'toilet', 'washroom']),
+    (re.compile(r'restroom|bathroom|toilet|washroom', re.I),
+     ['restroom', 'bathroom', 'toilet', 'washroom']),
+    (re.compile(r'^el[-_]', re.I),
+     ['elevator', 'lift']),
+    (re.compile(r'^st[-_]', re.I),
+     ['stair', 'stairs', 'stairwell']),
+    (re.compile(r'classroom|lecture|seminar', re.I),
+     ['classroom', 'lecture', 'seminar']),
+    (re.compile(r'lab(?:oratory)?', re.I),
+     ['lab', 'laboratory']),
+    (re.compile(r'office', re.I),
+     ['office']),
+    (re.compile(r'study|reading room', re.I),
+     ['study', 'reading', 'reading room']),
+    (re.compile(r'kitchen|pantry|break room|lounge', re.I),
+     ['kitchen', 'pantry', 'break room', 'lounge']),
+    (re.compile(r'storage|janitor|mechanical|electrical|utility', re.I),
+     ['storage', 'utility', 'back-of-house']),
+]
+
+
+def _expand_tags(room: str, use: str) -> list[str]:
+    combined = f"{room} {use}"
+    tags: list[str] = []
+    for pattern, synonyms in _SYNONYM_MAP:
+        if pattern.search(combined):
+            for s in synonyms:
+                if s not in tags:
+                    tags.append(s)
+    return tags
 
 
 def parse_mtext(raw: str) -> dict:
@@ -588,6 +625,59 @@ def load_footprint(buildings_path: str, bd_id: str):
     return None
 
 
+def load_building_name(buildings_path: str, bd_id: str) -> str:
+    """Return building display name from buildings.geojson for a BD_ID."""
+    with open(buildings_path) as f:
+        fc = json.load(f)
+    for feat in fc.get('features', []):
+        props = feat.get('properties', {})
+        if props.get('BD_ID') == bd_id:
+            return props.get('BLD_COMMN') or props.get('NAME') or bd_id
+    return bd_id
+
+
+def build_rooms_index(rooms_fc: dict, bd_id: str, floor_id: str, building_name: str) -> list[dict]:
+    """Build flat room-index entries from a rooms FeatureCollection."""
+    entries: list[dict] = []
+    for feat in rooms_fc.get('features', []):
+        props = feat.get('properties', {})
+        room = str(props.get('room', '')).strip()
+        use  = str(props.get('use',  '')).strip()
+        if not room:
+            continue
+        entry: dict = {
+            'bdId':     bd_id,
+            'building': building_name,
+            'floor':    floor_id,
+            'room':     room,
+            'use':      use,
+        }
+        if 'areaSf' in props:
+            entry['areaSf'] = props['areaSf']
+        geom = feat.get('geometry')
+        if geom:
+            try:
+                poly = shape(geom)
+                c = poly.centroid
+                entry['centroid'] = [round(c.x, 7), round(c.y, 7)]
+            except Exception:
+                pass
+        tags = _expand_tags(room, use)
+        if tags:
+            entry['tags'] = tags
+        entries.append(entry)
+    return entries
+
+
+def update_rooms_index(out_dir: Path, new_entries: list[dict], bd_id: str, floor_id: str) -> None:
+    """Replace (bdId, floor) entries in rooms_index.json with new_entries."""
+    idx_path = out_dir / 'rooms_index.json'
+    existing: list[dict] = json.loads(idx_path.read_text()) if idx_path.exists() else []
+    kept = [e for e in existing if not (e.get('bdId') == bd_id and e.get('floor') == floor_id)]
+    kept.extend(new_entries)
+    idx_path.write_text(json.dumps(kept, indent=2, ensure_ascii=False))
+
+
 # ---------------------------------------------------------------------------
 # Main processing loop
 # ---------------------------------------------------------------------------
@@ -677,9 +767,13 @@ def process_dxf(
         rooms_path.write_text(json.dumps(rooms))
         gross_path.write_text(json.dumps(gross))
         update_index(out_dir, bd_id, floor_id, transform['residualP95M'])
+        building_name = load_building_name(buildings_path, bd_id)
+        room_entries = build_rooms_index(rooms, bd_id, floor_id, building_name)
+        update_rooms_index(out_dir, room_entries, bd_id, floor_id)
         print(f"  Saved : {lw_path}  ({lw_n} features)")
         print(f"  Saved : {rooms_path}  ({room_n} rooms)")
         print(f"  Saved : {gross_path}")
+        print(f"  Rooms index: {len(room_entries)} entries → rooms_index.json")
 
     return {
         'bdId': bd_id, 'floor': floor_id,
@@ -725,6 +819,13 @@ def upload_to_s3(summaries: list[dict], out_dir: Path, bucket: str, profile: str
         s3.put_object(Bucket=bucket, Key='plans/index.json',
                       Body=idx.read_bytes(), ContentType='application/json')
         print(f"  Uploaded: s3://{bucket}/plans/index.json")
+        n += 1
+
+    rooms_idx = out_dir / 'rooms_index.json'
+    if rooms_idx.exists():
+        s3.put_object(Bucket=bucket, Key='plans/rooms_index.json',
+                      Body=rooms_idx.read_bytes(), ContentType='application/json')
+        print(f"  Uploaded: s3://{bucket}/plans/rooms_index.json")
         n += 1
 
     print(f"  Total uploaded: {n} files")

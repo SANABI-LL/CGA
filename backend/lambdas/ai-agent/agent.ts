@@ -17,6 +17,7 @@ import { queryUtilities, QueryUtilitiesInputSchema } from './tools/campus/queryU
 import { queryBuildingAttributes, QueryBuildingAttributesInputSchema } from './tools/campus/queryBuildingAttributes'
 import { getDataFreshness, GetDataFreshnessInputSchema } from './tools/campus/getDataFreshness'
 import { findBuildingsByYear, FindBuildingsByYearInputSchema } from './tools/campus/findBuildingsByYear'
+import { findRoom, FindRoomInputSchema } from './tools/campus/findRoom'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -238,6 +239,37 @@ const CAMPUS_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    toolSpec: {
+      name: 'find_room',
+      description:
+        'Look up a specific room or amenity inside a building using the floor-plan room index. ' +
+        'Use when the user asks about something INSIDE a building: mothers/lactation room, restroom, ' +
+        'a specific room number, classroom, lab, elevator, stairs, lounge, or any other interior space. ' +
+        'Returns room number, use, floor, area, and centroid. ' +
+        'If no match found, reports which buildings currently have plans on file.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'What the user is looking for: "mothers room", "restroom", "room 105", "elevator", "study room"',
+            },
+            building: {
+              type: 'string',
+              description: 'Building name, alias, or BD_ID (e.g. "Crerar", "John Crerar Library", "A06"). Fuzzy match.',
+            },
+            floor: {
+              type: 'string',
+              description: 'Floor number, e.g. "01", "B1". Omit to search all floors.',
+            },
+          },
+          required: ['query'],
+        },
+      },
+    },
+  },
 ]
 
 function buildSystemPrompt(): string {
@@ -257,7 +289,8 @@ Guidelines:
 - Building METRICS (RI, FCI, height, year, area) are LAYER DATA: use query_building_attributes, never the document search. Data-currency questions: use get_data_freshness.
 - Architect/designer queries: use query_building_attributes with field="architect", operator="contains", value=<partial firm name>. For multiple architects, call the tool once per architect then merge the feature lists before returning. Use partial names to handle spelling variants (e.g. "Coolidge" matches "Coolidge & Hodgdon" and "Shepley, Rutan, and Coolidge").
 - To show ALL buildings (e.g. "map all buildings", "gradient by age", "color by year"), call query_building_attributes with field="year", operator=">=", value=1800 — this returns all buildings that have a year recorded. Never answer building visualization requests from memory.
-- Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
+- Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.
+- For any question about a room, amenity, or facility *inside* a building (mothers/lactation room, restroom, specific room number, classroom, lab, elevator, stairs), call \`find_room\`. If \`found:false\`, report which buildings have plans on file; never suggest "ask at the front desk" as the primary answer when a plan might exist.`
 }
 
 type SSECallback = (event: { type: string; [key: string]: unknown }) => void
@@ -493,6 +526,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'get_data_freshness': {
       const input = GetDataFreshnessInputSchema.parse(rawInput)
       return getDataFreshness(input)
+    }
+    case 'find_room': {
+      const input = FindRoomInputSchema.parse(rawInput)
+      return findRoom(input)
     }
     default:
       return { error: `Unknown tool: ${name}` }
