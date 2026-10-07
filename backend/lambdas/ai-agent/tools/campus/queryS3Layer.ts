@@ -16,12 +16,13 @@ const S3_LAYER_FILES: Record<string, string> = {
   trees: 'layers/trees.geojson',
   bike_racks: 'layers/bike_racks.geojson',
   parking: 'layers/parking.geojson',
+  subarea: 'layers/Subarea.geojson',
 }
 
 // Internal helper schema (not exposed as a model tool) — outFields stays for
 // in-process callers, but inputs are still clamped defensively.
 export const QueryS3LayerInputSchema = z.object({
-  layerName: z.enum(['buildings', 'dining', 'accessible', 'leed_buildings', 'trees', 'bike_racks', 'parking']),
+  layerName: z.enum(['buildings', 'dining', 'accessible', 'leed_buildings', 'trees', 'bike_racks', 'parking', 'subarea']),
   whereClause: z.string().max(500).optional().describe('SQL-like WHERE clause (e.g., "DISCRIPT1 LIKE \'%Library%\'")'),
   maxResults: z.number().int().min(1).max(500).optional().default(100),
   returnGeometry: z.boolean().optional().default(true),

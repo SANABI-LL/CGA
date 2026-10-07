@@ -18,6 +18,7 @@ import { queryBuildingAttributes, QueryBuildingAttributesInputSchema } from './t
 import { getDataFreshness, GetDataFreshnessInputSchema } from './tools/campus/getDataFreshness'
 import { findBuildingsByYear, FindBuildingsByYearInputSchema } from './tools/campus/findBuildingsByYear'
 import { findRoom, FindRoomInputSchema } from './tools/campus/findRoom'
+import { queryCampusLayer, QueryCampusLayerInputSchema } from './tools/campus/queryCampusLayer'
 
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
 // BEDROCK_REGION may differ from the Lambda's own region when the model is an
@@ -270,6 +271,37 @@ const CAMPUS_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    toolSpec: {
+      name: 'query_campus_layer',
+      description:
+        'Retrieve campus polygon layers by name, with optional attribute filtering. ' +
+        'Currently supports: "subarea" — the 14 PD 43 zoning subareas (A–P). ' +
+        'Use this to draw a named subarea boundary on the map whenever the user mentions a subarea by letter.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            layerName: {
+              type: 'string',
+              enum: ['subarea'],
+              description: 'Layer to query',
+            },
+            filterField: {
+              type: 'string',
+              description: 'Property field to filter on, e.g. "SubArea"',
+            },
+            filterValues: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Values to include — "Subarea E", "e", and "E" all match the same polygon',
+            },
+          },
+          required: ['layerName'],
+        },
+      },
+    },
+  },
 ]
 
 function buildSystemPrompt(): string {
@@ -290,7 +322,8 @@ Guidelines:
 - Architect/designer queries: use query_building_attributes with field="architect", operator="contains", value=<partial firm name>. For multiple architects, call the tool once per architect then merge the feature lists before returning. Use partial names to handle spelling variants (e.g. "Coolidge" matches "Coolidge & Hodgdon" and "Shepley, Rutan, and Coolidge").
 - To show ALL buildings (e.g. "map all buildings", "gradient by age", "color by year"), call query_building_attributes with field="year", operator=">=", value=1800 — this returns all buildings that have a year recorded. Never answer building visualization requests from memory.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.
-- For any question about a room, amenity, or facility *inside* a building (mothers/lactation room, restroom, specific room number, classroom, lab, elevator, stairs), call \`find_room\`. If \`found:false\`, report which buildings have plans on file; never suggest "ask at the front desk" as the primary answer when a plan might exist.`
+- For any question about a room, amenity, or facility *inside* a building (mothers/lactation room, restroom, specific room number, classroom, lab, elevator, stairs), call \`find_room\`. If \`found:false\`, report which buildings have plans on file; never suggest "ask at the front desk" as the primary answer when a plan might exist.
+- Whenever the user names one or more subareas ("subarea E", "subareas B and C", "what's allowed in subarea O"), you MUST ALSO call \`query_campus_layer\` with \`layerName:"subarea"\`, \`filterField:"SubArea"\`, \`filterValues:[<uppercase letters>]\` so the boundary is drawn on the map. Do this in addition to \`search_planning_documents\`, never instead of it — regulatory text goes in the answer, the boundary goes on the map. Exception: if the question asks for features *inside* the subarea ("buildings in subarea E", "trees in subarea O"), use a spatial query for those features instead of the boundary polygon, unless the user also asks to see the boundary.`
 }
 
 type SSECallback = (event: { type: string; [key: string]: unknown }) => void
@@ -330,6 +363,7 @@ export async function runCampusGeoAgent(
   const messages: Message[] = [{ role: 'user', content: [{ text: userQuery }] }]
   const retrievedCitations: RetrievedCitation[] = []
   let answerText = ''
+  let hasMapUpdate = false
 
   for (let turn = 0; turn < 6; turn++) {
     const command = new ConverseStreamCommand({
@@ -432,6 +466,7 @@ export async function runCampusGeoAgent(
         // Extract GeoJSON for map update if tool returned features
         const resultObj = result as Record<string, unknown>
         if (resultObj?.features && typeof resultObj.features === 'object') {
+          hasMapUpdate = true
           onEvent({
             type: 'tool_result',
             toolName: name!,
@@ -476,6 +511,34 @@ export async function runCampusGeoAgent(
       message: 'Some citations could not be matched to retrieved passages and may be unreliable.',
       unverified,
     })
+  }
+
+  // Safety net: if the query named subareas but no map update was sent, add the
+  // boundary without an extra Bedrock call — just one cheap S3 read.
+  if (!hasMapUpdate) {
+    const subareaLetters = new Set<string>()
+    for (const m of userQuery.matchAll(/\bsub-?areas?\s+((?:[A-P](?:\s*(?:,|and|&)\s*)?)+)/gi)) {
+      for (const l of m[1].matchAll(/[A-P]/gi)) subareaLetters.add(l[0].toUpperCase())
+    }
+    if (subareaLetters.size > 0) {
+      try {
+        const result = await queryCampusLayer({
+          layerName: 'subarea',
+          filterField: 'SubArea',
+          filterValues: [...subareaLetters],
+          maxResults: 20,
+        })
+        if (!('error' in result) && result.count > 0) {
+          onEvent({
+            type: 'tool_result',
+            toolName: 'query_campus_layer',
+            mapUpdate: { features: result.features },
+          })
+        }
+      } catch {
+        // Non-fatal: missing boundary is preferable to a broken response.
+      }
+    }
   }
 
   onEvent({ type: 'done' })
@@ -530,6 +593,10 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     case 'find_room': {
       const input = FindRoomInputSchema.parse(rawInput)
       return findRoom(input)
+    }
+    case 'query_campus_layer': {
+      const input = QueryCampusLayerInputSchema.parse(rawInput)
+      return queryCampusLayer(input)
     }
     default:
       return { error: `Unknown tool: ${name}` }
