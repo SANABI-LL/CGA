@@ -148,6 +148,50 @@ export async function findRoom(input: FindRoomInput) {
     .slice(0, 20)
 
   if (scored.length === 0) {
+    // If the user named a building that has plans but gave no matchable room query
+    // (e.g. "show me Crerar floorplan", "open the layout"), open the building's
+    // default floor rather than dead-ending with "not supported".
+    if (bdIdFilter && pool.length > 0) {
+      const availableFloors = [...new Set(pool.map((e) => e.floor))].sort()
+      const defaultFloor = input.floor ? input.floor.padStart(2, '0') : availableFloors[0]
+      const buildingName = pool[0].building
+
+      let features: Record<string, unknown> = {
+        type: 'FeatureCollection',
+        features: [],
+        _planFocus: { bdId: bdIdFilter, floor: defaultFloor, room: null },
+      }
+
+      try {
+        const buildings = await queryS3Layer({ layerName: 'buildings', maxResults: 500, returnGeometry: true })
+        if (!('error' in buildings)) {
+          const footprint = buildings.features.find(
+            (f) => (f.properties as Record<string, unknown>).BD_ID === bdIdFilter
+          )
+          if (footprint) {
+            features = {
+              type: 'FeatureCollection',
+              features: [footprint],
+              _planFocus: { bdId: bdIdFilter, floor: defaultFloor, room: null },
+            }
+          }
+        }
+      } catch {
+        // Non-fatal
+      }
+
+      return {
+        found: true,
+        buildingOpen: true,
+        building: buildingName,
+        bdId: bdIdFilter,
+        floor: defaultFloor,
+        availableFloors,
+        coverage: { buildingsWithPlans, note: 'Only buildings with uploaded CAD plans are searchable.' },
+        features,
+      }
+    }
+
     const scope = bdIdFilter
       ? `${pool[0]?.building ?? bdIdFilter}${input.floor ? ` floor ${input.floor}` : ''}`
       : `campus plans`
