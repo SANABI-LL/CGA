@@ -5,6 +5,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { runCampusGeoAgent } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
 import { queryS3Layer } from './tools/campus/queryS3Layer'
+import { storeAttachment, type Attachment } from './tools/campus/attachmentStore'
 
 const s3 = new S3Client({ region: process.env.AWS_REGION ?? 'us-east-1' })
 const GEOJSON_BUCKET = process.env.GEOJSON_BUCKET ?? 'campusgeo-geodata-491117467175'
@@ -40,6 +41,39 @@ async function servePlansS3(
 }
 
 const MAX_QUERY_LENGTH = 2000
+
+// Validate and normalise the first attachment from the request body.
+// Returns null if absent, 'invalid' on a constraint violation, or the typed Attachment.
+function parseAttachment(raw: unknown): Attachment | null | 'invalid' {
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const a = raw[0] as Record<string, unknown>
+  if (a.kind === 'table') {
+    const buildingIds = Array.isArray(a.buildingIds) ? a.buildingIds as string[] : []
+    const records = Array.isArray(a.records) ? a.records as Record<string, unknown>[] : []
+    if (buildingIds.length > 5000 || records.length > 2000) return 'invalid'
+    return {
+      kind: 'table',
+      name: String(a.name ?? ''),
+      rows: Number(a.rows ?? 0),
+      columns: Array.isArray(a.columns) ? a.columns as string[] : [],
+      idColumn: String(a.idColumn ?? ''),
+      buildingIds,
+      records,
+    }
+  }
+  if (a.kind === 'document') {
+    const text = String(a.text ?? '')
+    if (text.length > 60000) return 'invalid'
+    return {
+      kind: 'document',
+      name: String(a.name ?? ''),
+      pages: Number(a.pages ?? 0),
+      text,
+      truncated: Boolean(a.truncated),
+    }
+  }
+  return null
+}
 
 // Shared-secret gate: the API must never be anonymously callable, whichever
 // front door (CloudFront, API Gateway, Function URL) the request came through.
@@ -186,7 +220,7 @@ async function bufferedHandler(
   let query: string
   let sessionId: string
   try {
-    const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string }
+    const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string; attachments?: unknown }
     query = body.query?.trim() ?? ''
     sessionId = body.sessionId ?? `anon-${Date.now()}`
     if (!query || query.length > MAX_QUERY_LENGTH) {
@@ -198,6 +232,15 @@ async function bufferedHandler(
         }),
       }
     }
+    const attachment = parseAttachment(body.attachments)
+    if (attachment === 'invalid') {
+      return {
+        statusCode: 400,
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Attachment exceeds size limits' }),
+      }
+    }
+    if (attachment) storeAttachment(sessionId, attachment)
   } catch {
     return {
       statusCode: 400,
@@ -428,7 +471,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
     let sessionId: string
 
     try {
-      const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string }
+      const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string; attachments?: unknown }
       query = body.query?.trim() ?? ''
       sessionId = body.sessionId ?? `anon-${Date.now()}`
 
@@ -445,6 +488,17 @@ const streamingHandler = () => awslambda.streamifyResponse(
         metadata.end()
         return
       }
+      const attachment = parseAttachment(body.attachments)
+      if (attachment === 'invalid') {
+        const meta = awslambda.HttpResponseStream.from(responseStream, {
+          statusCode: 400,
+          headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        } as never)
+        meta.write(JSON.stringify({ error: 'Attachment exceeds size limits' }))
+        meta.end()
+        return
+      }
+      if (attachment) storeAttachment(sessionId, attachment)
     } catch {
       const metadata = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 400,
