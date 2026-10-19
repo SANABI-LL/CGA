@@ -2,13 +2,33 @@ import { randomUUID } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
 import { runCampusGeoAgent } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
 import { queryS3Layer } from './tools/campus/queryS3Layer'
 import { storeAttachment, type Attachment } from './tools/campus/attachmentStore'
 
 const s3 = new S3Client({ region: process.env.AWS_REGION ?? 'us-east-1' })
+const sm = new SecretsManagerClient({ region: process.env.AWS_REGION ?? 'us-east-1' })
 const GEOJSON_BUCKET = process.env.GEOJSON_BUCKET ?? 'campusgeo-geodata-491117467175'
+
+// Module-level cache: populated on first request, shared across warm invocations.
+let cachedSecret: string | null = null
+async function getApiSecret(): Promise<string | null> {
+  if (cachedSecret) return cachedSecret
+  const arn = process.env.SECRET_ARN
+  if (arn) {
+    try {
+      const { SecretString } = await sm.send(new GetSecretValueCommand({ SecretId: arn }))
+      cachedSecret = SecretString ?? null
+      return cachedSecret
+    } catch (err) {
+      console.error('SecretsManager fetch failed, falling back to env var:', (err as Error).message)
+    }
+  }
+  cachedSecret = process.env.API_SECRET ?? null
+  return cachedSecret
+}
 
 const BD_ID_RE = /^[A-Z0-9]{1,6}$/
 const FILE_RE = /^(transform\.json|[A-Za-z0-9]{1,3}(\.rooms|\.gross)?\.geojson)$/
@@ -75,11 +95,11 @@ function parseAttachment(raw: unknown): Attachment | null | 'invalid' {
   return null
 }
 
-// Shared-secret gate: the API must never be anonymously callable, whichever
-// front door (CloudFront, API Gateway, Function URL) the request came through.
-// Fail closed — a Lambda without API_SECRET configured rejects everything.
-function isAuthorized(event: APIGatewayProxyEventV2): boolean {
-  const secret = process.env.API_SECRET
+// Shared-secret gate: fail closed — rejects everything when no secret is configured.
+// Reads from Secrets Manager (SECRET_ARN) first; falls back to API_SECRET env var
+// for local dev. Result cached in module scope for warm invocations.
+async function isAuthorized(event: APIGatewayProxyEventV2): Promise<boolean> {
+  const secret = await getApiSecret()
   if (!secret) return false
   const provided =
     event.headers?.['x-api-key'] ?? event.headers?.['authorization']?.replace(/^Bearer\s+/i, '')
@@ -120,13 +140,13 @@ async function bufferedHandler(
   }
 
   if (event.requestContext.http.method === 'OPTIONS') {
-    return { statusCode: 204, headers: corsHeaders() }
+    return { statusCode: 204, headers: corsHeaders(event.headers?.origin) }
   }
 
-  if (!isAuthorized(event)) {
+  if (!await isAuthorized(event)) {
     return {
       statusCode: 403,
-      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Forbidden' }),
     }
   }
@@ -135,14 +155,14 @@ async function bufferedHandler(
   if (event.requestContext.http.method === 'GET') {
     const s3Key = plansS3Key(event.requestContext.http.path)
     if (s3Key === null) {
-      return { statusCode: 400, headers: { ...corsHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Invalid plans path' }) }
+      return { statusCode: 400, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Invalid plans path' }) }
     }
     try {
       const r = await servePlansS3(s3Key, event.headers?.['accept-encoding'] ?? '')
       return {
         statusCode: r.status,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(event.headers?.origin),
           'Content-Type': r.contentType,
           'Cache-Control': 'public, max-age=3600',
           ...(r.encoding ? { 'Content-Encoding': r.encoding } : {}),
@@ -152,10 +172,10 @@ async function bufferedHandler(
       }
     } catch (e: any) {
       if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) {
-        return { statusCode: 404, headers: { ...corsHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: `Not found: ${s3Key}` }) }
+        return { statusCode: 404, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: `Not found: ${s3Key}` }) }
       }
       const ref = logInternalError(e)
-      return { statusCode: 500, headers: { ...corsHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Internal error', ref }) }
+      return { statusCode: 500, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Internal error', ref }) }
     }
   }
 
@@ -175,14 +195,14 @@ async function bufferedHandler(
     try {
       return {
         statusCode: 200,
-        headers: { ...corsHeaders(), 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
         body: JSON.stringify(await readDigestReport()),
       }
     } catch (err) {
       const ref = logInternalError(err)
       return {
         statusCode: 500,
-        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Internal error', ref }),
       }
     }
@@ -201,7 +221,7 @@ async function bufferedHandler(
       return {
         statusCode: 200,
         headers: {
-          ...corsHeaders(),
+          ...corsHeaders(event.headers?.origin),
           'Content-Type': 'application/json',
           'Cache-Control': 'public, max-age=3600',
         },
@@ -211,7 +231,7 @@ async function bufferedHandler(
       const ref = logInternalError(err)
       return {
         statusCode: 500,
-        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Internal error', ref }),
       }
     }
@@ -226,7 +246,7 @@ async function bufferedHandler(
     if (!query || query.length > MAX_QUERY_LENGTH) {
       return {
         statusCode: 400,
-        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           error: query ? `query exceeds ${MAX_QUERY_LENGTH} characters` : 'query is required',
         }),
@@ -236,7 +256,7 @@ async function bufferedHandler(
     if (attachment === 'invalid') {
       return {
         statusCode: 400,
-        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Attachment exceeds size limits' }),
       }
     }
@@ -244,7 +264,7 @@ async function bufferedHandler(
   } catch {
     return {
       statusCode: 400,
-      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Invalid JSON body' }),
     }
   }
@@ -279,7 +299,7 @@ async function bufferedHandler(
   return {
     statusCode: 200,
     headers: {
-      ...corsHeaders(),
+      ...corsHeaders(event.headers?.origin),
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
     },
@@ -299,7 +319,7 @@ async function legacyQueryHandler(
   if (!q || q.length > MAX_QUERY_LENGTH) {
     return {
       statusCode: 400,
-      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         error: q ? `q exceeds ${MAX_QUERY_LENGTH} characters` : 'q is required',
       }),
@@ -344,14 +364,14 @@ async function legacyQueryHandler(
     const ref = logInternalError(err)
     return {
       statusCode: 500,
-      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Internal error', ref }),
     }
   }
 
   return {
     statusCode: 200,
-    headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       answer,
       intent,
@@ -421,7 +441,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
     if (event.requestContext.http.method === 'OPTIONS') {
       const headers = {
         statusCode: 204,
-        headers: corsHeaders(),
+        headers: corsHeaders(event.headers?.origin),
       } satisfies APIGatewayProxyStructuredResultV2
 
       const metadata = awslambda.HttpResponseStream.from(responseStream, headers as never)
@@ -429,10 +449,10 @@ const streamingHandler = () => awslambda.streamifyResponse(
       return
     }
 
-    if (!isAuthorized(event)) {
+    if (!await isAuthorized(event)) {
       const metadata = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 403,
-        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
       } as never)
       metadata.write(JSON.stringify({ error: 'Forbidden' }))
       metadata.end()
@@ -443,7 +463,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
     if (event.requestContext.http.method === 'GET') {
       const s3Key = plansS3Key(event.requestContext.http.path)
       if (s3Key === null) {
-        const meta = awslambda.HttpResponseStream.from(responseStream, { statusCode: 400, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } } as never)
+        const meta = awslambda.HttpResponseStream.from(responseStream, { statusCode: 400, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' } } as never)
         meta.write(JSON.stringify({ error: 'Invalid plans path' }))
         meta.end()
         return
@@ -452,14 +472,14 @@ const streamingHandler = () => awslambda.streamifyResponse(
         const r = await servePlansS3(s3Key, event.headers?.['accept-encoding'] ?? '')
         const meta = awslambda.HttpResponseStream.from(responseStream, {
           statusCode: r.status,
-          headers: { ...corsHeaders(), 'Content-Type': r.contentType, 'Cache-Control': 'public, max-age=3600', ...(r.encoding ? { 'Content-Encoding': r.encoding } : {}) },
+          headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': r.contentType, 'Cache-Control': 'public, max-age=3600', ...(r.encoding ? { 'Content-Encoding': r.encoding } : {}) },
         } as never)
         meta.write(r.isBase64 ? Buffer.from(r.body, 'base64').toString('binary') : r.body)
         meta.end()
       } catch (e: any) {
         const status = (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) ? 404 : 500
         const ref = status === 500 ? logInternalError(e) : undefined
-        const meta = awslambda.HttpResponseStream.from(responseStream, { statusCode: status, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } } as never)
+        const meta = awslambda.HttpResponseStream.from(responseStream, { statusCode: status, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' } } as never)
         meta.write(JSON.stringify(status === 404 ? { error: `Not found: ${s3Key}` } : { error: 'Internal error', ref }))
         meta.end()
       }
@@ -478,7 +498,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
       if (!query || query.length > MAX_QUERY_LENGTH) {
         const metadata = awslambda.HttpResponseStream.from(responseStream, {
           statusCode: 400,
-          headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
         } as never)
         metadata.write(
           JSON.stringify({
@@ -492,7 +512,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
       if (attachment === 'invalid') {
         const meta = awslambda.HttpResponseStream.from(responseStream, {
           statusCode: 400,
-          headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
         } as never)
         meta.write(JSON.stringify({ error: 'Attachment exceeds size limits' }))
         meta.end()
@@ -502,7 +522,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
     } catch {
       const metadata = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 400,
-        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
       } as never)
       metadata.write(JSON.stringify({ error: 'Invalid JSON body' }))
       metadata.end()
@@ -513,7 +533,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
     const metadata = awslambda.HttpResponseStream.from(responseStream, {
       statusCode: 200,
       headers: {
-        ...corsHeaders(),
+        ...corsHeaders(event.headers?.origin),
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'X-Accel-Buffering': 'no',
@@ -562,10 +582,14 @@ const streamingHandler = () => awslambda.streamifyResponse(
 
 export const handler = process.env.BUFFERED === '1' ? bufferedHandler : streamingHandler()
 
-function corsHeaders() {
-  // No wildcard fallback: default to the local dev origin; production sets
-  // ALLOWED_ORIGIN explicitly on the Lambda.
-  const origin = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
+// requestOrigin: the browser's Origin header for the current request.
+// ALLOWED_ORIGIN may be a comma-separated list; we echo back the matching
+// origin rather than returning the whole list (browsers require a single value).
+function corsHeaders(requestOrigin?: string): Record<string, string> {
+  const rawAllowed = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
+  const allowed = rawAllowed.split(',').map(o => o.trim())
+  const origin =
+    requestOrigin && allowed.includes(requestOrigin) ? requestOrigin : allowed[0]
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
