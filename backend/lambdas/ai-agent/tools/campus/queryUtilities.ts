@@ -21,7 +21,7 @@ const s3 = new S3Client({ region: AWS_REGION })
  */
 const UTILITY_SYSTEMS: Record<string, { layers: string[]; label: string }> = {
   steam: {
-    label: 'Steam distribution (lines, condensate, vaults, LP/MP piping)',
+    label: 'Steam distribution (lines, condensate, vaults, LP/MP piping, historical tunnels)',
     layers: [
       'Steam_Line_by_Year',              // YearBuilt + Layer (pipe type) — newest dataset
       'utility_t2021_steam_line',
@@ -29,6 +29,10 @@ const UTILITY_SYSTEMS: Record<string, { layers: string[]; label: string }> = {
       'utility_steam_vault',
       'utility_low_pressure_piping',
       'utility_medium_pressure_piping',
+      'utility_steam_tunnel_1901',       // historical: tunnels built ~1901
+      'utility_steam_tunnel_1931',       // historical: tunnels built ~1931
+      'utility_steam_tunnel_1984',       // historical: tunnels built ~1984
+      'utility_steam_tunnel_2000_2011',  // historical: tunnels built 2000-2011
     ],
   },
   chilled_water: {
@@ -90,6 +94,8 @@ export const QueryUtilitiesInputSchema = z.object({
   maxResults: z.number().int().min(1).max(2000).optional().default(300),
   topN: z.number().int().min(1).max(100).optional()
     .describe('Return only the top N features after sorting (by distance when nearLocation is set).'),
+  layers: z.array(z.string()).max(12).optional()
+    .describe('Restrict to these sub-layers (names from countByLayer, with or without the utility_ prefix, case-insensitive). Omit for the whole system.'),
 }).strict()
 
 export type QueryUtilitiesInput = z.infer<typeof QueryUtilitiesInputSchema>
@@ -281,6 +287,16 @@ const PASS_ATTRS = ['YearBuilt', 'Year_Built', 'InstallYear', 'Layer', 'Diameter
 export async function queryUtilities(input: QueryUtilitiesInput) {
   const system = UTILITY_SYSTEMS[input.utilityType]
 
+  // Sub-layer filter: normalise to lowercase, strip utility_ prefix and whitespace
+  const norm = (s: string) => s.toLowerCase().replace(/^utility_/, '').replace(/[\s-]+/g, '_')
+  const wanted = input.layers?.map(norm)
+  const layerNames = wanted
+    ? system.layers.filter((l) => wanted.includes(norm(l)))
+    : system.layers
+  if (wanted && !layerNames.length) {
+    return { error: `No sub-layer matches: ${input.layers!.join(', ')}. Available: ${system.layers.map(l => l.replace(/^utility_/, '')).join(', ')}` }
+  }
+
   let center: ResolvedLocation | null = null
   let box: Box | null = null
   if (input.nearLocation) {
@@ -294,7 +310,7 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
 
   try {
     const perLayer = await Promise.all(
-      system.layers.map(async (name) => ({ name, features: await loadLayer(name) }))
+      layerNames.map(async (name) => ({ name, features: await loadLayer(name) }))
     )
 
     const countByLayer: Record<string, number> = {}
@@ -377,6 +393,7 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
     const summary = {
       utilityType: input.utilityType,
       systemLabel: system.label,
+      layersQueried: layerNames.map(l => l.replace(/^utility_/, '')),
       referenceLocation: center?.displayName,
       radiusMeters: center ? input.radiusMeters : undefined,
       totalMatched,

@@ -268,7 +268,7 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'query_campus_utilities',
       description:
-        'PREFERRED tool for campus underground utility infrastructure: steam lines and vaults, chilled water, domestic water, sewers, stormwater detention, electrical lines/conduits/ComEd feeders, compressed air, walkable utility tunnels, valves. When the user names ANY campus building or place, ALWAYS pass it as nearLocation — results are then filtered and clipped to a rectangular area around it (any of the 308 campus building names resolve). For whole-campus overviews ("show me the steam system", "what do you know about campus steam") omit nearLocation and pass maxResults: 2000 — the tool round-robins across sub-layers so every layer is represented. Steam lines carry YearBuilt (installation era) for age/year queries. Mention returned vs totalMatched in prose and note truncated: true if it appears in the summary.',
+        'PREFERRED tool for campus underground utility infrastructure: steam lines and vaults, chilled water, domestic water, sewers, stormwater detention, electrical lines/conduits/ComEd feeders, compressed air, walkable utility tunnels, valves. When the user names ANY campus building or place, ALWAYS pass it as nearLocation — results are then filtered and clipped to a rectangular area around it (any of the 308 campus building names resolve). For whole-campus overviews ("show me the steam system", "what do you know about campus steam") omit nearLocation and pass maxResults: 2000 — the tool round-robins across sub-layers so every layer is represented. Steam lines carry YearBuilt (installation era) for age/year queries. Mention returned vs totalMatched in prose and note truncated: true if it appears in the summary. Each system has named sub-layers — steam: Steam_Line_by_Year, t2021_steam_line, t2021_steam_line_condensate, steam_vault, low_pressure_piping, medium_pressure_piping, steam_tunnel_1901, steam_tunnel_1931, steam_tunnel_1984, steam_tunnel_2000_2011 (historical tunnel surveys by era). When the user asks for ONE or a FEW sub-layers ("only Steam_Line_by_Year", "just the condensate lines", "steam vaults only", "without low-pressure piping"), pass `layers` with exactly those names. Never tell the user a sub-layer cannot be isolated.',
       inputSchema: {
         json: {
           type: 'object',
@@ -284,6 +284,11 @@ const CAMPUS_TOOLS: Tool[] = [
             },
             radiusMeters: { type: 'number', default: 150 },
             maxResults: { type: 'number', default: 300 },
+            layers: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Sub-layer names to restrict to (from countByLayer, with or without utility_ prefix, case-insensitive). Omit to return the whole system.',
+            },
           },
           required: ['utilityType'],
         },
@@ -414,7 +419,7 @@ const CAMPUS_TOOLS: Tool[] = [
             },
             nearLocation: { type: 'string', description: 'Optional campus location name to filter by proximity' },
             radiusMeters: { type: 'number', minimum: 0, maximum: 2000, description: 'Radius in meters. Point anchors: default 400. Polygon landmarks (Main Quad, Midway, etc.): OMIT when user says "near" — returns features inside the polygon. Only pass when user explicitly states a distance.' },
-            limit: { type: 'integer', minimum: 1, maximum: 200, default: 50, description: 'Max features to return' },
+            limit: { type: 'integer', minimum: 1, maximum: 2000, default: 50, description: 'Max features to return. Pass 2000 for whole-layer queries (e.g. steam_line_by_year has 1172 features).' },
             filterField: { type: 'string', description: 'Property field to filter by, e.g. "SubArea"' },
             filterValues: {
               type: 'array',
@@ -549,6 +554,7 @@ Guidelines:
 - Campus events: always call get_campus_events — never answer event questions from memory. The tool returns windowStart and windowEnd (e.g. "Sept 24 – Oct 1"); use those dates in your answer, not vague phrases like "this week". If every event in the result is dated before today, say the feed looks stale and suggest checking events.uchicago.edu directly. Never present a past event as upcoming.
 - Dining menus: for any question about what food is being served, menu items, dietary options, or meal schedules at a dining hall, call get_dining_menu. NEVER answer menu questions from memory — menus change daily. If the result has found=false, present the suggestions list to the user; do not invent a menu.
 - Zero-result guard (HARD CONSTRAINT): when a tool returns count=0 AND a distinctValues array, you MUST NOT assert that the requested value does not exist or is not recorded. The tool already ran a normalised match; the zero result means the exact normalised string wasn't found. You MUST present the distinctValues list to the user (formatted as a list) and ask which value they meant. Never write "No X are recorded" or "this is not a data gap" when distinctValues is present in the response.
+- Sub-layer requests ("only X layer", "hide Y", "just the condensate lines", "steam vaults only"): re-run query_campus_utilities with the \`layers\` parameter set to only the requested sub-layers. Do not answer that isolation is impossible.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
 }
 
