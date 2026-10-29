@@ -87,7 +87,7 @@ export const QueryUtilitiesInputSchema = z.object({
     .optional()
     .describe('Named campus location or "lat,lng" — limits results to a radius around it'),
   radiusMeters: z.number().min(1).max(2000).optional().default(150),
-  maxResults: z.number().int().min(1).max(500).optional().default(300),
+  maxResults: z.number().int().min(1).max(2000).optional().default(300),
   topN: z.number().int().min(1).max(100).optional()
     .describe('Return only the top N features after sorting (by distance when nearLocation is set).'),
 }).strict()
@@ -269,6 +269,10 @@ function slimCoordinates(coords: unknown): unknown {
   return coords.map(slimCoordinates)
 }
 
+// Engineering attributes to pass through when present on a feature.
+// Most layers carry only CAD metadata; Steam_Line_by_Year is the exception.
+const PASS_ATTRS = ['YearBuilt', 'Year_Built', 'InstallYear', 'Layer', 'Diameter', 'Material', 'Depth', 'Status']
+
 /**
  * Spatial query over campus underground utilities. Attribute data is CAD
  * metadata only, so this tool answers "what is where": by system, optionally
@@ -294,7 +298,7 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
     )
 
     const countByLayer: Record<string, number> = {}
-    let selected: Array<{ layer: string; feature: UtilityFeature; distance?: number }> = []
+    const perLayerKept: Array<Array<{ layer: string; feature: UtilityFeature; distance?: number }>> = []
 
     for (const { name, features } of perLayer) {
       let kept: Array<{ layer: string; feature: UtilityFeature; distance?: number }>
@@ -310,18 +314,47 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
         kept = features.map((feature) => ({ layer: name, feature }))
       }
       countByLayer[name] = kept.length
-      selected = selected.concat(kept)
+      perLayerKept.push(kept)
     }
 
-    const totalMatched = selected.length
-    if (center) selected.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))
-    selected = selected.slice(0, input.topN ?? input.maxResults)
+    const totalMatched = perLayerKept.reduce((s, a) => s + a.length, 0)
+    let selected: Array<{ layer: string; feature: UtilityFeature; distance?: number }>
+
+    if (center) {
+      // Location-bounded: sort by distance, slice to maxResults
+      selected = perLayerKept.flat()
+      selected.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))
+      selected = selected.slice(0, input.topN ?? input.maxResults)
+    } else {
+      // Whole-system view: round-robin across layers so every sub-layer is represented.
+      // Default limit raised to 2000 (steam has 2,135 features; compact CAD polylines).
+      const limit = input.topN ?? Math.max(input.maxResults, 2000)
+      selected = []
+      for (let i = 0; selected.length < limit; i++) {
+        let added = false
+        for (const arr of perLayerKept) {
+          if (i < arr.length) {
+            selected.push(arr[i])
+            added = true
+            if (selected.length >= limit) break
+          }
+        }
+        if (!added) break
+      }
+    }
 
     const outFeatures = selected.flatMap(({ layer, feature, distance }) => {
       let geometry = feature.geometry
       if (geometry && box) {
         geometry = clipToBox(geometry, box)
         if (!geometry) return []
+      }
+      // Pass through available engineering attributes (most layers have none;
+      // Steam_Line_by_Year carries YearBuilt and Layer/pipe-type code).
+      const picked: Record<string, unknown> = {}
+      for (const k of PASS_ATTRS) {
+        const v = feature.properties?.[k]
+        if (v !== undefined && v !== null && v !== '') picked[k] = v
       }
       return [{
         type: 'Feature' as const,
@@ -330,6 +363,7 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
           utilitySystem: input.utilityType,
           utilityLayer: layer.replace(/^utility_/, ''),
           source: typeof feature.properties?.Layer === 'string' ? feature.properties.Layer : undefined,
+          ...picked,
           ...(distance !== undefined ? { distanceMeters: Math.round(distance) } : {}),
         },
         geometry: geometry
@@ -338,6 +372,8 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
       }]
     })
 
+    const truncated = outFeatures.length < totalMatched
+
     const summary = {
       utilityType: input.utilityType,
       systemLabel: system.label,
@@ -345,10 +381,12 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
       radiusMeters: center ? input.radiusMeters : undefined,
       totalMatched,
       returned: outFeatures.length,
+      truncated,
       countByLayer,
       nearestDistanceMeters: center && selected.length ? Math.round(selected[0].distance!) : undefined,
-      attributeNote:
-        'Source attributes are CAD metadata only — depth, diameter and material are not yet available.',
+      attributeNote: input.utilityType === 'steam'
+        ? 'Steam_Line_by_Year carries YearBuilt (installation era) and Layer (pipe type code). Other steam sub-layers have CAD metadata only.'
+        : 'Source attributes are CAD metadata only — depth, diameter and material are not yet available.',
     }
 
     return {

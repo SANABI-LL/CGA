@@ -268,7 +268,7 @@ const CAMPUS_TOOLS: Tool[] = [
     toolSpec: {
       name: 'query_campus_utilities',
       description:
-        'PREFERRED tool for campus underground utility infrastructure: steam lines and vaults, chilled water, domestic water, sewers, stormwater detention, electrical lines/conduits/ComEd feeders, compressed air, walkable utility tunnels, valves. When the user names ANY campus building or place, ALWAYS pass it as nearLocation — results are then filtered and clipped to a rectangular area around it (any of the 308 campus building names resolve). Results render on the map. Attributes are CAD metadata only — no depth/diameter data yet.',
+        'PREFERRED tool for campus underground utility infrastructure: steam lines and vaults, chilled water, domestic water, sewers, stormwater detention, electrical lines/conduits/ComEd feeders, compressed air, walkable utility tunnels, valves. When the user names ANY campus building or place, ALWAYS pass it as nearLocation — results are then filtered and clipped to a rectangular area around it (any of the 308 campus building names resolve). For whole-campus overviews ("show me the steam system", "what do you know about campus steam") omit nearLocation and pass maxResults: 2000 — the tool round-robins across sub-layers so every layer is represented. Steam lines carry YearBuilt (installation era) for age/year queries. Mention returned vs totalMatched in prose and note truncated: true if it appears in the summary.',
       inputSchema: {
         json: {
           type: 'object',

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
 import { runCampusGeoAgent } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
 import { queryS3Layer } from './tools/campus/queryS3Layer'
@@ -12,11 +13,31 @@ const MAX_QUERY_LENGTH = 2000
 // All other data-only tool_results are suppressed to keep payload small.
 const PASSTHROUGH_DATA_TOOLS = new Set(['check_hours', 'get_campus_events', 'get_academic_calendar', 'get_dining_menu'])
 
-// Shared-secret gate: the API must never be anonymously callable, whichever
-// front door (CloudFront, API Gateway, Function URL) the request came through.
-// Fail closed — a Lambda without API_SECRET configured rejects everything.
-function isAuthorized(event: APIGatewayProxyEventV2): boolean {
-  const secret = process.env.API_SECRET
+// Shared-secret gate: supports both direct API_SECRET env var (dev) and
+// SECRET_ARN (production Secrets Manager). Resolved once per cold start.
+const smClient = new SecretsManagerClient({ region: process.env.AWS_REGION ?? 'us-east-1' })
+let _resolvedSecret: string | null | undefined = undefined  // undefined = not yet fetched
+
+async function resolveApiSecret(): Promise<string | null> {
+  if (_resolvedSecret !== undefined) return _resolvedSecret
+  if (process.env.API_SECRET) {
+    _resolvedSecret = process.env.API_SECRET
+    return _resolvedSecret
+  }
+  const arn = process.env.SECRET_ARN
+  if (!arn) { _resolvedSecret = null; return null }
+  try {
+    const res = await smClient.send(new GetSecretValueCommand({ SecretId: arn }))
+    _resolvedSecret = res.SecretString ?? null
+  } catch (err) {
+    console.error('[auth] Failed to fetch secret from Secrets Manager:', err)
+    _resolvedSecret = null
+  }
+  return _resolvedSecret
+}
+
+async function isAuthorized(event: APIGatewayProxyEventV2): Promise<boolean> {
+  const secret = await resolveApiSecret()
   if (!secret) return false
   const provided =
     event.headers?.['x-api-key'] ?? event.headers?.['authorization']?.replace(/^Bearer\s+/i, '')
@@ -60,7 +81,7 @@ async function bufferedHandler(
     return { statusCode: 204, headers: corsHeaders() }
   }
 
-  if (!isAuthorized(event)) {
+  if (!await isAuthorized(event)) {
     return {
       statusCode: 403,
       headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
@@ -326,6 +347,12 @@ function mapCapFor(fc: unknown): number {
   return pointsOnly ? 6000 : 300
 }
 
+// Byte budget for line/polygon responses: CAD polylines are compact after
+// slimCoordinates (6-decimal, Z-stripped), so a fixed-300 count cap was
+// discarding most of the steam network. 2.5 MB fits ~2,000+ short utility
+// lines well within the 5 MB SSE total budget.
+const LINE_BYTE_BUDGET = 2_500_000
+
 interface MapUpdateEvent {
   mapUpdate?: { features?: { features?: unknown[] }; truncatedTo?: number }
   [key: string]: unknown
@@ -334,6 +361,26 @@ interface MapUpdateEvent {
 function capMapUpdate(eventObj: MapUpdateEvent, maxFeatures: number): MapUpdateEvent {
   const features = eventObj.mapUpdate?.features?.features
   if (!Array.isArray(features) || features.length <= maxFeatures) return eventObj
+
+  // Line/polygon path: cap by byte budget rather than feature count.
+  // mapCapFor returns 300 for non-point geometry; 6000 for point-only.
+  if (maxFeatures < 6000) {
+    let bytes = 0
+    let i = 0
+    for (; i < features.length && bytes < LINE_BYTE_BUDGET; i++) {
+      bytes += JSON.stringify(features[i]).length
+    }
+    if (i >= features.length) return eventObj
+    return {
+      ...eventObj,
+      mapUpdate: {
+        ...eventObj.mapUpdate,
+        features: { ...eventObj.mapUpdate!.features, features: features.slice(0, i) },
+        truncatedTo: i,
+      },
+    }
+  }
+
   return {
     ...eventObj,
     mapUpdate: {
@@ -358,7 +405,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
       return
     }
 
-    if (!isAuthorized(event)) {
+    if (!await isAuthorized(event)) {
       const metadata = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 403,
         headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
