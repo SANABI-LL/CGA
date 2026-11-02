@@ -527,26 +527,26 @@ const CAMPUS_TOOLS: Tool[] = [
       name: 'map_buildings_by_id',
       description:
         'Put a specific list of campus buildings on the map by building ID (BD_ID or Building_Code). ' +
-        'Use whenever the user supplies a list of building IDs — from an attached spreadsheet or typed. ' +
-        'Pass `attach` to carry the user\'s own per-building values (e.g. FCI/RI from their sheet) onto the map; ' +
-        'the frontend colors by those fields. Known metrics (FCI, RI) are written both with and without a sheet_ prefix.',
+        'PREFERRED when the user has an attached spreadsheet: pass only `fromAttachment: true` — the server reads the IDs and all column values directly, so you never have to repeat the spreadsheet data in the tool call. ' +
+        'For a typed or short list, pass `buildingIds` instead. ' +
+        'Known metrics (FCI, RI) from the sheet are written both with and without a sheet_ prefix for frontend color ramps.',
       inputSchema: {
         json: {
           type: 'object',
-          required: ['buildingIds'],
           properties: {
+            fromAttachment: {
+              type: 'boolean',
+              description: 'Pass true to read building IDs and all column values directly from the attached spreadsheet. Do NOT also pass buildingIds or attach when using this.',
+            },
             buildingIds: {
               type: 'array',
               items: { type: 'string' },
-              description: 'List of BD_ID or Building_Code values to map, e.g. ["B0123","B0456"]',
+              description: 'List of BD_ID or Building_Code values to map. Omit when fromAttachment is true.',
             },
             attach: {
               type: 'object',
-              description: 'Per-building data from the user\'s spreadsheet, keyed by building ID. E.g. {"B0123": {"FCI": 0.18, "RI": 0.42}}',
-              additionalProperties: {
-                type: 'object',
-                additionalProperties: true,
-              },
+              description: 'Per-building data keyed by building ID, e.g. {"B0123": {"FCI": 0.18}}. Omit when fromAttachment is true.',
+              additionalProperties: { type: 'object', additionalProperties: true },
             },
           },
         },
@@ -569,7 +569,7 @@ function buildSessionContext(turns: SessionTurn[]): string {
 function buildAttachmentPrompt(attachments: Attachment[]): string {
   if (!attachments.length) return ''
   return `\n- The user attached a file, which the browser has ALREADY parsed; its contents are provided to you as structured data immediately after this message. NEVER say you cannot read files or that no file came through.
-- For a spreadsheet with a building-ID column, call \`map_buildings_by_id\` with those IDs plus the \`attach\` map so the sheet's own values (FCI, RI, etc.) appear on the map. The user attached it because they want those values — prefer them over layer data and say so.
+- For a spreadsheet with a building-ID column, call \`map_buildings_by_id\` with \`fromAttachment: true\` — the server reads all IDs and column values directly so you do NOT need to repeat them in the tool call. The user attached it because they want those values on the map — prefer them over layer data and say so.
 - When the sheet carries a metric, filter/rank using those \`records\` values directly — do NOT call query_building_attributes to re-fetch the same metric from the layer.\n`
 }
 
@@ -607,7 +607,7 @@ Guidelines:
 - Dining menus: for any question about what food is being served, menu items, dietary options, or meal schedules at a dining hall, call get_dining_menu. NEVER answer menu questions from memory — menus change daily. If the result has found=false, present the suggestions list to the user; do not invent a menu.
 - Zero-result guard (HARD CONSTRAINT): when a tool returns count=0 AND a distinctValues array, you MUST NOT assert that the requested value does not exist or is not recorded. The tool already ran a normalised match; the zero result means the exact normalised string wasn't found. You MUST present the distinctValues list to the user (formatted as a list) and ask which value they meant. Never write "No X are recorded" or "this is not a data gap" when distinctValues is present in the response.
 - Sub-layer requests ("only X layer", "hide Y", "just the condensate lines", "steam vaults only"): re-run query_campus_utilities with the \`layers\` parameter set to only the requested sub-layers. Do not answer that isolation is impossible.
-- Attached spreadsheets: when the user sends a file with building IDs and metrics (FCI, RI, etc.), call \`map_buildings_by_id\` with the ID list and pass the per-building values as \`attach\`. Never say you cannot read files — the file has already been parsed and its data is in the message.
+- Attached spreadsheets: when the user sends a file with building IDs, call \`map_buildings_by_id\` with \`fromAttachment: true\` — this is always the right call and lets the server read all rows without you repeating them. Never say you cannot read files.
 - Tone: intelligent, direct, evidence-based. No filler phrases. No emoji, no exclamation marks.`
 }
 
@@ -685,7 +685,7 @@ export async function runCampusGeoAgent(
       messages,
       toolConfig: { tools: CAMPUS_TOOLS },
       inferenceConfig: {
-        maxTokens: 1024,
+        maxTokens: 4096,
         temperature: 0.2,
       },
     })
@@ -756,7 +756,7 @@ export async function runCampusGeoAgent(
         let result: unknown
 
         try {
-          result = await executeTool(name!, input as Record<string, unknown>)
+          result = await executeTool(name!, input as Record<string, unknown>, attachments)
         } catch (err) {
           // Full detail (zod field paths, expected/received) stays server-side;
           // the tool_result event reaches the client, so it gets generic text.
@@ -846,7 +846,7 @@ export async function runCampusGeoAgent(
   onEvent({ type: 'done' })
 }
 
-async function executeTool(name: string, rawInput: Record<string, unknown>): Promise<unknown> {
+async function executeTool(name: string, rawInput: Record<string, unknown>, attachments: Attachment[] = []): Promise<unknown> {
   switch (name) {
     case 'get_shuttle_arrivals': {
       const input = GetShuttleArrivalsInputSchema.parse(rawInput)
@@ -926,6 +926,31 @@ async function executeTool(name: string, rawInput: Record<string, unknown>): Pro
     }
     case 'map_buildings_by_id': {
       const input = MapBuildingsByIdInputSchema.parse(rawInput)
+      // fromAttachment: true → read IDs and records from the session attachment
+      // so the model doesn't have to repeat 100s of rows in the tool call itself.
+      if (input.fromAttachment) {
+        const table = attachments.find((a): a is AttachmentTable => a.kind === 'table')
+        if (table) {
+          const attachMap: Record<string, Record<string, string | number>> = {}
+          for (const row of table.records) {
+            const id = row.id ?? (table.idColumn ? row[table.idColumn] : null)
+            if (id) {
+              const entry: Record<string, string | number> = {}
+              for (const [k, v] of Object.entries(row)) {
+                if (k !== 'id' && k !== table.idColumn) {
+                  const n = parseFloat(v)
+                  entry[k] = isNaN(n) ? v : n
+                }
+              }
+              attachMap[id] = entry
+            }
+          }
+          return mapBuildingsById({
+            buildingIds: table.buildingIds,
+            attach: Object.keys(attachMap).length ? attachMap : undefined,
+          })
+        }
+      }
       return mapBuildingsById(input)
     }
     default:

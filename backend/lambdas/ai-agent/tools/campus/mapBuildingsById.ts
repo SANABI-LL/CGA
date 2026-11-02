@@ -4,14 +4,20 @@ import { queryS3Layer } from './queryS3Layer'
 export const MapBuildingsByIdInputSchema = z.object({
   buildingIds: z
     .array(z.string().max(50))
-    .min(1)
     .max(500)
-    .describe('List of building IDs (BD_ID or Building_Code values from the buildings layer)'),
+    .optional()
+    .describe('List of building IDs (BD_ID or Building_Code values from the buildings layer). Omit when fromAttachment is true — the server reads IDs from the attachment.'),
   attach: z
     .record(z.record(z.union([z.string(), z.number()])))
     .optional()
     .describe(
-      'Per-building data from the user\'s spreadsheet, keyed by building ID. Values are merged into the feature properties with a "sheet_" prefix (e.g. {FCI: 0.18} becomes sheet_FCI=0.18). Known metrics (FCI, RI) are also written without prefix for frontend color-ramp compatibility.'
+      'Per-building data from the user\'s spreadsheet, keyed by building ID. Values are merged into the feature properties with a "sheet_" prefix (e.g. {FCI: 0.18} becomes sheet_FCI=0.18). Known metrics (FCI, RI) are also written without prefix for frontend color-ramp compatibility. Omit when fromAttachment is true.'
+    ),
+  fromAttachment: z
+    .boolean()
+    .optional()
+    .describe(
+      'When true, the server reads buildingIds and all column values directly from the attached spreadsheet — do NOT also pass buildingIds or attach. Use this whenever the user attached a spreadsheet and wants to map or highlight the listed buildings.'
     ),
 }).strict()
 
@@ -24,6 +30,11 @@ function normalizeId(id: string): string {
 }
 
 export async function mapBuildingsById(input: MapBuildingsByIdInput) {
+  const ids = input.buildingIds ?? []
+  if (!ids.length && !input.fromAttachment) {
+    return { error: 'buildingIds is required when fromAttachment is not set' }
+  }
+
   const raw = await queryS3Layer({
     layerName: 'buildings',
     maxResults: 600,
@@ -31,7 +42,7 @@ export async function mapBuildingsById(input: MapBuildingsByIdInput) {
   })
   if ('error' in raw) return raw
 
-  const wantedIds = new Set(input.buildingIds.map(normalizeId))
+  const wantedIds = new Set(ids.map(normalizeId))
 
   // Build a lookup from the attach map (case-insensitive key)
   const attachLookup = new Map<string, Record<string, string | number>>()
@@ -42,7 +53,7 @@ export async function mapBuildingsById(input: MapBuildingsByIdInput) {
   }
 
   const matched: (typeof raw.features[number])[] = []
-  const unmatchedSet = new Set(input.buildingIds.map(normalizeId))
+  const unmatchedSet = new Set(ids.map(normalizeId))
 
   for (const f of raw.features) {
     const bdId = normalizeId(String(f.properties?.BD_ID ?? ''))
@@ -71,7 +82,7 @@ export async function mapBuildingsById(input: MapBuildingsByIdInput) {
     })
   }
 
-  const unmatched = input.buildingIds.filter((id) => unmatchedSet.has(normalizeId(id)))
+  const unmatched = ids.filter((id) => unmatchedSet.has(normalizeId(id)))
 
   const features = {
     type: 'FeatureCollection' as const,
@@ -79,7 +90,7 @@ export async function mapBuildingsById(input: MapBuildingsByIdInput) {
   }
 
   const summary = {
-    requested: input.buildingIds.length,
+    requested: ids.length,
     matched: matched.length,
     unmatched: unmatched.length,
     unmatchedIds: unmatched.slice(0, 20),
