@@ -2,11 +2,47 @@ import { randomUUID } from 'node:crypto'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
 import { runCampusGeoAgent } from './agent'
+import type { Attachment } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
 import { queryS3Layer } from './tools/campus/queryS3Layer'
 import { getSessionHistory, appendSessionTurn } from './session'
 
 const MAX_QUERY_LENGTH = 2000
+const MAX_ATTACHMENTS = 1
+const MAX_ATTACH_BYTES = 1_500_000
+const MAX_DOC_TEXT = 60_000
+const MAX_TABLE_ROWS = 2000
+
+function sanitizeAttachments(raw: unknown): Attachment[] {
+  if (!Array.isArray(raw) || raw.length === 0) return []
+  const result: Attachment[] = []
+  for (const item of raw.slice(0, MAX_ATTACHMENTS)) {
+    if (typeof item !== 'object' || item === null) continue
+    const a = item as Record<string, unknown>
+    if (a.kind === 'table') {
+      const records = Array.isArray(a.records)
+        ? (a.records as Record<string, string>[]).slice(0, MAX_TABLE_ROWS)
+        : []
+      result.push({
+        kind: 'table',
+        name: String(a.name ?? 'attachment').slice(0, 200),
+        rows: typeof a.rows === 'number' ? a.rows : records.length,
+        columns: Array.isArray(a.columns) ? a.columns.map(String) : [],
+        idColumn: typeof a.idColumn === 'string' ? a.idColumn : null,
+        buildingIds: Array.isArray(a.buildingIds) ? a.buildingIds.map(String).slice(0, 500) : [],
+        records,
+      })
+    } else if (a.kind === 'document') {
+      result.push({
+        kind: 'document',
+        name: String(a.name ?? 'document').slice(0, 200),
+        pages: typeof a.pages === 'number' ? a.pages : 1,
+        text: String(a.text ?? '').slice(0, MAX_DOC_TEXT),
+      })
+    }
+  }
+  return result
+}
 
 // tool_result events on the "data" path (no mapUpdate) are forwarded only for
 // these tools — the frontend uses them to render structured cards directly.
@@ -149,8 +185,9 @@ async function bufferedHandler(
 
   let query: string
   let sessionId: string
+  let attachments: Attachment[] = []
   try {
-    const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string }
+    const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string; attachments?: unknown }
     query = body.query?.trim() ?? ''
     sessionId = body.sessionId ?? `anon-${Date.now()}`
     if (!query || query.length > MAX_QUERY_LENGTH) {
@@ -160,6 +197,15 @@ async function bufferedHandler(
         body: JSON.stringify({
           error: query ? `query exceeds ${MAX_QUERY_LENGTH} characters` : 'query is required',
         }),
+      }
+    }
+    attachments = sanitizeAttachments(body.attachments)
+    const attachBytes = JSON.stringify(attachments).length
+    if (attachBytes > MAX_ATTACH_BYTES) {
+      return {
+        statusCode: 400,
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'attachment too large' }),
       }
     }
   } catch {
@@ -196,7 +242,8 @@ async function bufferedHandler(
         if (Array.isArray(feats)) turnAcc.featureCount += feats.length
         events.push(`data: ${JSON.stringify(capped)}\n\n`)
       },
-      sessionHistory
+      sessionHistory,
+      attachments
     )
   } catch (err) {
     const ref = logInternalError(err)
@@ -241,8 +288,11 @@ async function legacyQueryHandler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyStructuredResultV2> {
   let q: string
+  let legacyAttachments: Attachment[] = []
   try {
-    q = (JSON.parse(event.body ?? '{}') as { q?: string }).q?.trim() ?? ''
+    const body = JSON.parse(event.body ?? '{}') as { q?: string; attachments?: unknown }
+    q = body.q?.trim() ?? ''
+    legacyAttachments = sanitizeAttachments(body.attachments)
   } catch {
     q = ''
   }
@@ -289,7 +339,7 @@ async function legacyQueryHandler(
         const c = (mapUpdate as { center?: { lat: number; lng: number } }).center
         if (c && !center) center = c
       }
-    })
+    }, undefined, legacyAttachments)
   } catch (err) {
     const ref = logInternalError(err)
     return {
@@ -419,8 +469,9 @@ const streamingHandler = () => awslambda.streamifyResponse(
     let query: string
     let sessionId: string
 
+    let streamAttachments: Attachment[] = []
     try {
-      const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string }
+      const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string; attachments?: unknown }
       query = body.query?.trim() ?? ''
       sessionId = body.sessionId ?? `anon-${Date.now()}`
 
@@ -434,6 +485,17 @@ const streamingHandler = () => awslambda.streamifyResponse(
             error: query ? `query exceeds ${MAX_QUERY_LENGTH} characters` : 'query is required',
           })
         )
+        metadata.end()
+        return
+      }
+      streamAttachments = sanitizeAttachments(body.attachments)
+      const attachBytes = JSON.stringify(streamAttachments).length
+      if (attachBytes > MAX_ATTACH_BYTES) {
+        const metadata = awslambda.HttpResponseStream.from(responseStream, {
+          statusCode: 400,
+          headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        } as never)
+        metadata.write(JSON.stringify({ error: 'attachment too large' }))
         metadata.end()
         return
       }
@@ -506,7 +568,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
         if (eventObj.type === 'tool_result' || (eventObj as MapUpdateEvent).mapUpdate) eventCount++
         bytesSent += line.length
         metadata.write(line)
-      }, sessionHistory)
+      }, sessionHistory, streamAttachments)
     } catch (err) {
       const ref = logInternalError(err)
       metadata.write(`data: ${JSON.stringify({ type: 'error', message: 'Internal error', ref })}\n\n`)

@@ -17,7 +17,7 @@ const s3 = new S3Client({ region: AWS_REGION })
  */
 
 // Friendly aliases → actual field names in buildings.geojson (every candidate
-// verified to exist in the layer). RI = Resilience Index, FCI = Facility
+// verified to exist in the layer). RI = Renewal Index, FCI = Facility
 // Condition Index. A Map so lookups can never hit prototype-chain keys.
 const FIELD_ALIASES = new Map<string, string[]>([
   ['ri', ['RI', 'RI_23']],
@@ -45,7 +45,7 @@ export const QueryBuildingAttributesInputSchema = z.object({
   field: z
     .string()
     .max(100)
-    .describe('Attribute to filter on: "RI" (resilience index), "FCI", "height", "year", "area", "use", "ownership", "architect" (building architect/firm name), or an exact field name'),
+    .describe('Attribute to filter on: "RI" (Renewal Index), "FCI", "height", "year", "area", "use", "ownership", "architect" (building architect/firm name), or an exact field name'),
   operator: z.enum(['>', '>=', '<', '<=', '=', 'contains']),
   value: z.union([z.number(), z.string().max(200)]),
   maxResults: z.number().int().min(1).max(400).optional().default(300),
