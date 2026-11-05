@@ -113,6 +113,8 @@ async function bufferedHandler(
     }
   }
 
+  setRequestOrigin(event)
+
   if (event.requestContext.http.method === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders() }
   }
@@ -287,6 +289,7 @@ async function bufferedHandler(
 async function legacyQueryHandler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyStructuredResultV2> {
+  setRequestOrigin(event)
   let q: string
   let legacyAttachments: Attachment[] = []
   try {
@@ -443,6 +446,7 @@ function capMapUpdate(eventObj: MapUpdateEvent, maxFeatures: number): MapUpdateE
 
 const streamingHandler = () => awslambda.streamifyResponse(
   async (event: APIGatewayProxyEventV2, responseStream) => {
+    setRequestOrigin(event)
     // CORS preflight
     if (event.requestContext.http.method === 'OPTIONS') {
       const headers = {
@@ -588,10 +592,21 @@ const streamingHandler = () => awslambda.streamifyResponse(
 
 export const handler = process.env.BUFFERED === '1' ? bufferedHandler : streamingHandler()
 
+// Per-invocation origin echo: set once at handler entry, read by corsHeaders().
+// Safe for Lambda (single-threaded sequential execution per instance).
+let _currentRequestOrigin: string | undefined
+
+function setRequestOrigin(event: APIGatewayProxyEventV2) {
+  _currentRequestOrigin = event.headers?.origin ?? event.headers?.Origin
+}
+
 function corsHeaders() {
-  // No wildcard fallback: default to the local dev origin; production sets
-  // ALLOWED_ORIGIN explicitly on the Lambda.
-  const origin = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
+  // ALLOWED_ORIGIN supports comma-separated list, e.g. "http://localhost:5173,https://claude.ai"
+  const allowed = (process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173')
+    .split(',').map(s => s.trim()).filter(Boolean)
+  const origin = _currentRequestOrigin && allowed.includes(_currentRequestOrigin)
+    ? _currentRequestOrigin
+    : allowed[0]
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
