@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { runCampusGeoAgent } from './agent'
 import type { Attachment } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
@@ -87,6 +88,48 @@ function logInternalError(err: unknown): string {
   return ref
 }
 
+// Floor-plan GeoJSON passthrough — read-only S3 proxy for GET /api/plans/*.
+const _plansS3 = new S3Client({ region: process.env.AWS_REGION ?? 'us-east-1' })
+const PLANS_BUCKET = process.env.GEODATA_BUCKET ?? process.env.GEOJSON_BUCKET ?? 'campusgeo-geodata-491117467175'
+const PLAN_FILE_RE = /^(transform\.json|[A-Z0-9]{1,3}(\.rooms|\.gross)?\.geojson)$/
+const PLAN_BDID_RE = /^[A-Z0-9]{1,6}$/
+
+async function plansHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const json = (statusCode: number, body: unknown, extra: Record<string, string> = {}) => ({
+    statusCode,
+    headers: { ...corsHeaders(), 'Content-Type': 'application/json', ...extra },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  })
+  if (event.requestContext.http.method !== 'GET') return json(405, { error: 'Method not allowed' })
+
+  const rest = event.rawPath.replace(/^.*\/api\/plans\/?/, '')
+  let key: string
+  if (rest === 'index' || rest === 'index.json') {
+    key = 'plans/index.json'
+  } else {
+    const [bdId, file, ...more] = rest.split('/')
+    if (more.length || !bdId || !file || !PLAN_BDID_RE.test(bdId) || !PLAN_FILE_RE.test(file)) {
+      return json(400, { error: 'Bad plan path' })
+    }
+    key = `plans/${bdId}/${file}`
+  }
+
+  try {
+    const res = await _plansS3.send(new GetObjectCommand({ Bucket: PLANS_BUCKET, Key: key }))
+    const body = await res.Body!.transformToString('utf-8')
+    return json(200, body, {
+      'Content-Type': key.endsWith('.geojson') ? 'application/geo+json' : 'application/json',
+      'Cache-Control': 'public, max-age=3600',
+      ...(res.ETag ? { ETag: res.ETag } : {}),
+    })
+  } catch (err) {
+    const name = (err as { name?: string })?.name
+    if (name === 'NoSuchKey' || name === 'NotFound') return json(404, { error: 'Plan not found' })
+    const ref = logInternalError(err)
+    return json(500, { error: 'Internal error', ref })
+  }
+}
+
 // This Lambda uses Lambda streaming (Response Streaming) for SSE
 // Deploy with FunctionUrlConfig.InvokeMode = RESPONSE_STREAM
 //
@@ -125,6 +168,12 @@ async function bufferedHandler(
       headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Forbidden' }),
     }
+  }
+
+  // Floor-plan GeoJSON (read-only S3 passthrough). Must stay above the
+  // /query and body-parsing branches: plans requests are GET with no body.
+  if (/\/api\/plans(\/|$)/.test(event.rawPath)) {
+    return plansHandler(event)
   }
 
   // Legacy contract used by print-flow.html: POST /query {q} →
@@ -610,7 +659,7 @@ function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   }
 }
 
