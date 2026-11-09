@@ -38,6 +38,9 @@ function plansS3Key(path: string): string | null {
   if (path.endsWith('/api/plans/index') || path.endsWith('/api/plans/index.json')) {
     return 'plans/index.json'
   }
+  if (path.endsWith('/api/plans/rooms_index') || path.endsWith('/api/plans/rooms_index.json')) {
+    return 'plans/rooms_index.json'
+  }
   const m = path.match(/\/api\/plans\/([^/?#]+)\/([^/?#]+)$/)
   if (!m) return null
   const bdUpper = m[1].toUpperCase()
