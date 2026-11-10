@@ -98,15 +98,23 @@ function parseAttachment(raw: unknown): Attachment | null | 'invalid' {
   return null
 }
 
-// Shared-secret gate: fail closed — rejects everything when no secret is configured.
-// Reads from Secrets Manager (SECRET_ARN) first; falls back to API_SECRET env var
-// for local dev. Result cached in module scope for warm invocations.
-async function isAuthorized(event: APIGatewayProxyEventV2): Promise<boolean> {
+// Resolve caller identity.
+// Prod API (Cognito JWT authorizer): API Gateway validates the token and injects
+// claims — no further secret check needed; return the user's email.
+// Staging API (X-Api-Key): fall back to shared-secret check as before.
+// Returns null when the request is not authorized.
+async function resolveUser(event: APIGatewayProxyEventV2): Promise<string | null> {
+  const jwtClaims = (event.requestContext as { authorizer?: { jwt?: { claims?: Record<string, string> } } })
+    .authorizer?.jwt?.claims
+  if (jwtClaims) {
+    return jwtClaims['email'] ?? jwtClaims['cognito:username'] ?? 'authenticated-user'
+  }
+  // Staging: shared-secret gate
   const secret = await getApiSecret()
-  if (!secret) return false
+  if (!secret) return null
   const provided =
     event.headers?.['x-api-key'] ?? event.headers?.['authorization']?.replace(/^Bearer\s+/i, '')
-  return provided === secret
+  return provided === secret ? 'staging' : null
 }
 
 // Generic client-facing error + correlation id; full detail stays in CloudWatch.
@@ -146,15 +154,17 @@ async function bufferedHandler(
     return { statusCode: 204, headers: corsHeaders(event.headers?.origin) }
   }
 
-  if (!await isAuthorized(event)) {
+  const user = await resolveUser(event)
+  if (!user) {
     return {
       statusCode: 403,
       headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Forbidden' }),
     }
   }
+  console.log(JSON.stringify({ user, requestId: event.requestContext.requestId, method: event.requestContext.http.method, path: event.requestContext.http.path }))
 
-  // Plans proxy: GET /api/plans/*  (auth-gated, same shared secret)
+  // Plans proxy: GET /api/plans/*  (auth-gated)
   if (event.requestContext.http.method === 'GET') {
     const s3Key = plansS3Key(event.requestContext.http.path)
     if (s3Key === null) {
@@ -452,7 +462,8 @@ const streamingHandler = () => awslambda.streamifyResponse(
       return
     }
 
-    if (!await isAuthorized(event)) {
+    const user = await resolveUser(event)
+    if (!user) {
       const metadata = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 403,
         headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
@@ -461,6 +472,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
       metadata.end()
       return
     }
+    console.log(JSON.stringify({ user, requestId: event.requestContext.requestId, method: event.requestContext.http.method, path: event.requestContext.http.path }))
 
     // Plans proxy: GET /api/plans/*  (no streaming needed — write body and end)
     if (event.requestContext.http.method === 'GET') {
