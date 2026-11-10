@@ -480,6 +480,9 @@
                 }
                 window.__cgPendingMapUpdate.toolName = event.toolName || window.__cgPendingMapUpdate.toolName;
               }
+              // 提取 _planFocus（find_room 返回的楼层平面图跳转信号）
+              var _pf = event.mapUpdate.features && event.mapUpdate.features._planFocus;
+              if (_pf && _pf.bdId) window.__cgPendingPlanFocus = _pf;
             }
           } else if (event.type === 'error') {
             setUnrecMsg(`Error: ${event.message || 'Unknown error'}`);
@@ -510,6 +513,8 @@
       if (window.__cgPendingMapUpdate && typeof setSc === 'function') {
         const pending = window.__cgPendingMapUpdate;
         window.__cgPendingMapUpdate = null;
+        const planFocus = window.__cgPendingPlanFocus || null;
+        window.__cgPendingPlanFocus = null;
 
         // 如果 preload 还没完成，立即发一次同步请求
         if (!cachedBuildings) {
@@ -744,6 +749,7 @@
 
         // 注册按钮回调（闭包持有 React setters）
         window.__cgShowMapBtn = function () {
+          if (planFocus) window.__cgActivePlanFocus = planFocus;
           if (typeof setTitle === 'function') setTitle(mapTitle);
           setSc(sc);
           setPhase('composing');
@@ -893,7 +899,7 @@
               'font-family:\'Gotham\',sans-serif;font-size:13px;font-weight:500;' +
               'color:#f4f1ea;background:#800000;border:none;cursor:pointer;' +
               'padding:7px 16px;border-radius:2px;letter-spacing:0.01em' +
-            '">Map results</button>' +
+            '">' + (planFocus ? 'Open floor plan' : 'Map results') + '</button>' +
             '<button onclick="window.__cgPrintReport()" style="' +
               'font-family:\'Gotham\',sans-serif;font-size:13px;font-weight:500;' +
               'color:#4a4a48;background:none;border:1px solid #d4cfc0;cursor:pointer;' +
@@ -1094,6 +1100,10 @@
     }
   })();
 
+  // Floor plan data helpers — used by the floor plan module below
+  window.__cgPlanUrl = function(path) { return API_BASE + '/api/plans/' + path; };
+  window.__cgPlanHeaders = function() { return API_KEY ? { 'X-Api-Key': API_KEY } : {}; };
+
   console.log('[CampusGeo] inject-backend ready. Test: window.testBackend("your query")');
 })();
 
@@ -1197,6 +1207,12 @@
   }
 
   function renderMap(sc) {
+    if (window.__cgActivePlanFocus) {
+      var pf = window.__cgActivePlanFocus;
+      window.__cgActivePlanFocus = null;
+      if (typeof window.cgOpenFloorPlan === 'function') { window.cgOpenFloorPlan(pf); }
+      return;
+    }
     loadMapLibre(function () {
       var container = document.getElementById('__cg-ov-map');
       if (!container) return;
@@ -1311,6 +1327,485 @@
   console.log('[CampusGeo Landing] in-page handler ready (waiting for __cgBackend)');
 })();
 
+</script>
+<script>
+// CampusGeo Landing — Floor Plan + 3D Stack Module
+// Handles _planFocus from find_room: renders 2D floor plans and 3D exploded floor stack.
+(function () {
+  'use strict';
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  var ps = {
+    bdId: null, floor: null, floors: [],
+    room: null, roomFloor: null, hoverRoom: null,
+    planStack: false, planStackLoading: false,
+  };
+  var planMap = null, planCache = {}, plan2dFloor = null;
+  var stackS = 9, stackFeats = [], stackFocus, furnFloor = null;
+  var selSig = null, stackHid = null, stackHandlersMap = null;
+  var turnRaf = null, idleMap = null, idleT = null, stackRaf = null;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function planUrl(p) { return window.__cgPlanUrl ? window.__cgPlanUrl(p) : ('/api/plans/' + p); }
+  function planHdrs() { return window.__cgPlanHeaders ? window.__cgPlanHeaders() : {}; }
+
+  function isDark() {
+    var el = document.querySelector('[data-theme-force]');
+    if (el) { if (el.dataset.themeForce === 'dark') return true; if (el.dataset.themeForce === 'light') return false; }
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  function parseRoom(p) {
+    p = p || {};
+    var raw = String(p.room || '');
+    var parts = raw.split(/\^M\^J|\\P|\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && s !== '-'; });
+    var out = { room: parts[0] || raw, use: p.use || '', areaSf: p.areaSf || null };
+    if (!p.use && parts.length >= 2) out.use = parts.slice(1, parts.length > 2 ? -1 : undefined).join(' ');
+    if (!p.areaSf && parts.length >= 3 && /^[\d,.]+$/.test(parts[parts.length - 1])) out.areaSf = Number(parts[parts.length - 1].replace(/,/g, ''));
+    return out;
+  }
+
+  function roomClass(use, room) {
+    var u = String(use || '').toLowerCase(), r = String(room || '').toUpperCase();
+    if (/^(ST|EL|STSE|STSW|STNE|STNW)[-_]/.test(r) || /\b(stair|elevator|corridor|hall(way)?|vestibule|lobby entry|circulation)\b/.test(u)) return 'circ';
+    if (/^RRS|\b(restroom|toilet|washroom|bathroom|mothers?|lactation|nursing|janitor|custodial|storage|stor\b|mechanical|mech\b|electrical|elec\b|telecom|data|idf|mdf|loading|service)\b/.test(u) || /^RRS/.test(r)) return 'service';
+    if (/\b(class|classroom|lecture|seminar|instruction|teaching|computer classroom)\b/.test(u)) return 'teaching';
+    if (/\b(lab|laboratory|research|workshop|maker)\b/.test(u)) return 'research';
+    if (/\b(office|workroom|reception|conference|meeting|admin)\b/.test(u)) return 'office';
+    if (/\b(reading|study|lounge|commons|collaborat|atrium|gallery|exhibit|stacks|library|cafe|dining)\b/.test(u)) return 'public';
+    return 'other';
+  }
+
+  function roomPalette() {
+    var dk = isDark();
+    return {
+      teaching: { label: 'Teaching',         fill: dk ? '#6FCB88' : '#2E7D46' },
+      office:   { label: 'Office',            fill: dk ? '#7CB8EE' : '#1F5C99' },
+      research: { label: 'Research & labs',   fill: dk ? '#E6B85C' : '#B07A1C' },
+      public:   { label: 'Reading & public',  fill: dk ? '#D98A86' : '#800000' },
+      service:  { label: 'Service & support', fill: dk ? '#9A948C' : '#8C8580' },
+      other:    { label: 'Other',             fill: dk ? '#B8AEA0' : '#B9B0A2' },
+    };
+  }
+
+  function collectBounds(features) {
+    var mnX = 180, mnY = 90, mxX = -180, mxY = -90, any = false;
+    function walk(c) {
+      if (typeof c[0] === 'number') { any = true; if (c[0] < mnX) mnX = c[0]; if (c[0] > mxX) mxX = c[0]; if (c[1] < mnY) mnY = c[1]; if (c[1] > mxY) mxY = c[1]; }
+      else for (var i = 0; i < c.length; i++) walk(c[i]);
+    }
+    for (var i = 0; i < features.length; i++) { var g = features[i] && features[i].geometry; if (g && g.coordinates) walk(g.coordinates); }
+    return any ? [[mnX, mnY], [mxX, mxY]] : null;
+  }
+
+  // ── 2D plan layer IDs ──────────────────────────────────────────────────────
+  function plan2dIds() { return ['plan-paper','plan-rooms','plan-rooms-hl','plan-detail','plan-secondary','plan-walls','plan-room-labels','plan-gross-line']; }
+  function stackIds()  { return ['plan-stack','plan-stack-above','plan-stack-focus']; }
+
+  function unmountPlanLayers(m) {
+    if (!m) return;
+    ['plan-stack-sel','plan-stack-furn','plan-stack','plan-stack-above','plan-stack-focus',
+     'plan-room-labels','plan-gross-line','plan-walls','plan-secondary','plan-detail',
+     'plan-rooms-hl','plan-rooms','plan-paper'].forEach(function (id) { if (m.getLayer(id)) m.removeLayer(id); });
+    ['plan-stack-sel','plan-stack-furn','plan-stack','plan-gross','plan-lines','plan-rooms'].forEach(function (id) { if (m.getSource(id)) m.removeSource(id); });
+  }
+
+  function mountPlanLayers(m, gross, lines, rooms) {
+    var pal = roomPalette(), dk = isDark();
+    var counts = {};
+    (rooms.features || []).forEach(function (f) {
+      var r = parseRoom(f.properties), cls = roomClass(r.use, r.room);
+      if (cls !== 'circ') counts[cls] = (counts[cls] || 0) + 1;
+      f.properties = Object.assign({}, f.properties, { room: r.room, use: r.use, areaSf: r.areaSf, cls: cls });
+    });
+    var fe = ['match',['get','cls'],'teaching',pal.teaching.fill,'office',pal.office.fill,'research',pal.research.fill,'public',pal.public.fill,'service',pal.service.fill,'circ','rgba(0,0,0,0)',pal.other.fill];
+    unmountPlanLayers(m);
+    var ink = dk ? 'rgba(240,235,226,' : 'rgba(42,34,24,';
+    m.addSource('plan-gross', { type: 'geojson', data: gross });
+    m.addSource('plan-lines', { type: 'geojson', data: lines });
+    m.addSource('plan-rooms', { type: 'geojson', data: rooms });
+    m.addLayer({ id:'plan-paper',     type:'fill',   source:'plan-gross', paint:{ 'fill-color': dk?'#2A1A1C':'#FBF8F1', 'fill-opacity':0 } });
+    m.addLayer({ id:'plan-rooms',     type:'fill',   source:'plan-rooms', paint:{ 'fill-color':fe, 'fill-opacity':0 } });
+    m.addLayer({ id:'plan-rooms-hl',  type:'fill',   source:'plan-rooms', filter:['==',['get','room'],'__none__'], paint:{ 'fill-color':'#C4903A','fill-opacity':0.22 } });
+    m.addLayer({ id:'plan-detail',    type:'line',   source:'plan-lines', minzoom:19, filter:['==',['get','tier'],'detail'], paint:{ 'line-color':ink+'0.28)','line-width':0.5,'line-opacity':0 } });
+    m.addLayer({ id:'plan-secondary', type:'line',   source:'plan-lines',
+      filter:['all',['!=',['get','tier'],'detail'],['match',['get','cls'],['door','glazing','stair','other'],true,false]],
+      paint:{ 'line-color':ink+'0.55)','line-width':['interpolate',['linear'],['zoom'],17,0.4,20,0.9],'line-opacity':0 } });
+    m.addLayer({ id:'plan-walls',     type:'line',   source:'plan-lines',
+      filter:['match',['get','cls'],['wall','structure'],true,false],
+      paint:{ 'line-color':ink+'0.92)','line-width':['interpolate',['linear'],['zoom'],17,0.7,20,1.6],'line-opacity':0 } });
+    m.addLayer({ id:'plan-gross-line',type:'line',   source:'plan-gross', paint:{ 'line-color':'#C4903A','line-width':1.4,'line-opacity':0 } });
+    m.addLayer({ id:'plan-room-labels',type:'symbol',source:'plan-rooms', minzoom:18.5,
+      layout:{ 'text-field':['get','room'],'text-size':10,'text-font':['Open Sans Regular'],'text-allow-overlap':false },
+      paint:{ 'text-color':ink+'0.75)','text-halo-color':dk?'#2A1A1C':'#FBF8F1','text-halo-width':1,'text-opacity':0 } });
+    var fades = [['plan-paper','fill-opacity',0.96],['plan-rooms','fill-opacity',0.2],['plan-detail','line-opacity',1],['plan-secondary','line-opacity',1],['plan-walls','line-opacity',1],['plan-gross-line','line-opacity',0.9],['plan-room-labels','text-opacity',1]];
+    fades.forEach(function (x) { m.setPaintProperty(x[0], x[1]+'-transition', { duration:420, delay:120 }); });
+    requestAnimationFrame(function () { if (planMap && planMap.getLayer('plan-paper')) fades.forEach(function (x) { m.setPaintProperty(x[0], x[1], x[2]); }); });
+  }
+
+  // ── 3D stack helpers ───────────────────────────────────────────────────────
+  function raisedKeys() {
+    var keys = [];
+    if (ps.room && ps.room.room) keys.push((ps.roomFloor || ps.floor) + ':' + String(ps.room.room).toUpperCase());
+    return keys;
+  }
+
+  function stackExprs(S) {
+    var lv = ['*',['get','lvl'],S];
+    return {
+      base:   ['+',lv,['match',['get','kind'],'room',0.22,'wall',0.22,0]],
+      height: ['+',lv,['match',['get','kind'],'slab',0.22,'ext',2.1,'wall',1.45,0.3]],
+    };
+  }
+
+  function stackTint(hex, t) {
+    var bg = isDark() ? [42,26,29] : [239,233,223];
+    var n = parseInt(String(hex).slice(1), 16);
+    var c = [(n>>16)&255,(n>>8)&255,n&255];
+    return '#' + c.map(function (v, i) { return Math.round(v*t+bg[i]*(1-t)).toString(16).padStart(2,'0'); }).join('');
+  }
+
+  function stackColorExpr() {
+    var pal = roomPalette(), dk = isDark(), keys = raisedKeys();
+    var t = keys.length ? (dk?0.2:0.12) : (dk?0.62:0.4);
+    var raised = ['in',['get','key'],['literal',keys]];
+    function cls(f) { return ['match',['get','cls'],'teaching',f(pal.teaching.fill),'office',f(pal.office.fill),'research',f(pal.research.fill),'public',f(pal.public.fill),'service',f(pal.service.fill),'circ',dk?'#3A2A2D':'#E3DCD0',f(pal.other.fill)]; }
+    return ['match',['get','kind'],
+      'slab', dk?'#2A1A1D':'#EFE9DF',
+      'wall', keys.length?(dk?'#5E4E51':'#F6F2EA'):(dk?'#8E7D7F':'#FFFDF8'),
+      'ext',  keys.length?(dk?'#6E5D60':'#E2DACE'):(dk?'#A4928F':'#CFC5B6'),
+      ['case',raised,cls(function(x){return x;}),cls(function(x){return stackTint(x,t);})]];
+  }
+
+  function stackWalls(geom, thick, props, seen, out) {
+    var rings = !geom ? [] : geom.type==='Polygon' ? geom.coordinates : geom.type==='MultiPolygon' ? [].concat.apply([],geom.coordinates) : [];
+    rings.forEach(function (ring) {
+      for (var i = 0; i < ring.length-1; i++) {
+        var p = ring[i], q = ring[i+1];
+        var k1 = p[0].toFixed(7)+','+p[1].toFixed(7), k2 = q[0].toFixed(7)+','+q[1].toFixed(7);
+        var key = k1<k2 ? k1+'|'+k2 : k2+'|'+k1;
+        if (seen.has(key)) continue; seen.add(key);
+        var ky=111320, kx=111320*Math.cos(p[1]*Math.PI/180);
+        var dx=(q[0]-p[0])*kx, dy=(q[1]-p[1])*ky, L=Math.hypot(dx,dy);
+        if (L<0.15) continue;
+        var ux=dx/L, uy=dy/L, hw=thick/2, nx=-uy*hw, ny=ux*hw, ex=ux*hw, ey=uy*hw;
+        function P(o,ox,oy){return[o[0]+ox/kx,o[1]+oy/ky];}
+        var A=P(p,-ex-nx,-ey-ny),B=P(q,ex-nx,ey-ny),C=P(q,ex+nx,ey+ny),D=P(p,-ex+nx,-ey+ny);
+        out.push({type:'Feature',geometry:{type:'Polygon',coordinates:[[A,B,C,D,A]]},properties:props});
+      }
+    });
+  }
+
+  function stackFurnExprs(S) {
+    var lv=['*',['get','lvl'],S];
+    return { base:['+',lv,0.3], height:['+',lv,['match',['get','kind'],'furn-solid',1.05,1.0]] };
+  }
+
+  function paintStackSel(m) {
+    if (!m||!m.getSource('plan-stack')) return;
+    var keys=raisedKeys(), sig=keys.join('|'), S=stackS||9, lv=['*',['get','lvl'],S];
+    if (sig!==selSig) {
+      selSig=sig;
+      var out=[]; var set=new Set(keys);
+      (stackFeats||[]).forEach(function(f){var p=f.properties||{};if(p.kind==='room'&&set.has(p.key))stackWalls(f.geometry,0.24,{kind:'sel',lvl:p.lvl,floor:p.floor},new Set(),out);});
+      var fc={type:'FeatureCollection',features:out};
+      if(m.getSource('plan-stack-sel'))m.getSource('plan-stack-sel').setData(fc);
+      else m.addSource('plan-stack-sel',{type:'geojson',data:fc});
+      if(!m.getLayer('plan-stack-sel'))m.addLayer({id:'plan-stack-sel',type:'fill-extrusion',source:'plan-stack-sel',
+        paint:{'fill-extrusion-color':isDark()?'#D9A54E':'#C4903A','fill-extrusion-base':['+',lv,0.22],'fill-extrusion-height':['+',lv,1.6],'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':true}});
+    }
+    if(m.getLayer('plan-stack-sel')){m.setPaintProperty('plan-stack-sel','fill-extrusion-base',['+',lv,0.22]);m.setPaintProperty('plan-stack-sel','fill-extrusion-height',['+',lv,1.6]);}
+  }
+
+  function paintStack(m) {
+    if(!m||!m.getLayer('plan-stack-focus'))return;
+    var f=ps.floor, fl=ps.floors||[], lv=Math.max(0,fl.indexOf(f));
+    function step(name,fn){try{fn();}catch(e){console.warn('[stack]',name,e);}}
+    step('filters',function(){
+      if(m.getLayer('plan-stack'))m.setFilter('plan-stack',['==',1,0]);
+      if(m.getLayer('plan-stack-above'))m.setFilter('plan-stack-above',['==',1,0]);
+      m.setFilter('plan-stack-focus',['==',['get','lvl'],lv]);
+    });
+    step('geometry',function(){
+      var e=stackExprs(stackS||9), col=stackColorExpr();
+      stackIds().forEach(function(id){if(!m.getLayer(id))return;m.setPaintProperty(id,'fill-extrusion-base',e.base);m.setPaintProperty(id,'fill-extrusion-height',e.height);m.setPaintProperty(id,'fill-extrusion-color',col);});
+    });
+    step('fade',function(){
+      if(stackFocus===undefined||stackFocus===f)return;
+      m.setPaintProperty('plan-stack-focus','fill-extrusion-opacity',0.3);
+      requestAnimationFrame(function(){requestAnimationFrame(function(){if(planMap&&planMap.getLayer('plan-stack-focus'))planMap.setPaintProperty('plan-stack-focus','fill-extrusion-opacity',1);});});
+    });
+    stackFocus=f;
+    step('selection',function(){paintStackSel(m);});
+    step('furn-paint',function(){
+      if(!m.getLayer('plan-stack-furn'))return;
+      var fe2=stackFurnExprs(stackS||9),dk=isDark(),sel=raisedKeys().length>0;
+      m.setPaintProperty('plan-stack-furn','fill-extrusion-base',fe2.base);
+      m.setPaintProperty('plan-stack-furn','fill-extrusion-height',fe2.height);
+      m.setPaintProperty('plan-stack-furn','fill-extrusion-color',['match',['get','kind'],'furn-solid',sel?(dk?'#55464A':'#E6DFD3'):(dk?'#76656A':'#D6CCBD'),sel?(dk?'#5E4E51':'#DCD3C5'):(dk?'#8E7D80':'#BFB4A4')]);
+    });
+    step('furn-build',function(){
+      if(furnFloor===f||!ps.planStack)return;
+      if(m.getSource('plan-stack-furn'))m.getSource('plan-stack-furn').setData({type:'FeatureCollection',features:[]});
+      buildStackFurniture(m,f).catch(function(e){console.warn('[stack] furn-async',e);furnFloor=null;});
+    });
+  }
+
+  function animateStackSpacing(m,to){
+    var from=stackS||to, reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(reduce||from===to){stackS=to;paintStack(m);return;}
+    var t0=performance.now(),dur=520;
+    function step(now){var k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3);stackS=from+(to-from)*e;paintStack(m);if(k<1&&ps.planStack)stackRaf=requestAnimationFrame(step);}
+    cancelAnimationFrame(stackRaf);stackRaf=requestAnimationFrame(step);
+  }
+
+  function stopStackTurn(){cancelAnimationFrame(turnRaf);turnRaf=null;}
+
+  function startStackTurn(m){
+    if(!m||window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+    armStackIdle(m);stopStackTurn();
+    var last=performance.now();
+    function spin(now){if(!planMap||!ps.planStack)return;var dt=now-last;last=now;planMap.setBearing(planMap.getBearing()+Math.min(dt,50)*0.0025);turnRaf=requestAnimationFrame(spin);}
+    turnRaf=requestAnimationFrame(spin);
+  }
+
+  function armStackIdle(m){
+    if(!m||idleMap===m)return;idleMap=m;
+    function poke(){if(!ps.planStack)return;stopStackTurn();clearTimeout(idleT);idleT=setTimeout(function(){if(ps.planStack)startStackTurn(planMap);},4000);}
+    ['mousedown','touchstart','wheel','mousemove','dragstart'].forEach(function(ev){m.on(ev,poke);});
+  }
+
+  function dropStackFurniture(m){
+    furnFloor=null;selSig=null;
+    if(!m)return;
+    if(m.getLayer('plan-stack-sel'))m.removeLayer('plan-stack-sel');if(m.getSource('plan-stack-sel'))m.removeSource('plan-stack-sel');
+    if(m.getLayer('plan-stack-furn'))m.removeLayer('plan-stack-furn');if(m.getSource('plan-stack-furn'))m.removeSource('plan-stack-furn');
+  }
+
+  async function buildStackFurniture(m,floor){
+    if(!m||!ps.bdId)return;
+    var lvl=(ps.floors||[]).indexOf(floor);if(lvl<0)return;
+    furnFloor=floor;
+    var ck=ps.bdId+'/'+floor+'.lines';
+    var lines=planCache[ck]||null;
+    if(!lines){lines=await fetch(planUrl(ps.bdId+'/'+floor+'.geojson'),{headers:planHdrs()}).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;});if(lines)planCache[ck]=lines;}
+    if(!lines||!ps.planStack||furnFloor!==floor||!planMap)return;
+    var ky=111320,solids=[],strips=[],seen=new Set(),props={kind:'furn',lvl:lvl,floor:floor};
+    (lines.features||[]).forEach(function(f){
+      var p=f.properties||{};if(p.cls!=='furniture')return;
+      var g=f.geometry,parts=!g?[]:g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:g.type==='Polygon'?g.coordinates:[];
+      parts.forEach(function(pts){
+        if(!pts||pts.length<2)return;
+        var a=pts[0],z=pts[pts.length-1],kx=ky*Math.cos(a[1]*Math.PI/180);
+        var closed=pts.length>=4&&Math.hypot((a[0]-z[0])*kx,(a[1]-z[1])*ky)<0.05;
+        if(closed){var ar=0;for(var i=0;i<pts.length-1;i++)ar+=(pts[i][0]*kx)*(pts[i+1][1]*ky)-(pts[i+1][0]*kx)*(pts[i][1]*ky);ar=Math.abs(ar)/2;
+          if(ar>0.08&&ar<30){solids.push({type:'Feature',geometry:{type:'Polygon',coordinates:[pts]},properties:{kind:'furn-solid',lvl:lvl,floor:floor}});return;}}
+        stackWalls({type:'Polygon',coordinates:[pts]},0.05,props,seen,strips);
+      });
+    });
+    var CAP=30000,feats=solids.concat(strips.slice(0,Math.max(0,CAP-solids.length)));
+    var fc={type:'FeatureCollection',features:feats};
+    if(m.getSource('plan-stack-furn'))m.getSource('plan-stack-furn').setData(fc);
+    else m.addSource('plan-stack-furn',{type:'geojson',data:fc});
+    if(!m.getLayer('plan-stack-furn')){
+      var fe3=stackFurnExprs(stackS||9),dk=isDark();
+      m.addLayer({id:'plan-stack-furn',type:'fill-extrusion',source:'plan-stack-furn',
+        paint:{'fill-extrusion-color':['match',['get','kind'],'furn-solid',dk?'#76656A':'#D6CCBD',dk?'#8E7D80':'#BFB4A4'],'fill-extrusion-base':fe3.base,'fill-extrusion-height':fe3.height,'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':true}});
+    }
+  }
+
+  async function enterStack(m){
+    var bdId=ps.bdId,floors=ps.floors||[];
+    if(!bdId||!m||floors.length<1)return;
+    ps.planStack=true;ps.planStackLoading=true;
+    function get(f){var key=bdId+'/'+f+'.rooms';if(planCache[key])return Promise.resolve(planCache[key]);return fetch(planUrl(bdId+'/'+f+'.rooms.geojson'),{headers:planHdrs()}).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}).then(function(j){if(j)planCache[key]=j;return j;});}
+    function getGross(f){var key=bdId+'/'+f+'.gross';if(planCache[key]!==undefined)return Promise.resolve(planCache[key]);return fetch(planUrl(bdId+'/'+f+'.gross.geojson'),{headers:planHdrs()}).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}).then(function(j){planCache[key]=(j&&j.features&&j.features.length)?j:null;return planCache[key];});}
+    var all=await Promise.all(floors.map(get)),grosses=await Promise.all(floors.map(getGross));
+    if(!ps.planStack||ps.bdId!==bdId||!planMap)return;
+    var openGross=m.getSource('plan-gross')&&m.getSource('plan-gross')._data;
+    var feats=[],walls=[];
+    all.forEach(function(fc,lvl){
+      var floor=floors[lvl],g=grosses[lvl]||openGross;
+      ((g&&g.features)||[]).forEach(function(gf){feats.push({type:'Feature',geometry:gf.geometry,properties:{kind:'slab',floor:floor,lvl:lvl}});stackWalls(gf.geometry,0.45,{kind:'ext',floor:floor,lvl:lvl},new Set(),walls);});
+      if(!fc)return;
+      var seen=new Set();
+      (fc.features||[]).forEach(function(ft){
+        var r=parseRoom(ft.properties),props={kind:'room',room:r.room,use:r.use,areaSf:r.areaSf,cls:roomClass(r.use,r.room),floor:floor,lvl:lvl,key:floor+':'+String(r.room).toUpperCase()};
+        feats.push({type:'Feature',geometry:ft.geometry,properties:props});
+        stackWalls(ft.geometry,0.16,Object.assign({},props,{kind:'wall'}),seen,walls);
+      });
+    });
+    stackFeats=feats.slice();selSig=null;feats.push.apply(feats,walls);
+    var color=stackColorExpr();
+    if(m.getSource('plan-stack'))m.getSource('plan-stack').setData({type:'FeatureCollection',features:feats});
+    else m.addSource('plan-stack',{type:'geojson',data:{type:'FeatureCollection',features:feats}});
+    stackS=stackS||9;var e=stackExprs(stackS),lv0=Math.max(0,floors.indexOf(ps.floor));
+    [['plan-stack',0.22],['plan-stack-above',0.1],['plan-stack-focus',1]].forEach(function(row){
+      var id=row[0],op=row[1];if(m.getLayer(id))return;
+      m.addLayer({id:id,type:'fill-extrusion',source:'plan-stack',filter:id==='plan-stack-focus'?['==',['get','lvl'],lv0]:['==',1,0],paint:{'fill-extrusion-color':color,'fill-extrusion-base':e.base,'fill-extrusion-height':e.height,'fill-extrusion-opacity':op,'fill-extrusion-vertical-gradient':true}});
+    });
+    plan2dIds().forEach(function(id){if(m.getLayer(id))m.setLayoutProperty(id,'visibility','none');});
+    ['results-3d','results-3d-proposed','context-3d'].forEach(function(id){if(!m.getLayer(id))return;stackHid=stackHid||{};if(stackHid[id]===undefined)stackHid[id]=m.getLayoutProperty(id,'visibility')||'visible';m.setLayoutProperty(id,'visibility','none');});
+    if(stackHandlersMap!==m){
+      stackHandlersMap=m;
+      stackIds().forEach(function(id){
+        function pickRoom(ev){var fs=ev.features||[];var f=fs.find(function(x){return(x.properties||{}).kind==='room';})||fs.find(function(x){return(x.properties||{}).room;});return f?f.properties:null;}
+        m.on('mousemove',id,function(ev){var p=pickRoom(ev);if(!p){ps.hoverRoom=null;m.getCanvas().style.cursor='';return;}ps.hoverRoom=p.room;m.getCanvas().style.cursor='pointer';});
+        m.on('mouseleave',id,function(){ps.hoverRoom=null;m.getCanvas().style.cursor='';});
+        m.on('click',id,function(ev){var p=pickRoom(ev);if(!p)return;stopStackTurn();ps.floor=p.floor;ps.roomFloor=p.floor;ps.room={room:p.room,use:p.use,areaSf:p.areaSf};paintStack(m);updateToolbar(m);});
+      });
+    }
+    paintStack(m);
+    var gross=m.getSource('plan-gross')&&m.getSource('plan-gross')._data;
+    var b=collectBounds((gross&&gross.features)||feats);
+    if(b){var cam=m.cameraForBounds(b,{padding:70});if(cam)m.easeTo({center:cam.center,zoom:Math.min(cam.zoom-0.35,18.4),pitch:58,bearing:-28,duration:1100});}
+    if(m.setLight)m.setLight({anchor:'viewport',color:'#ffffff',intensity:0.5,position:[1.2,210,42]});
+    ps.planStackLoading=false;
+    setTimeout(function(){if(ps.planStack)startStackTurn(m);},1200);
+    updateToolbar(m);
+  }
+
+  function exitStack(m,keepCamera){
+    dropStackFurniture(m);stopStackTurn();clearTimeout(idleT);stackFocus=undefined;cancelAnimationFrame(stackRaf);
+    if(m){
+      stackIds().forEach(function(id){if(m.getLayer(id))m.removeLayer(id);});
+      if(m.getSource('plan-stack'))m.removeSource('plan-stack');
+      plan2dIds().forEach(function(id){if(m.getLayer(id))m.setLayoutProperty(id,'visibility','visible');});
+      Object.keys(stackHid||{}).forEach(function(id){if(m.getLayer(id))m.setLayoutProperty(id,'visibility',stackHid[id]);});
+      stackHid=null;
+      if(!keepCamera)m.easeTo({pitch:0,bearing:0,duration:800});
+    }
+    ps.planStack=false;ps.planStackLoading=false;
+    updateToolbar(m);
+  }
+
+  // ── Toolbar ────────────────────────────────────────────────────────────────
+  function updateToolbar() {
+    var tb=document.getElementById('__cg-plan-toolbar');if(!tb)return;
+    var floors=ps.floors||[],isStack=ps.planStack;
+    var tabsHtml=floors.map(function(f){
+      var active=f===ps.floor;
+      return '<button data-floor="'+f+'" style="font-family:Gotham,sans-serif;font-size:11px;font-weight:500;letter-spacing:0.04em;padding:4px 10px;border-radius:4px;cursor:pointer;border:none;transition:background 0.15s,color 0.15s;'+(active?'background:#800000;color:#fff;':'background:rgba(245,241,234,0.08);color:#B3A49D;')+'">' + f + '</button>';
+    }).join('');
+    var btn3s=isStack?'background:linear-gradient(180deg,#A31212,#6E0000);color:#fff;border-color:rgba(163,18,18,0.4);':'background:none;color:#B3A49D;border-color:rgba(245,241,234,0.1);';
+    tb.innerHTML=
+      '<div style="display:flex;align-items:center;gap:6px;flex:1;overflow-x:auto;min-width:0;">'+tabsHtml+'</div>'+
+      '<button id="__cg-plan-3d-btn" style="font-family:Gotham,sans-serif;font-size:10px;font-weight:500;letter-spacing:0.08em;padding:0 9px;height:27px;border-radius:7px;border:1px solid;cursor:pointer;flex-shrink:0;transition:all 0.15s;'+btn3s+'">3D</button>'+
+      '<button id="__cg-plan-close-btn" style="font-family:Gotham,sans-serif;font-size:12px;padding:0 10px;height:27px;border-radius:4px;border:1px solid rgba(245,241,234,0.1);background:none;color:#B3A49D;cursor:pointer;flex-shrink:0;margin-left:4px;">✕</button>';
+  }
+
+  // ── Floor switch ───────────────────────────────────────────────────────────
+  async function setPlanFloor(floor,m){
+    var bdId=ps.bdId;if(!bdId||!m||floor===ps.floor)return;
+    ps.floor=floor;ps.room=null;ps.hoverRoom=null;
+    if(ps.planStack){paintStack(m);updateToolbar();return;}
+    function get(x){return fetch(planUrl(bdId+'/'+x),{headers:planHdrs()}).then(function(r){if(!r.ok)throw new Error(x+' '+r.status);return r.json();});}
+    try{
+      var results=await Promise.all([get(floor+'.geojson'),get(floor+'.rooms.geojson')]);
+      var lines=results[0],rooms=results[1];
+      if(ps.floor!==floor)return;
+      plan2dFloor=floor;
+      var pal=roomPalette();
+      (rooms.features||[]).forEach(function(ft){var r=parseRoom(ft.properties),cls=roomClass(r.use,r.room);ft.properties=Object.assign({},ft.properties,{room:r.room,use:r.use,areaSf:r.areaSf,cls:cls});});
+      if(m.getSource('plan-lines'))m.getSource('plan-lines').setData(lines);
+      if(m.getSource('plan-rooms'))m.getSource('plan-rooms').setData(rooms);
+      updateToolbar();
+    }catch(e){console.warn('[plan] setPlanFloor',e);}
+  }
+
+  // ── Main: open floor plan ──────────────────────────────────────────────────
+  window.cgOpenFloorPlan = async function(focus) {
+    var bdId=focus.bdId,floor=focus.floor,pinRoom=focus.room;
+    if(!bdId)return;
+
+    var mapContainer=document.getElementById('__cg-ov-map');
+    if(!mapContainer)return;
+
+    // Build floor plan layout inside map container
+    if(planMap){try{planMap.remove();}catch(e){}planMap=null;}
+    mapContainer.innerHTML='';
+    mapContainer.style.cssText='flex:1;position:relative;display:flex;flex-direction:column;min-height:0;background:#1E1013;';
+
+    var toolbar=document.createElement('div');
+    toolbar.id='__cg-plan-toolbar';
+    toolbar.style.cssText='display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid rgba(245,241,234,0.1);flex-shrink:0;background:rgba(30,16,19,0.95);';
+    var mapDiv=document.createElement('div');
+    mapDiv.id='__cg-plan-map';
+    mapDiv.style.cssText='flex:1;min-height:0;';
+    mapContainer.appendChild(toolbar);
+    mapContainer.appendChild(mapDiv);
+
+    // Show loading state in toolbar
+    toolbar.innerHTML='<span style="font-family:Gotham,monospace;font-size:11px;color:#8C8070;letter-spacing:0.04em;">Loading floor plan…</span>';
+
+    // Fetch floor index
+    var floors=[floor];
+    try{
+      var idx=await fetch(planUrl('index.json'),{headers:planHdrs()}).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;});
+      if(idx&&idx[bdId]&&idx[bdId].floors)floors=idx[bdId].floors;
+    }catch(e){}
+
+    // Reset module state
+    ps.bdId=bdId;ps.floor=floor;ps.floors=floors;
+    ps.room=null;ps.roomFloor=null;ps.hoverRoom=null;
+    ps.planStack=false;ps.planStackLoading=false;
+    stackFeats=[];selSig=null;furnFloor=null;stackHid=null;planCache={};stackFocus=undefined;
+
+    updateToolbar();
+
+    toolbar.addEventListener('click',function(e){
+      var btn=e.target.closest?e.target.closest('button'):null;
+      if(!btn)return;
+      if(btn.id==='__cg-plan-3d-btn'){
+        if(ps.planStack)exitStack(planMap,false);else enterStack(planMap);
+      }else if(btn.id==='__cg-plan-close-btn'){
+        if(ps.planStack)exitStack(planMap,true);
+        if(planMap){try{planMap.remove();}catch(e2){}planMap=null;}
+        mapContainer.innerHTML='';mapContainer.style.cssText='flex:1;position:relative;background:#DDD8CE;';
+        ps.bdId=null;ps.planStack=false;
+      }else if(btn.dataset&&btn.dataset.floor){
+        setPlanFloor(btn.dataset.floor,planMap);
+      }
+    });
+
+    // Load MapLibre
+    if(!window.maplibregl){
+      var link=document.createElement('link');link.rel='stylesheet';link.href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css';document.head.appendChild(link);
+      await new Promise(function(resolve){var sc=document.createElement('script');sc.src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js';sc.onload=resolve;document.head.appendChild(sc);});
+    }
+
+    var dk=isDark();
+    planMap=new window.maplibregl.Map({
+      container:mapDiv,
+      style:{version:8,sources:{base:{type:'raster',tiles:['https://a.basemaps.cartocdn.com/'+(dk?'dark_all':'light_all')+'/{z}/{x}/{y}@2x.png'],tileSize:256}},layers:[{id:'base',type:'raster',source:'base'}]},
+      center:[-87.5997,41.7897],zoom:14,attributionControl:false,preserveDrawingBuffer:true,
+    });
+
+    planMap.on('load',function(){
+      var m=planMap;
+      function get(x){return fetch(planUrl(bdId+'/'+x),{headers:planHdrs()}).then(function(r){if(!r.ok)throw new Error(x+' '+r.status);return r.json();});}
+      Promise.all([get(floor+'.gross.geojson'),get(floor+'.geojson'),get(floor+'.rooms.geojson')]).then(function(results){
+        var gross=results[0],lines=results[1],rooms=results[2];
+        if(ps.bdId!==bdId||!planMap)return;
+        plan2dFloor=floor;
+        mountPlanLayers(m,gross,lines,rooms);
+        var target=pinRoom?(rooms.features||[]).find(function(f2){return String((f2.properties||{}).room||'').toUpperCase()===String(pinRoom).toUpperCase();}):null;
+        if(target){
+          var tp=target.properties||{};
+          ps.room={room:tp.room,use:tp.use,areaSf:tp.areaSf};ps.roomFloor=floor;
+          if(m.getLayer('plan-rooms-hl'))m.setFilter('plan-rooms-hl',['==',['get','room'],tp.room]);
+        }
+        var b=collectBounds(target?[target]:(gross.features||[]));
+        if(b)m.fitBounds(b,{padding:target?140:60,maxZoom:target?20.5:19.5,duration:900});
+        updateToolbar();
+      }).catch(function(e){
+        console.warn('[plan] load failed',e);
+        toolbar.innerHTML='<span style="font-size:11px;color:#D96060;font-family:Gotham,sans-serif;">Floor plan unavailable.</span>';
+      });
+    });
+  };
+
+})();
 </script>
 </head>
 <body>

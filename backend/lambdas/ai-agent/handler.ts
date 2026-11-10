@@ -73,12 +73,17 @@ async function resolveApiSecret(): Promise<string | null> {
   return _resolvedSecret
 }
 
-async function isAuthorized(event: APIGatewayProxyEventV2): Promise<boolean> {
+async function resolveUser(event: APIGatewayProxyEventV2): Promise<string | null> {
+  const jwtClaims = (event.requestContext as { authorizer?: { jwt?: { claims?: Record<string, string> } } })
+    .authorizer?.jwt?.claims
+  if (jwtClaims) {
+    return jwtClaims['email'] ?? jwtClaims['cognito:username'] ?? 'authenticated-user'
+  }
   const secret = await resolveApiSecret()
-  if (!secret) return false
+  if (!secret) return null
   const provided =
     event.headers?.['x-api-key'] ?? event.headers?.['authorization']?.replace(/^Bearer\s+/i, '')
-  return provided === secret
+  return provided === secret ? 'staging' : null
 }
 
 // Generic client-facing error + correlation id; full detail stays in CloudWatch.
@@ -106,6 +111,8 @@ async function plansHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayPr
   let key: string
   if (rest === 'index' || rest === 'index.json') {
     key = 'plans/index.json'
+  } else if (rest === 'rooms_index' || rest === 'rooms_index.json') {
+    key = 'plans/rooms_index.json'
   } else {
     const [bdId, file, ...more] = rest.split('/')
     if (more.length || !bdId || !file || !PLAN_BDID_RE.test(bdId) || !PLAN_FILE_RE.test(file)) {
@@ -162,13 +169,15 @@ async function bufferedHandler(
     return { statusCode: 204, headers: corsHeaders() }
   }
 
-  if (!await isAuthorized(event)) {
+  const user = await resolveUser(event)
+  if (!user) {
     return {
       statusCode: 403,
       headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Forbidden' }),
     }
   }
+  console.log(JSON.stringify({ user, requestId: event.requestContext.requestId, method: event.requestContext.http.method, path: event.requestContext.http.path }))
 
   // Floor-plan GeoJSON (read-only S3 passthrough). Must stay above the
   // /query and body-parsing branches: plans requests are GET with no body.
@@ -508,7 +517,8 @@ const streamingHandler = () => awslambda.streamifyResponse(
       return
     }
 
-    if (!await isAuthorized(event)) {
+    const streamUser = await resolveUser(event)
+    if (!streamUser) {
       const metadata = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 403,
         headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
@@ -517,6 +527,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
       metadata.end()
       return
     }
+    console.log(JSON.stringify({ user: streamUser, requestId: event.requestContext.requestId, method: event.requestContext.http.method, path: event.requestContext.http.path }))
 
     // Parse request
     let query: string

@@ -1,74 +1,80 @@
-# CampusGeo 开发流程 Skill
+# CampusGeo Development Workflow Skill
 
-Claude Code 与 Claude Design 的分工与切换方式。基于 CampusGeo 项目 2026-08 的实际经验总结。
+How Claude Code and Claude Design divide responsibilities and hand off between each other. Based on practical experience from the CampusGeo project in 2026-08.
 
 ---
 
-## 四步循环
+## Four-Step Cycle
 
-### 第 1 步 — Claude Code：跑通功能
-- 定位需求、写工具（tools）、接 Bedrock、验证数据能从 S3 取出来
-- 前端只做能点通的最简原型，不投入任何视觉成本
-- **本步的产出物不是界面，是契约**：SSE 事件类型、`mapUpdate` 的结构、每个工具返回的字段名。写进 `docs/FRONTEND_INTEGRATION.md`
+### Step 1 — Claude Code: wire up the functionality
+- Identify requirements, write tools, connect to Bedrock, verify data can be fetched from S3.
+- Frontend gets the simplest prototype needed to exercise the logic — no visual investment yet.
+- **The deliverable of this step is not a UI, it is a contract**: SSE event types, `mapUpdate` structure, exact field names returned by each tool. Write it up in `docs/FRONTEND_INTEGRATION.md`.
 
-### 第 2 步 — Claude Design：建前端界面
-不要把原型 HTML 导出过来"优化"——那些结构是为跑通逻辑写的，改它比重写慢。正确做法：
+### Step 2 — Claude Design: build the frontend
+Do not hand over the prototype HTML and ask Design to "improve" it — that structure was written to wire up logic, and revising it is slower than starting fresh. Instead:
 
-- 把契约给 Design（repo 链接即可，Design 能直接读 `docs/FRONTEND_INTEGRATION.md`、`handler.ts`、`agent.ts`、各 `tools/campus/*.ts`）
-- 原型 HTML 只作参考，用途是说明"这些功能要有"
-- Design 从设计系统重新搭界面，视觉决策依据本项目根目录的 `CLAUDE.md`
+- Give Design the contract (a repo link is enough; Design can read `docs/FRONTEND_INTEGRATION.md`, `handler.ts`, `agent.ts`, and the `tools/campus/*.ts` files directly).
+- The prototype HTML is a reference only — its purpose is to show "these features need to exist".
+- Design builds the UI from the design system from scratch, guided by this project's root `CLAUDE.md` for all visual decisions.
 
-### 第 3 步 — 接通后端并调试
-在 Design 里直连真实 Lambda，这是最有价值的一步：能看到浏览器**真正收到了什么**。
+### Step 3 — wire up the backend and debug
+Connect directly to the real Lambda from inside Design — this is the most valuable step: you can see exactly what the browser receives.
 
-分工按"层"划，不按"bug"划：
-- 数据、过滤逻辑、AI 回答内容、工具定义 → Claude Code
-- 布局、交互、地图渲染样式、打印排版 → Claude Design
+Divide the work by **layer**, not by **bug**:
+- Data, filter logic, AI answer content, tool definitions → Claude Code
+- Layout, interactions, map rendering styles, print layout → Claude Design
 
-**反直觉但重要**：bug 先拿到 Design 定位往往更快，定位完拿结论去 Code 修。实例：
-- "1930 年前建筑"返回全部建筑 → Design 查出 `parseFloat(x || '0')` 让缺失年份变成 0，`0 < 1930` 恒真
-- 地图空白 → Design 查出 `mapUpdate.features` 是裸数组而非 FeatureCollection
-- Internal error → Design 定位到 `queryS3Layer` 的 fail-open 分支抛异常
+**Counter-intuitive but important**: bugs are often faster to locate in Design first; bring the diagnosis back to Code for the fix. Examples:
+- "Buildings before 1930" returning all buildings → Design traced it to `parseFloat(x || '0')` turning missing years into 0, and `0 < 1930` always being true.
+- Blank map → Design traced it to `mapUpdate.features` being a bare array rather than a FeatureCollection.
+- Internal error → Design located the fail-open branch in `queryS3Layer` throwing an exception.
 
-### 第 4 步 — 回流（最容易被忽略）
-Design 产出的是独立 HTML，**不会自动变成 repo 里的 React 组件**。不做这一步，两边就在分叉。三种处理方式，按项目性质选：
+### Step 4 — back-flow (easiest step to skip)
+Design produces a self-contained HTML file. **It does not automatically become a React component in the repo.** Without this step, the two sides diverge. Three options — pick based on project needs:
 
-| 方式 | 适用 |
+| Option | Use when |
 |---|---|
-| 直接用打包的独立 HTML | 演示、内部分享 |
-| 让 Claude Code 照 Design 实现重写 `apps/web` 组件 | 要长期维护的产品 |
-| 只把 Design 当设计探索，定稿后一次性搬过去 | 视觉还在反复的阶段 |
+| Ship the bundled HTML as-is | Demo, internal sharing |
+| Have Claude Code rewrite `apps/web` components to match Design | Long-term maintained product |
+| Treat Design as a visual exploration; migrate to repo after designs stabilize | Design is still in flux |
 
-选第二种时，让 Design 先生成一份交接文档（配色 token、间距、交互状态、地图图层配置、打印排版参数）。
-
----
-
-## Claude Design 的能力边界
-
-**能做**：读 GitHub 仓库、直连后端 API 调试、在浏览器里看到真实响应、诊断前后端问题、打包独立 HTML
-
-**不能做**：
-- push 到 GitHub（只读）
-- 跑你们的 build
-- 看 CloudWatch 日志
-- 跑 WebGL —— 预览沙箱屏蔽了 MapLibre 的 worker，**所有地图相关效果必须由你在真实浏览器里确认一次**
+When choosing option 2, ask Design to produce a handoff document first: color tokens, spacing, interaction states, map layer configuration, print layout parameters.
 
 ---
 
-## 安全约束（不可违反）
+## Claude Design Capability Boundaries
 
-- `backend-config.local.js` 含明文 API key，**永不进 git**
-- 打包产物（`CampusGeo Landing.html`）内联了同一个 key，**不进公开仓库**
-- CORS 白名单只拦浏览器跨域，拦不住 curl；真正的门禁是 `API_SECRET`（fail-closed）
-- 需要新增可访问来源时，**追加白名单条目**，不要放开成 `*`（依据 `docs/worklog/2026-07-15.md` 的收紧决定）
-- 图层原始列（`FCI` / `RI` / `RICOST` / `F2026`–`F2035` 成本预测）不应下发到浏览器，新工具要像 `getBuildingInfo.ts` 的 `pickBuildingProps` 一样做白名单
+**Can do**: read GitHub repositories, connect directly to backend APIs for live debugging, see real responses in the browser, diagnose frontend/backend issues, bundle a self-contained HTML file.
+
+**Cannot do**:
+- Push to GitHub (read-only).
+- Run your build.
+- Read CloudWatch logs.
+- Run WebGL — the preview sandbox blocks MapLibre's worker. **All map-related effects must be verified in a real browser at least once.**
 
 ---
 
-## 每轮切换的检查清单
+## Security Constraints (non-negotiable)
 
-**Code → Design 时带上**：改动了哪些工具、新增/变更的字段名、`features` 的确切结构（FeatureCollection 还是数组）
+- `backend-config.local.js` contains a plaintext API key — **never commit it**.
+- The bundled output (`CampusGeo Landing.html`) inlines the same key — **never push to a public repository**.
+- The CORS allowlist blocks browser cross-origin requests; it does not block `curl`. The real gate is `API_SECRET` (fail-closed).
+- When a new origin needs access, **append it to the allowlist** — never open to `*` (see the tightening decision in `docs/worklog/2026-07-15.md`).
+- Raw layer columns (`FCI` / `RI` / `RICOST` / `F2026`–`F2035` cost projections) must not be sent to the browser. New tools should allowlist fields the same way `getBuildingInfo.ts` `pickBuildingProps` does.
 
-**Design → Code 时带上**：定位到的根因（文件 + 行为）、期望的返回结构、需要后端配合的改动说明（Design 会写成 md 文件，如 `bug-year-filter.md`、`lambda-cors-patch.md`）
+---
 
-**每次 Design 改完地图相关功能后**：自己在浏览器点一次，确认渲染正常
+## Handoff Checklist
+
+**Code → Design, include**:
+- Which tools changed.
+- New or modified field names.
+- Exact structure of `features` (FeatureCollection or bare array).
+
+**Design → Code, include**:
+- Located root cause (file + behavior).
+- Expected return structure.
+- Description of any backend changes needed to support the fix (Design writes these as md files, e.g. `bug-year-filter.md`, `lambda-cors-patch.md`).
+
+**After every Design change to map-related functionality**: click through it once in a real browser to confirm rendering is correct.

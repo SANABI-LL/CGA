@@ -100,6 +100,28 @@ export class ApiStack extends cdk.Stack {
       },
     })
 
+    // ── Plans Proxy Lambda ────────────────────────────────────────
+    const plansLambda = new lambda.Function(this, 'PlansFn', {
+      functionName: `campusgeo-plans-${props.stage}`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'handler.handler',
+      code: lambda.Code.fromAsset(path.join(lambdaRoot, 'plans')),
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,   // linework GeoJSON can be ~12 MB before gzip
+      environment: {
+        GEOJSON_BUCKET: `campusgeo-geodata-${cdk.Aws.ACCOUNT_ID}`,
+        ALLOWED_ORIGIN: props.stage === 'prod' ? 'https://campusgeo.uchicago.edu' : '*',
+      },
+    })
+
+    plansLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['s3:GetObject'],
+        resources: [`arn:aws:s3:::campusgeo-geodata-${cdk.Aws.ACCOUNT_ID}/plans/*`],
+      })
+    )
+
     // ── HTTP API Gateway v2 ───────────────────────────────────────
     const httpApi = new apigatewayv2.HttpApi(this, 'HttpApi', {
       apiName: `campusgeo-api-${props.stage}`,
@@ -108,7 +130,7 @@ export class ApiStack extends cdk.Stack {
           props.stage === 'prod'
             ? ['https://campusgeo.uchicago.edu']
             : ['http://localhost:5173', 'http://localhost:5174', '*'],
-        allowMethods: [apigatewayv2.CorsHttpMethod.ANY],
+        allowMethods: [apigatewayv2.CorsHttpMethod.GET, apigatewayv2.CorsHttpMethod.POST, apigatewayv2.CorsHttpMethod.OPTIONS],
         allowHeaders: ['Content-Type', 'Authorization'],
         maxAge: cdk.Duration.hours(1),
       },
@@ -151,6 +173,18 @@ export class ApiStack extends cdk.Stack {
       path: '/api/bookmarks/{bookmarkId}',
       methods: [apigatewayv2.HttpMethod.DELETE],
       integration: new integrations.HttpLambdaIntegration('BookmarksDeleteIntegration', bookmarksLambda),
+    })
+
+    httpApi.addRoutes({
+      path: '/api/plans/index',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration('PlansIndexIntegration', plansLambda),
+    })
+
+    httpApi.addRoutes({
+      path: '/api/plans/{bdId}/{file}',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration('PlansIntegration', plansLambda),
     })
 
     this.apiEndpoint = httpApi.apiEndpoint

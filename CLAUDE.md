@@ -315,22 +315,26 @@ When in doubt about an aesthetic decision, look at how aino.world, The Pudding, 
 ### Phase 2: User Infrastructure (Months 5–8)
 **Goal:** Persistent user accounts and cross-session memory.
 
+**Auth approach (revised 2026-11-10, see `specs/PLAN-sharing-email-login.md`):**
+- **Amazon Cognito email login** — administrator-created accounts only (`@uchicago.edu`), self sign-up disabled. Cognito user list is the whitelist; no separate DynamoDB whitelist file needed.
+- Two API Gateways: existing `campusgeo-api` stays as staging (X-Api-Key), new `campusgeo-api-prod` added for production (Cognito JWT authorizer). Same Lambda, different aliases (`$LATEST` vs published version).
+- Handler auth: if `event.requestContext.authorizer?.jwt?.claims` present → prod path, log email. Else → staging path, validate X-Api-Key.
+- Frontend served from private S3 + CloudFront (OAC). Page carries no shared key.
+- Future upgrade path: add UChicago Shibboleth as SAML provider to the same Cognito user pool — frontend and API unchanged.
+
+**IT clearance:** IT Information Assurance confirmed no additional review required (2026-11-10). Rate limiting deferred to Phase 3.
+
 **Key features:**
-- **Google Workspace OAuth** (UChicago CNetID validation)
-  - Frontend: Google Sign-In button
-  - Backend: verify `@uchicago.edu` domain, check DynamoDB whitelist
-  - **Scope control:** ship with a hardcoded invitation-code gate first; defer the full admin panel (add/remove users UI) to Phase 4 unless time allows. The admin panel + whitelist edge cases (rejection UX, revocation) can absorb 30–40 hours better spent on Phase 3 differentiators.
 - **DynamoDB storage:**
-  - `users` table: profile (CNetID, email, join date)
-  - `query_history` table: user queries + GeoJSON results
+  - `query_history` table: user queries + GeoJSON results (keyed by email)
   - `map_bookmarks` table: saved map states (zoom, center, layers)
-  - `user_profiles` table: Claude-generated memory summaries (see below)
+  - `user_profiles` table: Claude-generated memory summaries
 - **QueryHistoryPanel UI:** load previous queries, replay on map
-- **User memory (lightweight, ~10h):** a scheduled Lambda periodically summarizes each user's `query_history` via Claude into a compact profile ("frequently queries north-campus building condition; prefers tree layers in spring"). The profile seeds personalized query suggestions and change notifications. History is the record; the profile is the memory — they are distinct features.
+- **User memory (lightweight, ~10h):** a scheduled Lambda periodically summarizes each user's `query_history` via Claude into a compact profile. The profile seeds personalized query suggestions and change notifications.
 
-**Access control:** Internal-only. Invitation-code gate first, whitelist later. Future migration to UChicago IT CNetID SSO (SAML/Shibboleth) when scaling.
+**Access control:** Internal-only. 5–10 invited `@uchicago.edu` users. Admin adds accounts in Cognito console; no self-registration.
 
-**Success metric:** Returning UChicago users see query history and bookmarks. Non-UChicago accounts rejected at login.
+**Success metric:** Invited users can sign in, ask questions, and see query history. Unauthenticated requests to prod API return 401.
 
 ---
 
