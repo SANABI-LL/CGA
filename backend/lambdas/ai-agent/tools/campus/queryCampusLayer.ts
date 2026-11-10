@@ -1,53 +1,162 @@
 import { z } from 'zod'
 import { queryS3Layer } from './queryS3Layer'
+import { resolveLocation, haversineMeters, distPointToPolygonMeters } from './findCampusNearby'
 
 export const QueryCampusLayerInputSchema = z.object({
-  layerName: z.enum(['subarea']).describe('Campus polygon layer to retrieve'),
-  filterField: z.string().max(50).optional().describe(
-    'Property to match, e.g. "SubArea"'
-  ),
-  filterValues: z.array(z.string().max(50)).max(20).optional().describe(
-    'Accepted values, e.g. ["E"] or ["B","C"]. For subareas, single letters or "Subarea E" both work.'
-  ),
-  maxResults: z.number().int().min(1).max(300).optional().default(100),
+  layerName: z.enum([
+    'emergency_phone', 'trash_can', 'benches', 'seating', 'public_arts', 'green_roof',
+    'ada_route', 'accessible_entrance', 'controlled_entrance',
+    'accessibility_info', 'inaccessible_entrance', 'inaccessible_building',
+    'hydrant', 'fire_escape', 'sprinkler', 'standpipe', 'fire_lane', 'post_indicator_valve',
+    'subarea',
+    'landmark', 'nrhp', 'nhl',
+    'surface_parking', 'metra_station',
+    'shuttle_stops', 'shuttle_routes',
+    'campus_landmarks',
+  ]).describe('Which campus layer to query'),
+  nearLocation: z.string().max(200).optional()
+    .describe('Optional campus location name to filter by proximity (e.g. "Regenstein Library")'),
+  radiusMeters: z.number().min(0).max(2000).optional()
+    .describe('Search radius in meters when nearLocation is set. Polygon landmarks (Quad, Midway…): default = inside only (0); point anchors: default = 400 m.'),
+  limit: z.number().int().min(1).max(200).optional().default(50)
+    .describe('Max features to return (default 50)'),
+  sortBy: z.string().optional().describe('Property name to sort features by'),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
+  topN: z.number().int().min(1).max(200).optional().describe('Return only the top N after sorting'),
+  filterField: z.string().max(50).optional().describe('Property field to filter by, e.g. "SubArea"'),
+  filterValues: z.array(z.string().max(50)).max(20).optional()
+    .describe('Return only features where filterField equals one of these values (case-insensitive)'),
 }).strict()
 
 export type QueryCampusLayerInput = z.infer<typeof QueryCampusLayerInputSchema>
 
-// Normalise a value for matching against the SubArea field.
-// "Subarea E", "sub-area E", "e", "E " → "E"
-function normaliseSubarea(v: string): string {
-  return v.trim().toUpperCase().replace(/^SUB-?AREA\s*/i, '')
+const LAYER_LABELS: Record<string, string> = {
+  emergency_phone: 'Emergency Phones',
+  trash_can: 'Trash Cans',
+  benches: 'Benches',
+  seating: 'Outdoor Seating Areas',
+  public_arts: 'Public Art',
+  green_roof: 'Green Roofs',
+  ada_route: 'ADA Routes',
+  accessible_entrance: 'Accessible Public Entrances',
+  controlled_entrance: 'Accessible Controlled-Access Entrances',
+  accessibility_info: 'Building Accessibility Information',
+  inaccessible_entrance: 'Inaccessible Main Entrances',
+  inaccessible_building: 'Inaccessible Buildings',
+  hydrant: 'Fire Hydrants',
+  fire_escape: 'Fire Escapes',
+  sprinkler: 'Fire Sprinklers',
+  standpipe: 'Standpipes',
+  fire_lane: 'Fire Lanes',
+  post_indicator_valve: 'Post Indicator Valves',
+  subarea: 'Campus Planning Subareas',
+  landmark: 'Individual City Landmarks',
+  nrhp: 'National Register of Historic Places',
+  nhl: 'National Historic Landmarks',
+  surface_parking: 'Surface Parking Lots',
+  metra_station: 'Metra Train Stations',
+  shuttle_stops: 'Campus Shuttle Stops (Passio GO)',
+  shuttle_routes: 'Campus Shuttle Routes (Passio GO)',
+  campus_landmarks: 'Campus Non-Building Landmarks (ponds, quads, gates, sculptures)',
 }
 
 export async function queryCampusLayer(input: QueryCampusLayerInput) {
-  const raw = await queryS3Layer({ layerName: input.layerName, maxResults: 500, returnGeometry: true })
+  const raw = await queryS3Layer({
+    layerName: input.layerName,
+    maxResults: 500,
+    returnGeometry: true,
+  })
+
   if ('error' in raw) return raw
 
   let features = raw.features
 
-  if (input.filterField && input.filterValues?.length) {
-    const fieldLower = input.filterField.toLowerCase()
-    const normed = input.layerName === 'subarea' && fieldLower === 'subarea'
-      ? input.filterValues.map(normaliseSubarea)
-      : input.filterValues.map(v => v.trim())
-
+  // Optional value filter (e.g. SubArea IN ['B', 'C'])
+  if (input.filterField && input.filterValues && input.filterValues.length > 0) {
+    const field = input.filterField
+    const allowed = new Set(input.filterValues.map(v => String(v).toLowerCase()))
     features = features.filter(f => {
-      const key = Object.keys(f.properties).find(k => k.toLowerCase() === fieldLower)
-      if (!key) return false
-      return normed.includes(String(f.properties[key]).trim().toUpperCase())
+      const v = f.properties[field]
+      return v != null && allowed.has(String(v).toLowerCase())
     })
   }
 
-  const limit = input.maxResults ?? 100
-  if (features.length > limit) features = features.slice(0, limit)
+  // Optional proximity filter
+  let anchorPolygon: { type: 'Polygon'; coordinates: number[][][] } | undefined
+  if (input.nearLocation) {
+    const center = await resolveLocation(input.nearLocation)
+    if (!center) {
+      return {
+        error: `Unknown location "${input.nearLocation}". Try a building name like "Regenstein Library" or "Main Quad".`,
+      }
+    }
+    if (center.polygon) {
+      anchorPolygon = { type: 'Polygon', coordinates: [center.polygon] }
+    }
+    // Polygon anchor: default = 0 (inside only); point anchor: default = 400 m
+    const radius = input.radiusMeters ?? (center.polygon ? 0 : 400)
+    features = features.filter((f) => {
+      const geom = f.geometry
+      if (!geom) return false
+      let lat: number | null = null
+      let lng: number | null = null
+      if (geom.type === 'Point') {
+        const c = geom.coordinates as [number, number]
+        lng = c[0]; lat = c[1]
+      } else if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
+        const ring = geom.type === 'Polygon'
+          ? (geom.coordinates as number[][][])[0]
+          : (geom.coordinates as number[][][][])[0][0]
+        if (ring?.length) {
+          lng = ring.reduce((s: number, p: number[]) => s + p[0], 0) / ring.length
+          lat = ring.reduce((s: number, p: number[]) => s + p[1], 0) / ring.length
+        }
+      } else if (geom.type === 'LineString') {
+        const coords = geom.coordinates as number[][]
+        if (coords.length) {
+          const mid = coords[Math.floor(coords.length / 2)]
+          lng = mid[0]; lat = mid[1]
+        }
+      }
+      if (lat === null || lng === null) return false
+      const dist = center.polygon
+        ? distPointToPolygonMeters(lng, lat, center.polygon)
+        : haversineMeters(center.lat, center.lng, lat, lng)
+      return dist <= radius
+    })
+  }
+
+  let sorted = features
+  if (input.sortBy) {
+    const sk = input.sortBy
+    sorted = features
+      .map((f) => {
+        const v = f.properties[sk]
+        const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+        return { f, n: Number.isFinite(n) ? n : null }
+      })
+      .sort((a, b) => {
+        if (a.n === null && b.n === null) return 0
+        if (a.n === null) return 1
+        if (b.n === null) return -1
+        return input.sortOrder === 'asc' ? a.n - b.n : b.n - a.n
+      })
+      .map((x) => x.f)
+  }
+  const trimmed = sorted.slice(0, input.topN ?? input.limit ?? 50)
 
   return {
-    // Wrap as { features: FeatureCollection } so agent.ts mapUpdate emitter
-    // can do resultObj.features?.features to get the raw array (matching the
-    // pattern used by queryBuildingAttributes and other map tools).
-    features: { type: 'FeatureCollection' as const, features },
-    count: features.length,
+    type: 'FeatureCollection' as const,
+    features: trimmed,
+    count: trimmed.length,
+    totalInLayer: raw.features.length,
     layer: input.layerName,
+    label: LAYER_LABELS[input.layerName] ?? input.layerName,
+    ...(input.nearLocation ? { nearLocation: input.nearLocation, radiusMeters: input.radiusMeters } : {}),
+    ...(anchorPolygon ? { anchorPolygon } : {}),
+    ...(input.filterField && input.filterValues?.length
+      ? { _mapFocus: { field: input.filterField, values: input.filterValues } }
+      : {}),
+    source: 's3',
   }
 }

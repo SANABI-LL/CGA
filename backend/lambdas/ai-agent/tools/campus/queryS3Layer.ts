@@ -9,24 +9,76 @@ const s3 = new S3Client({
 import { getBucket } from './config'
 
 const S3_LAYER_FILES: Record<string, string> = {
+  // Core layers
   buildings: 'layers/buildings.geojson',
   dining: 'layers/Cafe__Market__Restaurant_and_Dining_Hall.geojson',
   accessible: 'layers/all-gender-restrooms.geojson',
   leed_buildings: 'layers/leed-buildings.geojson',
   trees: 'layers/trees.geojson',
-  bike_racks: 'layers/bike_racks.geojson',
   parking: 'layers/parking.geojson',
+  bike_racks: 'layers/bike_racks.geojson',
+  // Campus amenities & furniture
+  emergency_phone: 'layers/emergency_phone.geojson',
+  trash_can: 'layers/trash_can.geojson',
+  benches: 'layers/benches.geojson',
+  seating: 'layers/seating.geojson',
+  public_arts: 'layers/public_arts.geojson',
+  green_roof: 'layers/green_roof.geojson',
+  // Accessibility
+  ada_route: 'layers/ada_route.geojson',
+  accessible_entrance: 'layers/accessible_public_entrance.geojson',
+  controlled_entrance: 'layers/accessible_controlled_access_entrance.geojson',
+  accessibility_info: 'layers/accessibility_information.geojson',
+  inaccessible_entrance: 'layers/inaccessible_main_entrance.geojson',
+  inaccessible_building: 'layers/inaccessible_building.geojson',
+  // Fire & safety
+  hydrant: 'layers/hydrant.geojson',
+  fire_escape: 'layers/fire_escape.geojson',
+  sprinkler: 'layers/sprinkler.geojson',
+  standpipe: 'layers/standpipe.geojson',
+  fire_lane: 'layers/fire_lane.geojson',
+  post_indicator_valve: 'layers/post_indicator_valve.geojson',
+  // Campus planning geography
   subarea: 'layers/Subarea.geojson',
+  // Landmarks & heritage
+  landmark: 'layers/individual_landmark.geojson',
+  nrhp: 'layers/nrhp.geojson',
+  nhl: 'layers/nhl.geojson',
+  // Parking & transit
+  surface_parking: 'layers/surface_parking.geojson',
+  metra_station: 'layers/metrastations.geojson',
+  // Transit — Passio GO shuttle data (updated by ETL)
+  shuttle_stops: 'layers/shuttle_stops.geojson',
+  shuttle_routes: 'layers/shuttle_routes.geojson',
+  // Non-building campus landmarks (ponds, quads, gates, sculptures)
+  campus_landmarks: 'layers/landmarks.geojson',
+  // Utilities with engineering attributes
+  steam_line_by_year: 'layers/Steam_Line_by_Year.geojson',
 }
 
 // Internal helper schema (not exposed as a model tool) — outFields stays for
 // in-process callers, but inputs are still clamped defensively.
 export const QueryS3LayerInputSchema = z.object({
-  layerName: z.enum(['buildings', 'dining', 'accessible', 'leed_buildings', 'trees', 'bike_racks', 'parking', 'subarea']),
+  layerName: z.enum([
+    'buildings', 'dining', 'accessible', 'leed_buildings', 'trees', 'bike_racks', 'parking',
+    'trash_can', 'benches', 'seating', 'public_arts', 'green_roof', 'emergency_phone',
+    'ada_route', 'accessible_entrance', 'controlled_entrance',
+    'accessibility_info', 'inaccessible_entrance', 'inaccessible_building',
+    'hydrant', 'fire_escape', 'sprinkler', 'standpipe', 'fire_lane', 'post_indicator_valve',
+    'shuttle_stops', 'shuttle_routes',
+    'campus_landmarks',
+    'subarea',
+    'landmark', 'nrhp', 'nhl',
+    'surface_parking', 'metra_station',
+    'steam_line_by_year',
+  ]),
   whereClause: z.string().max(500).optional().describe('SQL-like WHERE clause (e.g., "DISCRIPT1 LIKE \'%Library%\'")'),
   maxResults: z.number().int().min(1).max(500).optional().default(100),
   returnGeometry: z.boolean().optional().default(true),
   outFields: z.array(z.string()).optional().describe('Fields to return (default: all)'),
+  sortBy: z.string().optional().describe('Property name to sort results by'),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
+  topN: z.number().int().min(1).max(500).optional().describe('Return only the top N after sorting'),
 }).strict()
 
 export type QueryS3LayerInput = z.infer<typeof QueryS3LayerInputSchema>
@@ -79,12 +131,33 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
     let features = geojson.features || []
 
     if (input.whereClause && input.whereClause !== '1=1') {
-      features = filterByWhereClause(features, input.whereClause)
+      const filtered = filterByWhereClause(features, input.whereClause)
+      if (filtered === null) {
+        return { error: `Unsupported filter: ${input.whereClause}` }
+      }
+      features = filtered
     }
 
-    // 3. 限制结果数量
-    if (input.maxResults && features.length > input.maxResults) {
-      features = features.slice(0, input.maxResults)
+    // 3. Sort (if requested) then cap — missing values sort to end, never as 0
+    if (input.sortBy) {
+      const sk = input.sortBy
+      features = features
+        .map((f) => {
+          const v = f.properties[sk]
+          const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+          return { f, n: Number.isFinite(n) ? n : null }
+        })
+        .sort((a, b) => {
+          if (a.n === null && b.n === null) return 0
+          if (a.n === null) return 1
+          if (b.n === null) return -1
+          return input.sortOrder === 'asc' ? a.n - b.n : b.n - a.n
+        })
+        .map((x) => x.f)
+    }
+    const cap = input.topN ?? input.maxResults
+    if (cap && features.length > cap) {
+      features = features.slice(0, cap)
     }
 
     // 4. 字段选择
@@ -127,25 +200,28 @@ export async function queryS3Layer(input: QueryS3LayerInput) {
  *
  * 不支持：复杂的 AND/OR、嵌套括号
  */
-function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): GeoJSONFeature[] {
+// Normalise before comparison: lowercase, strip accents and non-alphanumeric.
+// Mirrors the same helper in queryTrees.ts so "honey locust" finds "Common Honeylocust".
+const normStr = (s: unknown): string =>
+  String(s ?? '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '')
+
+function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): GeoJSONFeature[] | null {
   const clause = whereClause.trim()
 
   // LIKE pattern: FIELD LIKE '%value%'
   const likeMatch = clause.match(/(\w+)\s+LIKE\s+'%(.+?)%'/i)
   if (likeMatch) {
     const [, field, value] = likeMatch
-    const lowerValue = value.toLowerCase()
-    return features.filter(f => {
-      const fieldValue = String(f.properties[field] || '').toLowerCase()
-      return fieldValue.includes(lowerValue)
-    })
+    const normValue = normStr(value)
+    return features.filter(f => normStr(f.properties[field]).includes(normValue))
   }
 
-  // Equality: FIELD = 'value'
+  // Equality: FIELD = 'value' (normalised, case-insensitive)
   const eqMatch = clause.match(/(\w+)\s*=\s*'([^']+)'/i)
   if (eqMatch) {
     const [, field, value] = eqMatch
-    return features.filter(f => String(f.properties[field]) === value)
+    const normValue = normStr(value)
+    return features.filter(f => normStr(f.properties[field]) === normValue)
   }
 
   // Numeric comparison: FIELD > 100
@@ -167,16 +243,30 @@ function filterByWhereClause(features: GeoJSONFeature[], whereClause: string): G
     })
   }
 
-  // IS NOT NULL
+  // IS NOT NULL — must come before IS NULL to avoid false partial match
   const notNullMatch = clause.match(/(\w+)\s+IS\s+NOT\s+NULL/i)
   if (notNullMatch) {
     const [, field] = notNullMatch
-    return features.filter(f => f.properties[field] != null && f.properties[field] !== '')
+    return features.filter(f => {
+      const v = f.properties[field]
+      return v != null && String(v).trim() !== ''
+    })
   }
 
-  // Fail-closed: unsupported clause returns empty so the model rewrites the condition
+  // IS NULL (null, empty string, or whitespace-only)
+  const isNullMatch = clause.match(/(\w+)\s+IS\s+NULL/i)
+  if (isNullMatch) {
+    const [, field] = isNullMatch
+    return features.filter(f => {
+      const v = f.properties[field]
+      return v == null || String(v).trim() === ''
+    })
+  }
+
+  // Unsupported clause: return null so the caller can surface a structured error
+  // to the model instead of silently returning 0 or all features.
   console.warn(`Unsupported WHERE clause: ${clause}`)
-  return []
+  return null
 }
 
 /**

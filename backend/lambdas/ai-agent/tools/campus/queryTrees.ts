@@ -1,7 +1,15 @@
 import { z } from 'zod'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getBucket } from './config'
-import { resolveLocation, haversineMeters } from './findCampusNearby'
+import { resolveLocation, haversineMeters, distPointToPolygonMeters } from './findCampusNearby'
+
+// Normalise before string comparison: lowercase, strip accents, collapse non-alphanumeric.
+// Makes "honey locust" match "Common Honeylocust", "bur oak" match "Bur Oak", etc.
+const norm = (s: unknown): string =>
+  String(s ?? '')
+    .toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '')
 
 const s3 = new S3Client({
   region: 'us-east-1',
@@ -17,7 +25,17 @@ export const QueryTreesInputSchema = z.object({
   year: z.number().int().min(1800).max(2200).optional().describe('Year planted or last updated (e.g., 2024, 2025, 2026)'),
   notes: z.string().max(200).optional().describe('Keyword match on TreeNotes, which records planting batches like "2025 Fall" — use for "planted in fall 2025" questions'),
   nearLocation: z.string().max(200).optional().describe('Named campus location for spatial radius search, e.g. "Keller Center", "Regenstein Library". Use this — not location — when the user asks "trees near/within X" or "trees within N ft of X".'),
-  radiusMeters: z.number().min(1).max(2000).optional().default(150).describe('Search radius in metres when nearLocation is set. 1 ft ≈ 0.305 m, so 500 ft ≈ 152 m (default 150 m).'),
+  radiusMeters: z.number().min(0).max(2000).optional().describe('Search radius in metres (default 150 for point anchors). For polygon landmarks (Main Quad, Midway…): omit to return trees INSIDE the polygon only; pass N to add an N-metre buffer around the boundary.'),
+  ownership: z.enum(['campus', 'right-of-way']).optional().describe(
+    'Filter by ownership. Use the UChicagoIn field: "campus" = trees on University-owned land (UChicagoIn is null/blank); ' +
+    '"right-of-way" = trees on public land managed by another authority (CDOT, Midway Plaisance, etc.). ' +
+    'Omit to return all trees.'
+  ),
+  sortBy: z.string().max(50).optional().describe(
+    'Property field name to sort results by. Common: "EstValue" (appraised value), "CanRadius" (canopy size), "DBH1" (trunk diameter).'
+  ),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc').describe('Sort direction (default desc)'),
+  topN: z.number().int().min(1).max(200).optional().describe('Return only the top N features after sorting. Use for "most valuable", "largest canopy", "biggest trunk" questions.'),
 }).strict()
 
 export type QueryTreesInput = z.infer<typeof QueryTreesInputSchema>
@@ -76,25 +94,32 @@ export async function queryTrees(input: QueryTreesInput) {
 
     // 空间过滤：nearLocation + radiusMeters（优先于属性 location 字段）
     if (input.nearLocation) {
-      const center = resolveLocation(input.nearLocation)
+      const center = await resolveLocation(input.nearLocation)
       if (!center) {
         return {
           error: `Unknown location "${input.nearLocation}". Try a well-known campus building name, e.g. "Regenstein Library", "Keller Center", "Main Quad".`,
         }
       }
-      const radiusM = input.radiusMeters ?? 150
+      // Polygon anchor: default = 0 (inside only); point anchor: default = 150 m
+      const radiusM = input.radiusMeters ?? (center.polygon ? 0 : 150)
       filtered = filtered.filter(f => {
         const [lng, lat] = f.geometry.coordinates
-        return haversineMeters(center.lat, center.lng, lat, lng) <= radiusM
+        const dist = center.polygon
+          ? distPointToPolygonMeters(lng, lat, center.polygon)
+          : haversineMeters(center.lat, center.lng, lat, lng)
+        return dist <= radiusM
       })
       // 注入距离属性供 Agent 呈现
       filtered = filtered.map(f => {
         const [lng, lat] = f.geometry.coordinates
+        const dist = center.polygon
+          ? distPointToPolygonMeters(lng, lat, center.polygon)
+          : haversineMeters(center.lat, center.lng, lat, lng)
         return {
           ...f,
           properties: {
             ...f.properties,
-            _distanceMeters: Math.round(haversineMeters(center.lat, center.lng, lat, lng)),
+            _distanceMeters: Math.round(dist),
           },
         }
       }) as typeof filtered
@@ -110,30 +135,46 @@ export async function queryTrees(input: QueryTreesInput) {
       return null
     }
 
-    // 过滤：树种（常用名/学名/属名都可命中，如 "Maple" → "Maple-Sugar"）
+    // 过滤：树种（常用名/学名/属名都可命中）
+    // norm() 消除大小写 + 空格 + 标点差异，使 "honey locust" 命中 "Common Honeylocust"
     if (input.species) {
-      const sp = input.species.toLowerCase()
+      const normSp = norm(input.species)
+      const afterBoundary = filtered.slice() // 保存边界过滤后结果，用于零结果 guard
       filtered = filtered.filter(f => {
-        const species = firstString(f, ['CommonName', 'Common_Nam', 'ScientName', 'Genus', 'hostId'])
-        return species !== null && species.toLowerCase().includes(sp)
+        const species = firstString(f, ['CommonName', 'Common_Nam', 'ScientName', 'Genus', 'Species'])
+        return species !== null && norm(species).includes(normSp)
       })
+      // 零结果 guard：返回 distinctValues，防止 agent 错误断言"此种不存在"
+      if (filtered.length === 0) {
+        const distinctSpecies = [...new Set(
+          afterBoundary
+            .map(f => firstString(f, ['CommonName', 'Common_Nam']))
+            .filter((v): v is string => v !== null)
+        )].sort().slice(0, 20)
+        return {
+          count: 0,
+          filterApplied: { field: 'species', op: 'contains', value: input.species },
+          distinctValues: distinctSpecies,
+          _zeroResultHint: `No trees matched species "${input.species}" (searched as "${normSp}"). Do NOT claim none exist. Present distinctValues to the user.`,
+        }
+      }
     }
 
     // 过滤：年龄等级
     if (input.ageClass) {
-      const age = input.ageClass.toLowerCase()
+      const normAge = norm(input.ageClass)
       filtered = filtered.filter(f => {
         const ageClass = firstString(f, ['AgeClass', 'ageClass'])
-        return ageClass !== null && ageClass.toLowerCase().includes(age)
+        return ageClass !== null && norm(ageClass).includes(normAge)
       })
     }
 
     // 过滤：状态
     if (input.condition) {
-      const cond = input.condition.toLowerCase()
+      const normCond = norm(input.condition)
       filtered = filtered.filter(f => {
         const condition = firstString(f, ['Condition', 'conditionC'])
-        return condition !== null && condition.toLowerCase().includes(cond)
+        return condition !== null && norm(condition).includes(normCond)
       })
     }
 
@@ -161,11 +202,20 @@ export async function queryTrees(input: QueryTreesInput) {
 
     // 过滤：位置
     if (input.location) {
-      const loc = input.location.toLowerCase()
+      const normLoc = norm(input.location)
       filtered = filtered.filter(f => {
         const location = f.properties.locationRa
-        return location && typeof location === 'string' &&
-               location.toLowerCase().includes(loc)
+        return location && typeof location === 'string' && norm(location).includes(normLoc)
+      })
+    }
+
+    // 过滤：归属（UChicagoIn 字段）
+    // 空/null/纯空白 = 校园树（芝大产权）；有值 = 公共道路树（CDOT、Midway Plaisance 等）
+    if (input.ownership) {
+      filtered = filtered.filter(f => {
+        const v = f.properties.UChicagoIn
+        const isEmpty = v == null || String(v).trim() === ''
+        return input.ownership === 'campus' ? isEmpty : !isEmpty
       })
     }
 
@@ -193,11 +243,19 @@ export async function queryTrees(input: QueryTreesInput) {
       })
     }
 
-    // 3. 统计信息
+    // 3. 统计信息（在 sort/topN 切片之前，基于全量过滤结果计算）
     const count = filtered.length
     const speciesCount: Record<string, number> = {}
     const ageCount: Record<string, number> = {}
     const conditionCount: Record<string, number> = {}
+    let campusCount = 0
+    let rowCount = 0
+    const rowByAuthority: Record<string, number> = {}
+
+    // EstValue 聚合（避免让模型自己加 5000+ 行）
+    let estValTotal = 0, estValCount = 0, estValMin = Infinity, estValMax = -Infinity
+    const estValByCampus = { campus: 0, campusCount: 0, rightOfWay: 0, rowCount: 0 }
+    const estValByAuthority: Record<string, { total: number; count: number }> = {}
 
     for (const feature of filtered) {
       // 统计树种（新旧字段名兼容，同过滤逻辑）
@@ -215,7 +273,58 @@ export async function queryTrees(input: QueryTreesInput) {
       if (condition) {
         conditionCount[condition] = (conditionCount[condition] || 0) + 1
       }
+
+      // 统计归属（UChicagoIn: 空 = 校园树，有值 = 公共道路树）
+      const uchicagoIn = feature.properties.UChicagoIn
+      const isRow = uchicagoIn != null && String(uchicagoIn).trim() !== ''
+      if (isRow) {
+        rowCount++
+        const authority = String(uchicagoIn).trim()
+        rowByAuthority[authority] = (rowByAuthority[authority] || 0) + 1
+      } else {
+        campusCount++
+      }
+
+      // EstValue 聚合
+      const ev = feature.properties.EstValue
+      if (ev != null && ev !== '') {
+        const evNum = typeof ev === 'number' ? ev : parseFloat(String(ev))
+        if (!Number.isNaN(evNum)) {
+          estValTotal += evNum
+          estValCount++
+          if (evNum < estValMin) estValMin = evNum
+          if (evNum > estValMax) estValMax = evNum
+          if (isRow) {
+            const authority = String(uchicagoIn).trim()
+            if (!estValByAuthority[authority]) estValByAuthority[authority] = { total: 0, count: 0 }
+            estValByAuthority[authority].total += evNum
+            estValByAuthority[authority].count++
+            estValByCampus.rightOfWay += evNum
+            estValByCampus.rowCount++
+          } else {
+            estValByCampus.campus += evNum
+            estValByCampus.campusCount++
+          }
+        }
+      }
     }
+
+    // 4a. 排序（在 topN 切片之前）
+    if (input.sortBy) {
+      const sf = input.sortBy
+      filtered = [...filtered].sort((a, b) => {
+        const av = a.properties[sf]
+        const bv = b.properties[sf]
+        const an = typeof av === 'number' ? av : parseFloat(String(av ?? ''))
+        const bn = typeof bv === 'number' ? bv : parseFloat(String(bv ?? ''))
+        if (Number.isNaN(an) && Number.isNaN(bn)) return 0
+        if (Number.isNaN(an)) return 1
+        if (Number.isNaN(bn)) return -1
+        return (input.sortOrder ?? 'desc') === 'asc' ? an - bn : bn - an
+      })
+    }
+    // 4b. topN 切片（只影响地图要素，统计已基于全量计算）
+    const mapSlice = input.topN ? filtered.slice(0, input.topN) : filtered
 
     // 4. 生成摘要
     const topSpecies = Object.entries(speciesCount)
@@ -223,28 +332,77 @@ export async function queryTrees(input: QueryTreesInput) {
       .slice(0, 5)
       .map(([name, count]) => ({ species: name, count }))
 
+    const ownershipBreakdown = {
+      campus: campusCount,
+      rightOfWay: rowCount,
+      byAuthority: Object.entries(rowByAuthority)
+        .sort((a, b) => b[1] - a[1])
+        .reduce<Record<string, number>>((acc, [k, v]) => { acc[k] = v; return acc }, {}),
+      note: 'campus = University-owned land (UChicagoIn empty/null); right-of-way = public land managed by named authority',
+    }
+
     // 5. 返回结果
     // 树是点要素，可以全量上图（上限 6000 防御异常数据）——但要把 55 个
     // CAD 字段瘦身成展示所需的 5 个，否则 5000+ 棵的属性就有数 MB。
     // 模型只读统计摘要（_modelSummary），不接收逐棵几何。
+    const estValueAggregate = estValCount > 0
+      ? {
+          total: Math.round(estValTotal),
+          mean: Math.round(estValTotal / estValCount),
+          min: estValMin === Infinity ? 0 : Math.round(estValMin),
+          max: estValMax === -Infinity ? 0 : Math.round(estValMax),
+          treesWithValue: estValCount,
+          campus: {
+            total: Math.round(estValByCampus.campus),
+            mean: estValByCampus.campusCount > 0 ? Math.round(estValByCampus.campus / estValByCampus.campusCount) : 0,
+            count: estValByCampus.campusCount,
+          },
+          rightOfWay: {
+            total: Math.round(estValByCampus.rightOfWay),
+            mean: estValByCampus.rowCount > 0 ? Math.round(estValByCampus.rightOfWay / estValByCampus.rowCount) : 0,
+            count: estValByCampus.rowCount,
+          },
+          byAuthority: Object.entries(estValByAuthority)
+            .sort((a, b) => b[1].total - a[1].total)
+            .reduce<Record<string, { total: number; mean: number; count: number }>>(
+              (acc, [k, v]) => {
+                acc[k] = { total: Math.round(v.total), mean: Math.round(v.total / v.count), count: v.count }
+                return acc
+              }, {}
+            ),
+          note: 'EstValue = appraised replacement value in USD (i-Tree/CTLA methodology)',
+        }
+      : null
+
     const summary = {
       totalCount: count,
       topSpecies,
       ageBreakdown: ageCount,
       conditionBreakdown: conditionCount,
-      queryFilters: input
+      ownershipBreakdown,
+      estValueAggregate,
+      queryFilters: input,
     }
-    const mapFeatures = filtered.slice(0, 6000).map(f => ({
+
+    // mapFeatures: use sorted/topN slice (max 6000 for point layers)
+    const mapFeatures = mapSlice.slice(0, 6000).map(f => ({
       type: 'Feature' as const,
       geometry: f.geometry,
       properties: {
         TreeID: f.properties.TreeID ?? f.properties.OBJECTID,
         OBJECTID: f.properties.OBJECTID,
         CommonName: firstString(f, ['CommonName', 'Common_Nam']),
+        ScientName: f.properties.ScientName ?? null,
         Condition: firstString(f, ['Condition', 'conditionC']),
         AgeClass: firstString(f, ['AgeClass', 'ageClass']),
-        CanRadius: firstString(f, ['CanRadius', 'canopyRadi']),
-        TreeNotes: firstString(f, ['TreeNotes'])
+        CanRadius: f.properties.CanRadius ?? null,
+        DBH1: f.properties.DBH1 ?? null,
+        EstValue: f.properties.EstValue != null && f.properties.EstValue !== ''
+          ? parseFloat(String(f.properties.EstValue))
+          : null,
+        UChicagoIn: f.properties.UChicagoIn ?? null,
+        LastUpda: f.properties.LastUpda ?? null,
+        TreeNotes: firstString(f, ['TreeNotes']),
       }
     }))
 
@@ -257,7 +415,38 @@ export async function queryTrees(input: QueryTreesInput) {
       _modelSummary: {
         ...summary,
         featuresShownOnMap: mapFeatures.length,
-        note: 'Features are rendered on the map; per-tree geometry omitted here.'
+        fieldDictionary: {
+          TreeID: 'Unique tree identifier',
+          CommonName: 'Common name (e.g., "Elm", "Oak")',
+          ScientName: 'Scientific name (e.g., "Ulmus americana")',
+          Genus: 'Genus',
+          Species: 'Species epithet',
+          ITreeCode: 'i-Tree species code (4-letter)',
+          AgeClass: 'Age class: Young / Semi-mature / Mature',
+          Condition: 'Tree health: Good / Fair / Poor / Dead',
+          HTClass: 'Height class: Short / Medium / Tall',
+          CanRadius: 'Canopy radius in feet',
+          DBH1: 'Diameter at breast height, primary stem (inches)',
+          'DBH2-6': 'Additional stem diameters for multi-stem trees (inches)',
+          EstValue: 'Appraised replacement value in USD (i-Tree/CTLA methodology). Sum for totals; sort descending for "most valuable".',
+          UChicagoIn: 'Ownership: empty/blank = University-owned campus tree; non-empty = right-of-way tree, value is the managing authority (CDOT, Midway Plaisance, Medical Campus, etc.)',
+          UChicagoCa: 'Ownership category label (secondary flag, prefer UChicagoIn)',
+          LocType: 'Physical planting context: Open / Sidewalk / Planter / etc.',
+          LocValue: 'Location quality value: Good / Fair / Poor',
+          OverheadLi: 'Overhead lines present: Yes / No',
+          RootInfrin: 'Root intrusion percentage: <25% / 25-50% / etc.',
+          Desirabili: 'Desirability score (0–1 scale)',
+          Stems: 'Number of stems',
+          Active: '1 = active record',
+          Dateinvent: 'Date inventoried',
+          LastUpda: 'Date last updated (MM/DD/YYYY)',
+          TreeNotes: 'Free-text notes (planting batches, incidents, etc.)',
+          ItreeEco: 'Included in i-Tree Eco analysis: Yes / No',
+          Itreecarbo: 'Carbon storage value ($)',
+          Itreeinter: 'Annual stormwater interception (gallons/year)',
+          Itreegross: 'Total annual ecosystem service value ($)',
+        },
+        note: 'EstValue IS in the inventory. Features rendered on map; per-tree geometry omitted here. Use estValueAggregate for totals — do not ask users to sum individual rows.',
       }
     }
 

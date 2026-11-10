@@ -14,20 +14,25 @@ const s3 = new S3Client({ region: AWS_REGION })
  * S3 keys are layers/utility_<layer>.geojson — the utility_ prefix keeps them
  * from colliding with the general campus layers (e.g. electrical).
  *
- * NOTE: source attributes are CAD export metadata (Layer/Color/Linetype…)
- * with no engineering attributes yet (depth, diameter, install year are
- * planned additions). Query value is therefore spatial: near a location,
- * by utility system. Attribute filtering is intentionally not offered.
+ * NOTE: most layers have CAD export metadata only (Layer/Color/Linetype…)
+ * with no engineering attributes. Steam_Line_by_Year is the exception:
+ * it carries YearBuilt (installation era) and Layer (pipe type code).
+ * Attribute filtering for that layer is available via query_campus_layer.
  */
 const UTILITY_SYSTEMS: Record<string, { layers: string[]; label: string }> = {
   steam: {
-    label: 'Steam distribution (lines, condensate, vaults, LP/MP piping)',
+    label: 'Steam distribution (lines, condensate, vaults, LP/MP piping, historical tunnels)',
     layers: [
+      'Steam_Line_by_Year',              // YearBuilt + Layer (pipe type) — newest dataset
       'utility_t2021_steam_line',
       'utility_t2021_steam_line_condensate',
       'utility_steam_vault',
       'utility_low_pressure_piping',
       'utility_medium_pressure_piping',
+      'utility_steam_tunnel_1901',       // historical: tunnels built ~1901
+      'utility_steam_tunnel_1931',       // historical: tunnels built ~1931
+      'utility_steam_tunnel_1984',       // historical: tunnels built ~1984
+      'utility_steam_tunnel_2000_2011',  // historical: tunnels built 2000-2011
     ],
   },
   chilled_water: {
@@ -86,7 +91,11 @@ export const QueryUtilitiesInputSchema = z.object({
     .optional()
     .describe('Named campus location or "lat,lng" — limits results to a radius around it'),
   radiusMeters: z.number().min(1).max(2000).optional().default(150),
-  maxResults: z.number().int().min(1).max(500).optional().default(300),
+  maxResults: z.number().int().min(1).max(2000).optional().default(300),
+  topN: z.number().int().min(1).max(100).optional()
+    .describe('Return only the top N features after sorting (by distance when nearLocation is set).'),
+  layers: z.array(z.string()).max(12).optional()
+    .describe('Restrict to these sub-layers (names from countByLayer, with or without the utility_ prefix, case-insensitive). Omit for the whole system.'),
 }).strict()
 
 export type QueryUtilitiesInput = z.infer<typeof QueryUtilitiesInputSchema>
@@ -166,28 +175,8 @@ function loadBuildingIndex() {
 }
 
 async function resolveAnyLocation(name: string): Promise<ResolvedLocation | null> {
-  const fromGazetteer = resolveLocation(name)
-  if (fromGazetteer) return fromGazetteer
-  const n = name.toLowerCase().trim()
-  // Too-short input would match every building via `b.key.includes('')` —
-  // bail out before paying for the S3 building-index load.
-  if (n.length < 2) return null
-  try {
-    const index = await loadBuildingIndex()
-    const exact = index.find((b) => b.key === n)
-    if (exact) return exact
-    // Token match handles partial names: "Cobb Hall" → "Cobb Lecture Hall"
-    const tokens = n.split(/[^a-z0-9]+/).filter((t) => t.length > 1)
-    if (tokens.length) {
-      const candidates = index
-        .filter((b) => tokens.every((t) => b.key.includes(t)))
-        .sort((a, b) => a.key.length - b.key.length)
-      if (candidates.length) return candidates[0]
-    }
-    return index.find((b) => b.key.includes(n) || n.includes(b.key)) ?? null
-  } catch {
-    return null
-  }
+  // resolveLocation now includes buildings.geojson fallback
+  return resolveLocation(name)
 }
 
 // ── Bounding box (user preference: rectangular extent, prints cleanly) ──
@@ -286,6 +275,10 @@ function slimCoordinates(coords: unknown): unknown {
   return coords.map(slimCoordinates)
 }
 
+// Engineering attributes to pass through when present on a feature.
+// Most layers carry only CAD metadata; Steam_Line_by_Year is the exception.
+const PASS_ATTRS = ['YearBuilt', 'Year_Built', 'InstallYear', 'Layer', 'Diameter', 'Material', 'Depth', 'Status']
+
 /**
  * Spatial query over campus underground utilities. Attribute data is CAD
  * metadata only, so this tool answers "what is where": by system, optionally
@@ -293,6 +286,16 @@ function slimCoordinates(coords: unknown): unknown {
  */
 export async function queryUtilities(input: QueryUtilitiesInput) {
   const system = UTILITY_SYSTEMS[input.utilityType]
+
+  // Sub-layer filter: normalise to lowercase, strip utility_ prefix and whitespace
+  const norm = (s: string) => s.toLowerCase().replace(/^utility_/, '').replace(/[\s-]+/g, '_')
+  const wanted = input.layers?.map(norm)
+  const layerNames = wanted
+    ? system.layers.filter((l) => wanted.includes(norm(l)))
+    : system.layers
+  if (wanted && !layerNames.length) {
+    return { error: `No sub-layer matches: ${input.layers!.join(', ')}. Available: ${system.layers.map(l => l.replace(/^utility_/, '')).join(', ')}` }
+  }
 
   let center: ResolvedLocation | null = null
   let box: Box | null = null
@@ -307,11 +310,11 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
 
   try {
     const perLayer = await Promise.all(
-      system.layers.map(async (name) => ({ name, features: await loadLayer(name) }))
+      layerNames.map(async (name) => ({ name, features: await loadLayer(name) }))
     )
 
     const countByLayer: Record<string, number> = {}
-    let selected: Array<{ layer: string; feature: UtilityFeature; distance?: number }> = []
+    const perLayerKept: Array<Array<{ layer: string; feature: UtilityFeature; distance?: number }>> = []
 
     for (const { name, features } of perLayer) {
       let kept: Array<{ layer: string; feature: UtilityFeature; distance?: number }>
@@ -327,18 +330,47 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
         kept = features.map((feature) => ({ layer: name, feature }))
       }
       countByLayer[name] = kept.length
-      selected = selected.concat(kept)
+      perLayerKept.push(kept)
     }
 
-    const totalMatched = selected.length
-    if (center) selected.sort((a, b) => a.distance! - b.distance!)
-    selected = selected.slice(0, input.maxResults)
+    const totalMatched = perLayerKept.reduce((s, a) => s + a.length, 0)
+    let selected: Array<{ layer: string; feature: UtilityFeature; distance?: number }>
+
+    if (center) {
+      // Location-bounded: sort by distance, slice to maxResults
+      selected = perLayerKept.flat()
+      selected.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))
+      selected = selected.slice(0, input.topN ?? input.maxResults)
+    } else {
+      // Whole-system view: round-robin across layers so every sub-layer is represented.
+      // Default limit raised to 2000 (steam has 2,135 features; compact CAD polylines).
+      const limit = input.topN ?? Math.max(input.maxResults, 2000)
+      selected = []
+      for (let i = 0; selected.length < limit; i++) {
+        let added = false
+        for (const arr of perLayerKept) {
+          if (i < arr.length) {
+            selected.push(arr[i])
+            added = true
+            if (selected.length >= limit) break
+          }
+        }
+        if (!added) break
+      }
+    }
 
     const outFeatures = selected.flatMap(({ layer, feature, distance }) => {
       let geometry = feature.geometry
       if (geometry && box) {
         geometry = clipToBox(geometry, box)
         if (!geometry) return []
+      }
+      // Pass through available engineering attributes (most layers have none;
+      // Steam_Line_by_Year carries YearBuilt and Layer/pipe-type code).
+      const picked: Record<string, unknown> = {}
+      for (const k of PASS_ATTRS) {
+        const v = feature.properties?.[k]
+        if (v !== undefined && v !== null && v !== '') picked[k] = v
       }
       return [{
         type: 'Feature' as const,
@@ -347,6 +379,7 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
           utilitySystem: input.utilityType,
           utilityLayer: layer.replace(/^utility_/, ''),
           source: typeof feature.properties?.Layer === 'string' ? feature.properties.Layer : undefined,
+          ...picked,
           ...(distance !== undefined ? { distanceMeters: Math.round(distance) } : {}),
         },
         geometry: geometry
@@ -355,17 +388,22 @@ export async function queryUtilities(input: QueryUtilitiesInput) {
       }]
     })
 
+    const truncated = outFeatures.length < totalMatched
+
     const summary = {
       utilityType: input.utilityType,
       systemLabel: system.label,
+      layersQueried: layerNames.map(l => l.replace(/^utility_/, '')),
       referenceLocation: center?.displayName,
       radiusMeters: center ? input.radiusMeters : undefined,
       totalMatched,
       returned: outFeatures.length,
+      truncated,
       countByLayer,
       nearestDistanceMeters: center && selected.length ? Math.round(selected[0].distance!) : undefined,
-      attributeNote:
-        'Source attributes are CAD metadata only — depth, diameter and material are not yet available.',
+      attributeNote: input.utilityType === 'steam'
+        ? 'Steam_Line_by_Year carries YearBuilt (installation era) and Layer (pipe type code). Other steam sub-layers have CAD metadata only.'
+        : 'Source attributes are CAD metadata only — depth, diameter and material are not yet available.',
     }
 
     return {

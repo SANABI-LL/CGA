@@ -1,116 +1,85 @@
 import { randomUUID } from 'node:crypto'
-import { gzipSync } from 'node:zlib'
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda'
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { runCampusGeoAgent } from './agent'
+import type { Attachment } from './agent'
 import { runDailyDigest, readDigestReport } from './digest'
 import { queryS3Layer } from './tools/campus/queryS3Layer'
-import { storeAttachment, type Attachment } from './tools/campus/attachmentStore'
-
-const s3 = new S3Client({ region: process.env.AWS_REGION ?? 'us-east-1' })
-const sm = new SecretsManagerClient({ region: process.env.AWS_REGION ?? 'us-east-1' })
-const GEOJSON_BUCKET = process.env.GEOJSON_BUCKET ?? 'campusgeo-geodata-491117467175'
-
-// Module-level cache: populated on first request, shared across warm invocations.
-let cachedSecret: string | null = null
-async function getApiSecret(): Promise<string | null> {
-  if (cachedSecret) return cachedSecret
-  const arn = process.env.SECRET_ARN
-  if (arn) {
-    try {
-      const { SecretString } = await sm.send(new GetSecretValueCommand({ SecretId: arn }))
-      cachedSecret = SecretString ?? null
-      return cachedSecret
-    } catch (err) {
-      console.error('SecretsManager fetch failed, falling back to env var:', (err as Error).message)
-    }
-  }
-  cachedSecret = process.env.API_SECRET ?? null
-  return cachedSecret
-}
-
-const BD_ID_RE = /^[A-Z0-9]{1,6}$/
-const FILE_RE = /^(transform\.json|[A-Za-z0-9]{1,3}(\.rooms|\.gross)?\.geojson)$/
-
-// Resolves a /api/plans/* path to an S3 key, or returns null if invalid.
-function plansS3Key(path: string): string | null {
-  if (path.endsWith('/api/plans/index') || path.endsWith('/api/plans/index.json')) {
-    return 'plans/index.json'
-  }
-  if (path.endsWith('/api/plans/rooms_index') || path.endsWith('/api/plans/rooms_index.json')) {
-    return 'plans/rooms_index.json'
-  }
-  const m = path.match(/\/api\/plans\/([^/?#]+)\/([^/?#]+)$/)
-  if (!m) return null
-  const bdUpper = m[1].toUpperCase()
-  if (!BD_ID_RE.test(bdUpper) || !FILE_RE.test(m[2])) return null
-  return `plans/${bdUpper}/${m[2]}`
-}
-
-async function servePlansS3(
-  s3Key: string,
-  acceptEncoding: string
-): Promise<{ status: number; contentType: string; encoding?: string; body: string; isBase64: boolean }> {
-  const obj = await s3.send(new GetObjectCommand({ Bucket: GEOJSON_BUCKET, Key: s3Key }))
-  const bytes = await obj.Body!.transformToByteArray()
-  const contentType = s3Key.endsWith('.geojson') ? 'application/geo+json' : 'application/json'
-
-  if (acceptEncoding.toLowerCase().includes('gzip')) {
-    const compressed = gzipSync(bytes)
-    return { status: 200, contentType, encoding: 'gzip', body: Buffer.from(compressed).toString('base64'), isBase64: true }
-  }
-  return { status: 200, contentType, body: Buffer.from(bytes).toString('utf-8'), isBase64: false }
-}
+import { getSessionHistory, appendSessionTurn } from './session'
 
 const MAX_QUERY_LENGTH = 2000
+const MAX_ATTACHMENTS = 1
+const MAX_ATTACH_BYTES = 1_500_000
+const MAX_DOC_TEXT = 60_000
+const MAX_TABLE_ROWS = 2000
 
-// Validate and normalise the first attachment from the request body.
-// Returns null if absent, 'invalid' on a constraint violation, or the typed Attachment.
-function parseAttachment(raw: unknown): Attachment | null | 'invalid' {
-  if (!Array.isArray(raw) || raw.length === 0) return null
-  const a = raw[0] as Record<string, unknown>
-  if (a.kind === 'table') {
-    const buildingIds = Array.isArray(a.buildingIds) ? a.buildingIds as string[] : []
-    const records = Array.isArray(a.records) ? a.records as Record<string, unknown>[] : []
-    if (buildingIds.length > 5000 || records.length > 2000) return 'invalid'
-    return {
-      kind: 'table',
-      name: String(a.name ?? ''),
-      rows: Number(a.rows ?? 0),
-      columns: Array.isArray(a.columns) ? a.columns as string[] : [],
-      idColumn: String(a.idColumn ?? ''),
-      buildingIds,
-      records,
+function sanitizeAttachments(raw: unknown): Attachment[] {
+  if (!Array.isArray(raw) || raw.length === 0) return []
+  const result: Attachment[] = []
+  for (const item of raw.slice(0, MAX_ATTACHMENTS)) {
+    if (typeof item !== 'object' || item === null) continue
+    const a = item as Record<string, unknown>
+    if (a.kind === 'table') {
+      const records = Array.isArray(a.records)
+        ? (a.records as Record<string, string>[]).slice(0, MAX_TABLE_ROWS)
+        : []
+      result.push({
+        kind: 'table',
+        name: String(a.name ?? 'attachment').slice(0, 200),
+        rows: typeof a.rows === 'number' ? a.rows : records.length,
+        columns: Array.isArray(a.columns) ? a.columns.map(String) : [],
+        idColumn: typeof a.idColumn === 'string' ? a.idColumn : null,
+        buildingIds: Array.isArray(a.buildingIds) ? a.buildingIds.map(String).slice(0, 500) : [],
+        records,
+      })
+    } else if (a.kind === 'document') {
+      result.push({
+        kind: 'document',
+        name: String(a.name ?? 'document').slice(0, 200),
+        pages: typeof a.pages === 'number' ? a.pages : 1,
+        text: String(a.text ?? '').slice(0, MAX_DOC_TEXT),
+      })
     }
   }
-  if (a.kind === 'document') {
-    const text = String(a.text ?? '')
-    if (text.length > 60000) return 'invalid'
-    return {
-      kind: 'document',
-      name: String(a.name ?? ''),
-      pages: Number(a.pages ?? 0),
-      text,
-      truncated: Boolean(a.truncated),
-    }
-  }
-  return null
+  return result
 }
 
-// Resolve caller identity.
-// Prod API (Cognito JWT authorizer): API Gateway validates the token and injects
-// claims — no further secret check needed; return the user's email.
-// Staging API (X-Api-Key): fall back to shared-secret check as before.
-// Returns null when the request is not authorized.
+// tool_result events on the "data" path (no mapUpdate) are forwarded only for
+// these tools — the frontend uses them to render structured cards directly.
+// All other data-only tool_results are suppressed to keep payload small.
+const PASSTHROUGH_DATA_TOOLS = new Set(['check_hours', 'get_campus_events', 'get_academic_calendar', 'get_dining_menu'])
+
+// Shared-secret gate: supports both direct API_SECRET env var (dev) and
+// SECRET_ARN (production Secrets Manager). Resolved once per cold start.
+const smClient = new SecretsManagerClient({ region: process.env.AWS_REGION ?? 'us-east-1' })
+let _resolvedSecret: string | null | undefined = undefined  // undefined = not yet fetched
+
+async function resolveApiSecret(): Promise<string | null> {
+  if (_resolvedSecret !== undefined) return _resolvedSecret
+  if (process.env.API_SECRET) {
+    _resolvedSecret = process.env.API_SECRET
+    return _resolvedSecret
+  }
+  const arn = process.env.SECRET_ARN
+  if (!arn) { _resolvedSecret = null; return null }
+  try {
+    const res = await smClient.send(new GetSecretValueCommand({ SecretId: arn }))
+    _resolvedSecret = res.SecretString ?? null
+  } catch (err) {
+    console.error('[auth] Failed to fetch secret from Secrets Manager:', err)
+    _resolvedSecret = null
+  }
+  return _resolvedSecret
+}
+
 async function resolveUser(event: APIGatewayProxyEventV2): Promise<string | null> {
   const jwtClaims = (event.requestContext as { authorizer?: { jwt?: { claims?: Record<string, string> } } })
     .authorizer?.jwt?.claims
   if (jwtClaims) {
     return jwtClaims['email'] ?? jwtClaims['cognito:username'] ?? 'authenticated-user'
   }
-  // Staging: shared-secret gate
-  const secret = await getApiSecret()
+  const secret = await resolveApiSecret()
   if (!secret) return null
   const provided =
     event.headers?.['x-api-key'] ?? event.headers?.['authorization']?.replace(/^Bearer\s+/i, '')
@@ -122,6 +91,50 @@ function logInternalError(err: unknown): string {
   const ref = randomUUID()
   console.error(`[${ref}]`, err)
   return ref
+}
+
+// Floor-plan GeoJSON passthrough — read-only S3 proxy for GET /api/plans/*.
+const _plansS3 = new S3Client({ region: process.env.AWS_REGION ?? 'us-east-1' })
+const PLANS_BUCKET = process.env.GEODATA_BUCKET ?? process.env.GEOJSON_BUCKET ?? 'campusgeo-geodata-491117467175'
+const PLAN_FILE_RE = /^(transform\.json|[A-Z0-9]{1,3}(\.rooms|\.gross)?\.geojson)$/
+const PLAN_BDID_RE = /^[A-Z0-9]{1,6}$/
+
+async function plansHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const json = (statusCode: number, body: unknown, extra: Record<string, string> = {}) => ({
+    statusCode,
+    headers: { ...corsHeaders(), 'Content-Type': 'application/json', ...extra },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  })
+  if (event.requestContext.http.method !== 'GET') return json(405, { error: 'Method not allowed' })
+
+  const rest = event.rawPath.replace(/^.*\/api\/plans\/?/, '')
+  let key: string
+  if (rest === 'index' || rest === 'index.json') {
+    key = 'plans/index.json'
+  } else if (rest === 'rooms_index' || rest === 'rooms_index.json') {
+    key = 'plans/rooms_index.json'
+  } else {
+    const [bdId, file, ...more] = rest.split('/')
+    if (more.length || !bdId || !file || !PLAN_BDID_RE.test(bdId) || !PLAN_FILE_RE.test(file)) {
+      return json(400, { error: 'Bad plan path' })
+    }
+    key = `plans/${bdId}/${file}`
+  }
+
+  try {
+    const res = await _plansS3.send(new GetObjectCommand({ Bucket: PLANS_BUCKET, Key: key }))
+    const body = await res.Body!.transformToString('utf-8')
+    return json(200, body, {
+      'Content-Type': key.endsWith('.geojson') ? 'application/geo+json' : 'application/json',
+      'Cache-Control': 'public, max-age=3600',
+      ...(res.ETag ? { ETag: res.ETag } : {}),
+    })
+  } catch (err) {
+    const name = (err as { name?: string })?.name
+    if (name === 'NoSuchKey' || name === 'NotFound') return json(404, { error: 'Plan not found' })
+    const ref = logInternalError(err)
+    return json(500, { error: 'Internal error', ref })
+  }
 }
 
 // This Lambda uses Lambda streaming (Response Streaming) for SSE
@@ -150,46 +163,26 @@ async function bufferedHandler(
     }
   }
 
+  setRequestOrigin(event)
+
   if (event.requestContext.http.method === 'OPTIONS') {
-    return { statusCode: 204, headers: corsHeaders(event.headers?.origin) }
+    return { statusCode: 204, headers: corsHeaders() }
   }
 
   const user = await resolveUser(event)
   if (!user) {
     return {
       statusCode: 403,
-      headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Forbidden' }),
     }
   }
   console.log(JSON.stringify({ user, requestId: event.requestContext.requestId, method: event.requestContext.http.method, path: event.requestContext.http.path }))
 
-  // Plans proxy: GET /api/plans/*  (auth-gated)
-  if (event.requestContext.http.method === 'GET') {
-    const s3Key = plansS3Key(event.requestContext.http.path)
-    if (s3Key === null) {
-      return { statusCode: 400, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Invalid plans path' }) }
-    }
-    try {
-      const r = await servePlansS3(s3Key, event.headers?.['accept-encoding'] ?? '')
-      return {
-        statusCode: r.status,
-        headers: {
-          ...corsHeaders(event.headers?.origin),
-          'Content-Type': r.contentType,
-          'Cache-Control': 'public, max-age=3600',
-          ...(r.encoding ? { 'Content-Encoding': r.encoding } : {}),
-        },
-        body: r.body,
-        isBase64Encoded: r.isBase64,
-      }
-    } catch (e: any) {
-      if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) {
-        return { statusCode: 404, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: `Not found: ${s3Key}` }) }
-      }
-      const ref = logInternalError(e)
-      return { statusCode: 500, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Internal error', ref }) }
-    }
+  // Floor-plan GeoJSON (read-only S3 passthrough). Must stay above the
+  // /query and body-parsing branches: plans requests are GET with no body.
+  if (/\/api\/plans(\/|$)/.test(event.rawPath)) {
+    return plansHandler(event)
   }
 
   // Legacy contract used by print-flow.html: POST /query {q} →
@@ -208,14 +201,14 @@ async function bufferedHandler(
     try {
       return {
         statusCode: 200,
-        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
         body: JSON.stringify(await readDigestReport()),
       }
     } catch (err) {
       const ref = logInternalError(err)
       return {
         statusCode: 500,
-        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Internal error', ref }),
       }
     }
@@ -234,7 +227,7 @@ async function bufferedHandler(
       return {
         statusCode: 200,
         headers: {
-          ...corsHeaders(event.headers?.origin),
+          ...corsHeaders(),
           'Content-Type': 'application/json',
           'Cache-Control': 'public, max-age=3600',
         },
@@ -244,7 +237,7 @@ async function bufferedHandler(
       const ref = logInternalError(err)
       return {
         statusCode: 500,
-        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Internal error', ref }),
       }
     }
@@ -252,6 +245,7 @@ async function bufferedHandler(
 
   let query: string
   let sessionId: string
+  let attachments: Attachment[] = []
   try {
     const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string; attachments?: unknown }
     query = body.query?.trim() ?? ''
@@ -259,39 +253,69 @@ async function bufferedHandler(
     if (!query || query.length > MAX_QUERY_LENGTH) {
       return {
         statusCode: 400,
-        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           error: query ? `query exceeds ${MAX_QUERY_LENGTH} characters` : 'query is required',
         }),
       }
     }
-    const attachment = parseAttachment(body.attachments)
-    if (attachment === 'invalid') {
+    attachments = sanitizeAttachments(body.attachments)
+    const attachBytes = JSON.stringify(attachments).length
+    if (attachBytes > MAX_ATTACH_BYTES) {
       return {
         statusCode: 400,
-        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Attachment exceeds size limits' }),
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'attachment too large' }),
       }
     }
-    if (attachment) storeAttachment(sessionId, attachment)
   } catch {
     return {
       statusCode: 400,
-      headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Invalid JSON body' }),
     }
   }
 
+  const sessionHistory = await getSessionHistory(sessionId)
+
   const events: string[] = []
+  const turnAcc = { toolsUsed: new Set<string>(), featureCount: 0, answerText: '' }
   try {
-    await runCampusGeoAgent(query, sessionId, (eventObj) => {
-      const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
-      events.push(`data: ${JSON.stringify(capMapUpdate(eventObj, cap))}\n\n`)
-    })
+    await runCampusGeoAgent(
+      query,
+      sessionId,
+      (eventObj) => {
+        if (eventObj.type === 'tool_call' && typeof eventObj.toolName === 'string') {
+          turnAcc.toolsUsed.add(eventObj.toolName)
+        }
+        if (eventObj.type === 'text' && typeof eventObj.content === 'string') {
+          turnAcc.answerText += eventObj.content
+        }
+        // Suppress data-only tool_result events for all but the passthrough tools.
+        // mapUpdate tool_results (GeoJSON) are always forwarded for the map.
+        if (eventObj.type === 'tool_result' && !(eventObj as MapUpdateEvent).mapUpdate) {
+          if (!PASSTHROUGH_DATA_TOOLS.has((eventObj as { toolName?: string }).toolName ?? '')) return
+        }
+        const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
+        const capped = capMapUpdate(eventObj, cap)
+        const feats = (capped as MapUpdateEvent).mapUpdate?.features?.features
+        if (Array.isArray(feats)) turnAcc.featureCount += feats.length
+        events.push(`data: ${JSON.stringify(capped)}\n\n`)
+      },
+      sessionHistory,
+      attachments
+    )
   } catch (err) {
     const ref = logInternalError(err)
     events.push(`data: ${JSON.stringify({ type: 'error', message: 'Internal error', ref })}\n\n`)
   }
+
+  await appendSessionTurn(sessionId, {
+    query,
+    toolsUsed: [...turnAcc.toolsUsed],
+    featureCount: turnAcc.featureCount,
+    summary: turnAcc.answerText.slice(0, 150),
+  })
 
   let body = events.join('')
   // Lambda's buffered response limit is 6 MB; retry with a tighter feature cap
@@ -312,7 +336,7 @@ async function bufferedHandler(
   return {
     statusCode: 200,
     headers: {
-      ...corsHeaders(event.headers?.origin),
+      ...corsHeaders(),
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
     },
@@ -323,16 +347,20 @@ async function bufferedHandler(
 async function legacyQueryHandler(
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyStructuredResultV2> {
+  setRequestOrigin(event)
   let q: string
+  let legacyAttachments: Attachment[] = []
   try {
-    q = (JSON.parse(event.body ?? '{}') as { q?: string }).q?.trim() ?? ''
+    const body = JSON.parse(event.body ?? '{}') as { q?: string; attachments?: unknown }
+    q = body.q?.trim() ?? ''
+    legacyAttachments = sanitizeAttachments(body.attachments)
   } catch {
     q = ''
   }
   if (!q || q.length > MAX_QUERY_LENGTH) {
     return {
       statusCode: 400,
-      headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         error: q ? `q exceeds ${MAX_QUERY_LENGTH} characters` : 'q is required',
       }),
@@ -372,19 +400,19 @@ async function legacyQueryHandler(
         const c = (mapUpdate as { center?: { lat: number; lng: number } }).center
         if (c && !center) center = c
       }
-    })
+    }, undefined, legacyAttachments)
   } catch (err) {
     const ref = logInternalError(err)
     return {
       statusCode: 500,
-      headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Internal error', ref }),
     }
   }
 
   return {
     statusCode: 200,
-    headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       answer,
       intent,
@@ -430,6 +458,12 @@ function mapCapFor(fc: unknown): number {
   return pointsOnly ? 6000 : 300
 }
 
+// Byte budget for line/polygon responses: CAD polylines are compact after
+// slimCoordinates (6-decimal, Z-stripped), so a fixed-300 count cap was
+// discarding most of the steam network. 2.5 MB fits ~2,000+ short utility
+// lines well within the 5 MB SSE total budget.
+const LINE_BYTE_BUDGET = 2_500_000
+
 interface MapUpdateEvent {
   mapUpdate?: { features?: { features?: unknown[] }; truncatedTo?: number }
   [key: string]: unknown
@@ -438,6 +472,26 @@ interface MapUpdateEvent {
 function capMapUpdate(eventObj: MapUpdateEvent, maxFeatures: number): MapUpdateEvent {
   const features = eventObj.mapUpdate?.features?.features
   if (!Array.isArray(features) || features.length <= maxFeatures) return eventObj
+
+  // Line/polygon path: cap by byte budget rather than feature count.
+  // mapCapFor returns 300 for non-point geometry; 6000 for point-only.
+  if (maxFeatures < 6000) {
+    let bytes = 0
+    let i = 0
+    for (; i < features.length && bytes < LINE_BYTE_BUDGET; i++) {
+      bytes += JSON.stringify(features[i]).length
+    }
+    if (i >= features.length) return eventObj
+    return {
+      ...eventObj,
+      mapUpdate: {
+        ...eventObj.mapUpdate,
+        features: { ...eventObj.mapUpdate!.features, features: features.slice(0, i) },
+        truncatedTo: i,
+      },
+    }
+  }
+
   return {
     ...eventObj,
     mapUpdate: {
@@ -450,11 +504,12 @@ function capMapUpdate(eventObj: MapUpdateEvent, maxFeatures: number): MapUpdateE
 
 const streamingHandler = () => awslambda.streamifyResponse(
   async (event: APIGatewayProxyEventV2, responseStream) => {
+    setRequestOrigin(event)
     // CORS preflight
     if (event.requestContext.http.method === 'OPTIONS') {
       const headers = {
         statusCode: 204,
-        headers: corsHeaders(event.headers?.origin),
+        headers: corsHeaders(),
       } satisfies APIGatewayProxyStructuredResultV2
 
       const metadata = awslambda.HttpResponseStream.from(responseStream, headers as never)
@@ -462,49 +517,23 @@ const streamingHandler = () => awslambda.streamifyResponse(
       return
     }
 
-    const user = await resolveUser(event)
-    if (!user) {
+    const streamUser = await resolveUser(event)
+    if (!streamUser) {
       const metadata = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 403,
-        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       } as never)
       metadata.write(JSON.stringify({ error: 'Forbidden' }))
       metadata.end()
       return
     }
-    console.log(JSON.stringify({ user, requestId: event.requestContext.requestId, method: event.requestContext.http.method, path: event.requestContext.http.path }))
-
-    // Plans proxy: GET /api/plans/*  (no streaming needed — write body and end)
-    if (event.requestContext.http.method === 'GET') {
-      const s3Key = plansS3Key(event.requestContext.http.path)
-      if (s3Key === null) {
-        const meta = awslambda.HttpResponseStream.from(responseStream, { statusCode: 400, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' } } as never)
-        meta.write(JSON.stringify({ error: 'Invalid plans path' }))
-        meta.end()
-        return
-      }
-      try {
-        const r = await servePlansS3(s3Key, event.headers?.['accept-encoding'] ?? '')
-        const meta = awslambda.HttpResponseStream.from(responseStream, {
-          statusCode: r.status,
-          headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': r.contentType, 'Cache-Control': 'public, max-age=3600', ...(r.encoding ? { 'Content-Encoding': r.encoding } : {}) },
-        } as never)
-        meta.write(r.isBase64 ? Buffer.from(r.body, 'base64').toString('binary') : r.body)
-        meta.end()
-      } catch (e: any) {
-        const status = (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) ? 404 : 500
-        const ref = status === 500 ? logInternalError(e) : undefined
-        const meta = awslambda.HttpResponseStream.from(responseStream, { statusCode: status, headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' } } as never)
-        meta.write(JSON.stringify(status === 404 ? { error: `Not found: ${s3Key}` } : { error: 'Internal error', ref }))
-        meta.end()
-      }
-      return
-    }
+    console.log(JSON.stringify({ user: streamUser, requestId: event.requestContext.requestId, method: event.requestContext.http.method, path: event.requestContext.http.path }))
 
     // Parse request
     let query: string
     let sessionId: string
 
+    let streamAttachments: Attachment[] = []
     try {
       const body = JSON.parse(event.body ?? '{}') as { query?: string; sessionId?: string; attachments?: unknown }
       query = body.query?.trim() ?? ''
@@ -513,7 +542,7 @@ const streamingHandler = () => awslambda.streamifyResponse(
       if (!query || query.length > MAX_QUERY_LENGTH) {
         const metadata = awslambda.HttpResponseStream.from(responseStream, {
           statusCode: 400,
-          headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
         } as never)
         metadata.write(
           JSON.stringify({
@@ -523,32 +552,34 @@ const streamingHandler = () => awslambda.streamifyResponse(
         metadata.end()
         return
       }
-      const attachment = parseAttachment(body.attachments)
-      if (attachment === 'invalid') {
-        const meta = awslambda.HttpResponseStream.from(responseStream, {
+      streamAttachments = sanitizeAttachments(body.attachments)
+      const attachBytes = JSON.stringify(streamAttachments).length
+      if (attachBytes > MAX_ATTACH_BYTES) {
+        const metadata = awslambda.HttpResponseStream.from(responseStream, {
           statusCode: 400,
-          headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
         } as never)
-        meta.write(JSON.stringify({ error: 'Attachment exceeds size limits' }))
-        meta.end()
+        metadata.write(JSON.stringify({ error: 'attachment too large' }))
+        metadata.end()
         return
       }
-      if (attachment) storeAttachment(sessionId, attachment)
     } catch {
       const metadata = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 400,
-        headers: { ...corsHeaders(event.headers?.origin), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       } as never)
       metadata.write(JSON.stringify({ error: 'Invalid JSON body' }))
       metadata.end()
       return
     }
 
+    const sessionHistory = await getSessionHistory(sessionId)
+
     // Stream SSE response
     const metadata = awslambda.HttpResponseStream.from(responseStream, {
       statusCode: 200,
       headers: {
-        ...corsHeaders(event.headers?.origin),
+        ...corsHeaders(),
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'X-Accel-Buffering': 'no',
@@ -567,8 +598,21 @@ const streamingHandler = () => awslambda.streamifyResponse(
     const MAX_BYTES = 5_000_000
     const TERMINAL_EVENT_TYPES = new Set(['done', 'citation_warning', 'error'])
 
+    const streamTurnAcc = { toolsUsed: new Set<string>(), featureCount: 0, answerText: '' }
+
     try {
       await runCampusGeoAgent(query, sessionId, (eventObj) => {
+        if (eventObj.type === 'tool_call' && typeof eventObj.toolName === 'string') {
+          streamTurnAcc.toolsUsed.add(eventObj.toolName)
+        }
+        if (eventObj.type === 'text' && typeof eventObj.content === 'string') {
+          streamTurnAcc.answerText += eventObj.content
+        }
+        // Suppress data-only tool_result events for all but the passthrough tools.
+        // mapUpdate tool_results (GeoJSON) are always forwarded for the map.
+        if (eventObj.type === 'tool_result' && !(eventObj as MapUpdateEvent).mapUpdate) {
+          if (!PASSTHROUGH_DATA_TOOLS.has((eventObj as { toolName?: string }).toolName ?? '')) return
+        }
         const isTerminal = TERMINAL_EVENT_TYPES.has(eventObj.type)
         if (!isTerminal) {
           if (truncated) return
@@ -579,32 +623,50 @@ const streamingHandler = () => awslambda.streamifyResponse(
           }
         }
         const cap = mapCapFor((eventObj as MapUpdateEvent).mapUpdate?.features)
-        const line = `data: ${JSON.stringify(capMapUpdate(eventObj as MapUpdateEvent, cap))}\n\n`
+        const capped = capMapUpdate(eventObj as MapUpdateEvent, cap)
+        const feats = capped.mapUpdate?.features?.features
+        if (Array.isArray(feats)) streamTurnAcc.featureCount += feats.length
+        const line = `data: ${JSON.stringify(capped)}\n\n`
         // Text deltas are numerous but tiny — the byte budget bounds them;
         // only payload-bearing events count toward the event cap.
         if (eventObj.type === 'tool_result' || (eventObj as MapUpdateEvent).mapUpdate) eventCount++
         bytesSent += line.length
         metadata.write(line)
-      })
+      }, sessionHistory, streamAttachments)
     } catch (err) {
       const ref = logInternalError(err)
       metadata.write(`data: ${JSON.stringify({ type: 'error', message: 'Internal error', ref })}\n\n`)
     }
 
     metadata.end()
+
+    // Write session turn after stream closes so DynamoDB latency doesn't delay the client.
+    await appendSessionTurn(sessionId, {
+      query,
+      toolsUsed: [...streamTurnAcc.toolsUsed],
+      featureCount: streamTurnAcc.featureCount,
+      summary: streamTurnAcc.answerText.slice(0, 150),
+    })
   }
 )
 
 export const handler = process.env.BUFFERED === '1' ? bufferedHandler : streamingHandler()
 
-// requestOrigin: the browser's Origin header for the current request.
-// ALLOWED_ORIGIN may be a comma-separated list; we echo back the matching
-// origin rather than returning the whole list (browsers require a single value).
-function corsHeaders(requestOrigin?: string): Record<string, string> {
-  const rawAllowed = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
-  const allowed = rawAllowed.split(',').map(o => o.trim())
-  const origin =
-    requestOrigin && allowed.includes(requestOrigin) ? requestOrigin : allowed[0]
+// Per-invocation origin echo: set once at handler entry, read by corsHeaders().
+// Safe for Lambda (single-threaded sequential execution per instance).
+let _currentRequestOrigin: string | undefined
+
+function setRequestOrigin(event: APIGatewayProxyEventV2) {
+  _currentRequestOrigin = event.headers?.origin ?? event.headers?.Origin
+}
+
+function corsHeaders() {
+  // ALLOWED_ORIGIN supports comma-separated list, e.g. "http://localhost:5173,https://claude.ai"
+  const allowed = (process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173')
+    .split(',').map(s => s.trim()).filter(Boolean)
+  const origin = _currentRequestOrigin && allowed.includes(_currentRequestOrigin)
+    ? _currentRequestOrigin
+    : allowed[0]
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
