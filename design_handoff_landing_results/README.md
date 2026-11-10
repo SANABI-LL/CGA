@@ -157,6 +157,39 @@ new maplibregl.Map({
 
 ---
 
+## 3D Buildings（fill-extrusion）
+
+建筑类查询的地图工具栏出现 **3D** 按钮（打印按钮左侧）。仅当结果含带 `BLDG_HGT > 0` 的 Polygon/MultiPolygon 要素时显示。
+
+**按钮**：高 27px、padding 0 9px、radius 7px、文字 "3D"（10px/500，字距 0.08em）。未激活时同其他图标按钮；激活时 `background: linear-gradient(180deg, #A31212, #6E0000); color: #fff; border-color: rgba(163,18,18,0.4)`。
+
+**开启时**：
+```js
+map.addLayer({
+  id: 'results-3d', type: 'fill-extrusion', source: 'results',
+  filter: ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false],
+  paint: {
+    // 与 results-fill 当前的 fill-color 保持一致（年份渐变时同步着色）
+    'fill-extrusion-color': map.getPaintProperty('results-fill', 'fill-color'),
+    // BLDG_HGT 为英尺 → 米
+    'fill-extrusion-height': ['*', ['coalesce', ['to-number', ['get', 'BLDG_HGT']], 0], 0.3048],
+    'fill-extrusion-opacity': 0.88,
+    'fill-extrusion-vertical-gradient': true,
+  },
+});
+```
+- 隐藏 `results-fill` / `results-outline` / `results-hl-fill`（`setLayoutProperty visibility: none`）
+- 镜头：`easeTo({ pitch: 55, bearing: -18, duration: 800 })`
+
+**关闭时**：恢复平面图层可见、隐藏 `results-3d`、`easeTo({ pitch: 0, bearing: 0 })`。
+
+**联动规则**：
+- 年份配色更新时（见 Map Configuration 的年份渐变），若 `results-3d` 存在，把同一表达式同步到 `fill-extrusion-color`
+- 新查询开始时强制回到平面模式（重置 `map3d` state 并调用关闭逻辑）
+- 已知限制：表格行 hover 高亮只作用于平面图层，不点亮 3D 体块
+
+---
+
 ## PDF Export
 
 点击工具栏打印按钮 → 在隐藏 iframe 里写入一份独立打印文档 → 调用 `print()`。用户在系统对话框里选"另存为 PDF"。
