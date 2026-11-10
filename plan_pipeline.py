@@ -58,58 +58,50 @@ except ImportError:
 # Layer classification
 # ---------------------------------------------------------------------------
 
-# Exact layer name → (cls, tier) or None (handled specially, not linework)
-_EXACT: dict[str, Optional[tuple[str, str]]] = {
-    'A-WALL':        ('wall',      'primary'),
-    'A-Wall-Fill':   ('wall',      'primary'),
-    'A-DOOR':        ('door',      'primary'),
-    'A-GLAZ':        ('glazing',   'primary'),
-    'A-Glaz-Mcut':   ('glazing',   'primary'),
-    'A-FLOR-STRS':   ('stair',     'primary'),
-    'A-Flor-Hral':   ('stair',     'primary'),
-    'S-COLS':        ('structure', 'primary'),
-    'S-Beam':        ('structure', 'primary'),
-    'A-FURN':        ('furniture', 'detail'),
-    'P-FIXT':        ('furniture', 'detail'),
-    'A-FLOR-CASE':   ('furniture', 'detail'),
-    'A-Flor-Eqpm':   ('furniture', 'detail'),
-    'GROS$':         None,
-    'RM$':           None,
-    'RM$TXT':        None,
-}
+# Grid / drafting-aid layers — hard-dropped regardless of DXF visibility flags.
+# These are drafting infrastructure (structural grid, viewports, weight layers) that
+# are never meaningful building information at campus scale.
+_GRID_DROP = re.compile(
+    r'^S-GRID|^S-Grid|^A-GRID|^A-Grid|DEFPOINTS|^VPORT|^\d{2,}$',
+    re.I,
+)
 
-# Prefix matches (checked after exact match fails)
-_PREFIX: list[tuple[str, str, str]] = [
-    ('A-WALL',      'wall',      'primary'),
-    ('A-DOOR',      'door',      'primary'),
-    ('A-GLAZ',      'glazing',   'primary'),
-    ('A-Glaz',      'glazing',   'primary'),
-    ('A-FLOR',      'stair',     'primary'),
-    ('A-Flor',      'stair',     'primary'),
-    ('S-',          'structure', 'primary'),
-    ('A-FURN',      'furniture', 'detail'),
-    ('P-FIXT',      'furniture', 'detail'),
-    ('A-FLOR-CASE', 'furniture', 'detail'),
-    ('A-Flor-Eqpm', 'furniture', 'detail'),
+# Ordered regex rules: first match wins. Case-insensitive.
+_CLS_RULES: list[tuple[str, re.Pattern]] = [
+    ('wall',      re.compile(r'^a-?wall',                                           re.I)),
+    ('door',      re.compile(r'^a-?door',                                           re.I)),
+    ('glazing',   re.compile(r'^a-?glaz',                                           re.I)),
+    ('stair',     re.compile(r'^a-?flor-?(strs|hral)|stair|rail',                   re.I)),
+    ('structure', re.compile(r'^s-?(col|beam|column)',                               re.I)),
+    ('furniture', re.compile(
+        r'furn|^p-?fixt|^a-?flor-?(case|eqpm|equip)|^i-|^q-'
+        r'|casework|equipment|appliance|^a-?flor-?sign',
+        re.I,
+    )),
 ]
+_FURNITURE_TIER = 'detail'
+_DEFAULT_TIER   = 'primary'
 
-_DROP_EXACT = frozenset({'MISC', 'C-SITE', 'DEFPOINTS', 'Defpoints', '0', 'VIEWPORT'})
-_DROP_PREFIX = ('X-', '70', '71', '72', '73', 'C-SITE', 'VIEWPORT')
+# Layers to hard-drop by exact name or prefix (always, even if "visible" in DXF)
+_DROP_EXACT   = frozenset({'MISC', 'C-SITE', 'DEFPOINTS', 'Defpoints', '0', 'VIEWPORT'})
+_DROP_PREFIX  = ('X-', 'C-SITE', 'VIEWPORT')
 
 
 def classify_layer(name: str) -> Optional[tuple[str, str]] | str:
     """
     Return (cls, tier), 'drop' (discard entirely), or None (skip silently).
+    Special room/gross layers are handled before this is called, so they never arrive here.
     """
     if name in _DROP_EXACT:
         return 'drop'
     for prefix in _DROP_PREFIX:
         if name.startswith(prefix):
             return 'drop'
-    if name in _EXACT:
-        return _EXACT[name]   # None → handled elsewhere; tuple → linework
-    for prefix, cls, tier in _PREFIX:
-        if name.upper().startswith(prefix.upper()):
+    if _GRID_DROP.match(name):
+        return 'drop'
+    for cls, pattern in _CLS_RULES:
+        if pattern.search(name):
+            tier = _FURNITURE_TIER if cls == 'furniture' else _DEFAULT_TIER
             return (cls, tier)
     return ('other', 'secondary')
 
@@ -140,17 +132,47 @@ def _pts_from_entity(entity) -> list[tuple[float, float]]:
     return []
 
 
+def visible_layers(doc) -> tuple[set[str], dict[str, list[str]]]:
+    """
+    Return (visible_set, drop_log) where drop_log maps reason → list[layer_name].
+    A layer is visible if it is on, not frozen, and has plot≠0 in the layer table.
+    _GRID_DROP patterns are always excluded (hard drop).
+    """
+    vis: set[str] = set()
+    drop_log: dict[str, list[str]] = {'off_frozen': [], 'no_plot': [], 'grid': []}
+    for layer in doc.layers:
+        name = layer.dxf.name
+        if _GRID_DROP.match(name):
+            drop_log['grid'].append(name)
+            continue
+        try:
+            if layer.is_off() or layer.is_frozen():
+                drop_log['off_frozen'].append(name)
+                continue
+            if layer.dxf.hasattr('plot') and layer.dxf.plot == 0:
+                drop_log['no_plot'].append(name)
+                continue
+        except Exception:
+            pass
+        vis.add(name)
+    return vis, drop_log
+
+
 def parse_dxf(filepath: str) -> dict:
     """
     Parse a DXF file and return structured data:
-      gros        : list[(x,y)] in inches — GROS$ outline (closed)
-      rooms       : list[dict(pts, insertion)] — RM$ polygons
-      rm_texts    : list[dict(insertion, text)] — RM$TXT MTEXT labels
-      linework    : dict[(layer, cls, tier) → list[list[(x,y)]]]
+      gros          : list[(x,y)] in inches — GROS$ outline (closed)
+      rooms         : list[dict(pts, insertion)] — RM$ polygons
+      rm_texts      : list[dict(insertion, text)] — RM$TXT MTEXT labels
+      linework      : dict[(layer, cls, tier) → list[list[(x,y)]]]
       unknown_layers : set[str]
+      kept_layers   : set[str]
+      drop_log      : dict[str, list[str]]
     """
     doc = ezdxf.readfile(filepath)
     msp = doc.modelspace()
+
+    visible, drop_log = visible_layers(doc)
 
     # Explode all INSERT blocks into world coords
     for ent in list(msp.query('INSERT')):
@@ -165,12 +187,14 @@ def parse_dxf(filepath: str) -> dict:
         'rm_texts': [],
         'linework': {},
         'unknown_layers': set(),
+        'kept_layers': set(),
+        'drop_log': drop_log,
     }
 
     for ent in msp:
         layer = getattr(ent.dxf, 'layer', '0') or '0'
 
-        # ── Special layers (handled before classify) ─────────────────────
+        # ── Special layers (bypass visibility; always processed) ──────────
         if layer == 'GROS$':
             if ent.dxftype() in ('LWPOLYLINE', 'POLYLINE'):
                 pts = _pts_from_entity(ent)
@@ -198,6 +222,10 @@ def parse_dxf(filepath: str) -> dict:
                 result['rm_texts'].append({'insertion': (ins.x, ins.y), 'text': ent.dxf.text})
             continue
 
+        # ── Visibility filter (off / frozen / no-plot in DXF layer table) ─
+        if layer not in visible:
+            continue
+
         # ── Classify ─────────────────────────────────────────────────────
         cls_result = classify_layer(layer)
         if cls_result == 'drop':
@@ -207,7 +235,7 @@ def parse_dxf(filepath: str) -> dict:
 
         cls, tier = cls_result
 
-        # Log unknown layers that fell through to 'other'
+        result['kept_layers'].add(layer)
         if cls == 'other':
             result['unknown_layers'].add(layer)
 
@@ -225,8 +253,45 @@ def parse_dxf(filepath: str) -> dict:
 # MTEXT parsing
 # ---------------------------------------------------------------------------
 
-_P_SEP = re.compile(r'\\[Pp]')
+_P_SEP = re.compile(r'\\[Pp]|\^M\^J|\^M|\^J|\r\n|\r|\n')
 _FORMAT_CODES = re.compile(r'\\[^;]*;|[{}]')
+
+# Synonym expansion for room-index tags ─────────────────────────────────────
+_SYNONYM_MAP: list[tuple[re.Pattern, list[str]]] = [
+    (re.compile(r'mother|lactation|nursing', re.I),
+     ['mothers', 'lactation', 'nursing', 'nursing room', 'mothers room', 'lactation room']),
+    (re.compile(r'^rrs[wmu]', re.I),
+     ['restroom', 'bathroom', 'toilet', 'washroom']),
+    (re.compile(r'restroom|bathroom|toilet|washroom', re.I),
+     ['restroom', 'bathroom', 'toilet', 'washroom']),
+    (re.compile(r'^el[-_]', re.I),
+     ['elevator', 'lift']),
+    (re.compile(r'^st[-_]', re.I),
+     ['stair', 'stairs', 'stairwell']),
+    (re.compile(r'classroom|lecture|seminar', re.I),
+     ['classroom', 'lecture', 'seminar']),
+    (re.compile(r'lab(?:oratory)?', re.I),
+     ['lab', 'laboratory']),
+    (re.compile(r'office', re.I),
+     ['office']),
+    (re.compile(r'study|reading room', re.I),
+     ['study', 'reading', 'reading room']),
+    (re.compile(r'kitchen|pantry|break room|lounge', re.I),
+     ['kitchen', 'pantry', 'break room', 'lounge']),
+    (re.compile(r'storage|janitor|mechanical|electrical|utility', re.I),
+     ['storage', 'utility', 'back-of-house']),
+]
+
+
+def _expand_tags(room: str, use: str) -> list[str]:
+    combined = f"{room} {use}"
+    tags: list[str] = []
+    for pattern, synonyms in _SYNONYM_MAP:
+        if pattern.search(combined):
+            for s in synonyms:
+                if s not in tags:
+                    tags.append(s)
+    return tags
 
 
 def parse_mtext(raw: str) -> dict:
@@ -588,6 +653,60 @@ def load_footprint(buildings_path: str, bd_id: str):
     return None
 
 
+def load_building_name(buildings_path: str, bd_id: str) -> str:
+    """Return building display name from buildings.geojson for a BD_ID."""
+    with open(buildings_path) as f:
+        fc = json.load(f)
+    for feat in fc.get('features', []):
+        props = feat.get('properties', {})
+        if props.get('BD_ID') == bd_id:
+            return (props.get('DISCRIPT1') or props.get('BLD_COMMN')
+                    or props.get('NAME') or bd_id)
+    return bd_id
+
+
+def build_rooms_index(rooms_fc: dict, bd_id: str, floor_id: str, building_name: str) -> list[dict]:
+    """Build flat room-index entries from a rooms FeatureCollection."""
+    entries: list[dict] = []
+    for feat in rooms_fc.get('features', []):
+        props = feat.get('properties', {})
+        room = str(props.get('room', '')).strip()
+        use  = str(props.get('use',  '')).strip()
+        if not room:
+            continue
+        entry: dict = {
+            'bdId':     bd_id,
+            'building': building_name,
+            'floor':    floor_id,
+            'room':     room,
+            'use':      use,
+        }
+        if 'areaSf' in props:
+            entry['areaSf'] = props['areaSf']
+        geom = feat.get('geometry')
+        if geom:
+            try:
+                poly = shape(geom)
+                c = poly.centroid
+                entry['centroid'] = [round(c.x, 7), round(c.y, 7)]
+            except Exception:
+                pass
+        tags = _expand_tags(room, use)
+        if tags:
+            entry['tags'] = tags
+        entries.append(entry)
+    return entries
+
+
+def update_rooms_index(out_dir: Path, new_entries: list[dict], bd_id: str, floor_id: str) -> None:
+    """Replace (bdId, floor) entries in rooms_index.json with new_entries."""
+    idx_path = out_dir / 'rooms_index.json'
+    existing: list[dict] = json.loads(idx_path.read_text()) if idx_path.exists() else []
+    kept = [e for e in existing if not (e.get('bdId') == bd_id and e.get('floor') == floor_id)]
+    kept.extend(new_entries)
+    idx_path.write_text(json.dumps(kept, indent=2, ensure_ascii=False))
+
+
 # ---------------------------------------------------------------------------
 # Main processing loop
 # ---------------------------------------------------------------------------
@@ -618,6 +737,18 @@ def process_dxf(
     print(f"  Entities: {sum(len(v) for v in parsed['linework'].values())} linework  "
           f"{len(parsed['rooms'])} room polygons  "
           f"{len(parsed['rm_texts'])} room texts")
+    dl = parsed.get('drop_log', {})
+    dropped_total = sum(len(v) for v in dl.values())
+    kept_n = len(parsed.get('kept_layers', set()))
+    drop_parts = []
+    if dl.get('off_frozen'):
+        drop_parts.append(f"off/frozen: {', '.join(sorted(dl['off_frozen'])[:6])}")
+    if dl.get('no_plot'):
+        drop_parts.append(f"no-plot: {', '.join(sorted(dl['no_plot'])[:4])}")
+    if dl.get('grid'):
+        drop_parts.append(f"grid: {', '.join(sorted(dl['grid'])[:4])}")
+    drop_str = ' · '.join(drop_parts) if drop_parts else 'none'
+    print(f"  Layers: kept {kept_n} · dropped {dropped_total} ({drop_str})")
     if parsed['unknown_layers']:
         print(f"  UNKNOWN LAYERS: {sorted(parsed['unknown_layers'])}")
 
@@ -677,9 +808,13 @@ def process_dxf(
         rooms_path.write_text(json.dumps(rooms))
         gross_path.write_text(json.dumps(gross))
         update_index(out_dir, bd_id, floor_id, transform['residualP95M'])
+        building_name = load_building_name(buildings_path, bd_id)
+        room_entries = build_rooms_index(rooms, bd_id, floor_id, building_name)
+        update_rooms_index(out_dir, room_entries, bd_id, floor_id)
         print(f"  Saved : {lw_path}  ({lw_n} features)")
         print(f"  Saved : {rooms_path}  ({room_n} rooms)")
         print(f"  Saved : {gross_path}")
+        print(f"  Rooms index: {len(room_entries)} entries → rooms_index.json")
 
     return {
         'bdId': bd_id, 'floor': floor_id,
@@ -725,6 +860,13 @@ def upload_to_s3(summaries: list[dict], out_dir: Path, bucket: str, profile: str
         s3.put_object(Bucket=bucket, Key='plans/index.json',
                       Body=idx.read_bytes(), ContentType='application/json')
         print(f"  Uploaded: s3://{bucket}/plans/index.json")
+        n += 1
+
+    rooms_idx = out_dir / 'rooms_index.json'
+    if rooms_idx.exists():
+        s3.put_object(Bucket=bucket, Key='plans/rooms_index.json',
+                      Body=rooms_idx.read_bytes(), ContentType='application/json')
+        print(f"  Uploaded: s3://{bucket}/plans/rooms_index.json")
         n += 1
 
     print(f"  Total uploaded: {n} files")

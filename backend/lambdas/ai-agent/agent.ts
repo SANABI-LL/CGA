@@ -27,6 +27,10 @@ import { spatialQuery, SpatialQueryInputSchema } from './tools/campus/spatialQue
 import { checkFeasibility, CheckFeasibilityInputSchema } from './tools/campus/checkFeasibility'
 import { getDiningMenu, GetDiningMenuInputSchema } from './tools/campus/getDiningMenu'
 import { mapBuildingsById, MapBuildingsByIdInputSchema } from './tools/campus/mapBuildingsById'
+import { findRoom, FindRoomInputSchema } from './tools/campus/findRoom'
+import { getBuildingsByIds, GetBuildingsByIdsInputSchema } from './tools/campus/getBuildingsByIds'
+import { queryAttachment, QueryAttachmentInputSchema } from './tools/campus/queryAttachment'
+import { getAttachment, type TableAttachment } from './tools/campus/attachmentStore'
 
 export interface AttachmentTable {
   kind: 'table'
@@ -553,6 +557,87 @@ const CAMPUS_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    toolSpec: {
+      name: 'find_room',
+      description:
+        'Look up a specific room or amenity inside a building using the floor-plan room index. ' +
+        'Use when the user asks about something INSIDE a building: mothers/lactation room, restroom, ' +
+        'a specific room number, classroom, lab, elevator, stairs, lounge, or any other interior space. ' +
+        'Returns room number, use, floor, area, and centroid. ' +
+        'If no match found, reports which buildings currently have plans on file.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'What the user is looking for: "mothers room", "restroom", "room 105", "elevator", "study room"',
+            },
+            building: {
+              type: 'string',
+              description: 'Building name, alias, or BD_ID (e.g. "Crerar", "John Crerar Library", "A06"). Fuzzy match.',
+            },
+            floor: {
+              type: 'string',
+              description: 'Floor number, e.g. "01", "B1". Omit to search all floors.',
+            },
+          },
+          required: ['query'],
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'get_buildings_by_ids',
+      description:
+        'Look up campus buildings by their BD_ID codes. For IDs without a footprint, falls back to: ' +
+        '(1) address matching against buildings.geojson, then (2) Census geocoding (returns a Point). ' +
+        'Use when the user asks to highlight, map, or visualise the buildings in an attached spreadsheet — pass attachment.buildingIds directly. ' +
+        'Returns _matchedBy: id | address | geocode on each feature, and a _modelSummary.summary with counts by type.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            ids: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'BD_ID values to look up, e.g. ["A06", "C03"]. Use attachment.buildingIds when available.',
+            },
+          },
+          required: ['ids'],
+        },
+      },
+    },
+  },
+  {
+    toolSpec: {
+      name: 'query_attachment',
+      description:
+        'Filter or group the rows in an attached spreadsheet. ' +
+        'Use for questions like "which of these were built before 1930", "group them by Building Use", or "only the owned ones". ' +
+        'Returns matching rows and their IDs. Pass the IDs to get_buildings_by_ids to show them on the map.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            filter: {
+              type: 'object',
+              properties: {
+                field: { type: 'string', description: 'Column name, e.g. "year", "status", "use"' },
+                op: { type: 'string', enum: ['=', '!=', '>', '<', 'contains', 'in'] },
+                value: { description: 'Comparison value. Use an array for "in".' },
+              },
+              required: ['field', 'op', 'value'],
+            },
+            groupBy: { type: 'string', description: 'Column to group by, e.g. "use"' },
+            limit: { type: 'number', description: 'Max rows to return (default: all matches)' },
+          },
+        },
+      },
+    },
+  },
 ]
 
 function buildSessionContext(turns: SessionTurn[]): string {
@@ -952,6 +1037,20 @@ async function executeTool(name: string, rawInput: Record<string, unknown>, atta
         }
       }
       return mapBuildingsById(input)
+    }
+    case 'find_room': {
+      const input = FindRoomInputSchema.parse(rawInput)
+      return findRoom(input)
+    }
+    case 'get_buildings_by_ids': {
+      const input = GetBuildingsByIdsInputSchema.parse(rawInput)
+      return getBuildingsByIds(input)
+    }
+    case 'query_attachment': {
+      const input = QueryAttachmentInputSchema.parse(rawInput)
+      const table = attachments.find((a): a is AttachmentTable => a.kind === 'table')
+      if (!table) return { error: 'No table attachment found for this session.' }
+      return queryAttachment(table as TableAttachment, input)
     }
     default:
       return { error: `Unknown tool: ${name}` }
